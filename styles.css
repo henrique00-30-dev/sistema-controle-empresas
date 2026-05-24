@@ -670,14 +670,14 @@ textarea {
   letter-spacing: 0.12em;
 }
 
-.industrial-strip {
+.enterprise-strip {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 12px;
   margin: -4px 0 18px;
 }
 
-.industrial-strip div {
+.enterprise-strip div {
   padding: 14px 16px;
   border: 1px solid rgba(147, 197, 253, 0.16);
   border-radius: 16px;
@@ -685,12 +685,12 @@ textarea {
   box-shadow: var(--shadow-soft);
 }
 
-.industrial-strip span,
-.industrial-strip strong {
+.enterprise-strip span,
+.enterprise-strip strong {
   display: block;
 }
 
-.industrial-strip span {
+.enterprise-strip span {
   color: #7dd3fc;
   font-size: 0.68rem;
   font-weight: 950;
@@ -698,7 +698,7 @@ textarea {
   text-transform: uppercase;
 }
 
-.industrial-strip strong {
+.enterprise-strip strong {
   margin-top: 4px;
   font-size: 0.96rem;
 }
@@ -1514,7 +1514,7 @@ tr:last-child td {
   .stats-grid.six,
   .kpi-grid,
   .dashboard-grid,
-  .industrial-strip,
+  .enterprise-strip,
   .report-grid,
   .integration-grid,
   .supplier-grid,
@@ -1550,7 +1550,7 @@ tr:last-child td {
   .stats-grid.six,
   .kpi-grid,
   .dashboard-grid,
-  .industrial-strip,
+  .enterprise-strip,
   .report-grid,
   .integration-grid,
   .supplier-grid,

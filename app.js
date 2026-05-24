@@ -1,6 +1,6 @@
 const STORAGE_KEY = "sctempresas.v1";
 const ONLINE_STORAGE_NOTE =
-  "Modo online preparado com Supabase. Configure supabase-config.js para usar autenticacao, banco e armazenamento online.";
+  "Modo online preparado. Configure supabase-config.js para usar autenticacao, banco e armazenamento online.";
 
 const PROFILE_LABELS = {
   admin: "Administrador",
@@ -434,9 +434,9 @@ function renderLogin() {
         <div class="login-brand">
           <div class="logo-mark">CI</div>
           <div>
-            <span class="eyebrow">Industrial Enterprise Portal</span>
-            <h1>Controle Industrial de Terceiros</h1>
-            <p>Command center dark para fornecedores, funcionarios, contratos, documentos e conformidade operacional.</p>
+            <span class="eyebrow">Portal Enterprise de Terceiros</span>
+            <h1>Gestao Operacional de Terceiros</h1>
+            <p>Plataforma corporativa para fornecedores, funcionarios, contratos, documentos e conformidade operacional.</p>
           </div>
         </div>
         <form class="login-form" id="loginForm">
@@ -449,7 +449,7 @@ function renderLogin() {
           <button class="btn primary" type="submit">${icon("logout")} Entrar</button>
         </form>
         <div class="login-note">
-          ${isOnlineMode() ? "Use um usuario criado no Supabase Auth." : "Modo demonstracao local"}<br />
+          ${isOnlineMode() ? "Use um usuario criado no ambiente online." : "Modo demonstracao local"}<br />
           Admin: admin@sistema.com / admin123<br />
           Fiscal: fiscal@sistema.com / fiscal123<br />
           Fornecedor: fornecedor@sistema.com / fornecedor123<br />
@@ -469,7 +469,7 @@ function renderLogin() {
         </div>
         <div class="intel-grid">
           <div><strong>24/7</strong><span>Monitoramento</span></div>
-          <div><strong>RLS</strong><span>Supabase</span></div>
+          <div><strong>ACL</strong><span>Perfis</span></div>
           <div><strong>EHS</strong><span>Seguranca</span></div>
           <div><strong>BI</strong><span>Indicadores</span></div>
         </div>
@@ -563,8 +563,8 @@ function renderApp() {
         <div class="side-head">
           <div class="logo-mark">CI</div>
           <div>
-            <strong>CI Command</strong>
-            <span>Industrial Ops Suite</span>
+            <strong>Gestao 360</strong>
+            <span>Portal de Terceiros</span>
           </div>
         </div>
         <nav class="nav">
@@ -600,14 +600,14 @@ function renderApp() {
       <div class="main">
         <header class="topbar">
           <div>
-            <span class="breadcrumb">Industrial Control / ${viewTitle()}</span>
+            <span class="breadcrumb">Gestao Operacional / ${viewTitle()}</span>
             <h1>${viewTitle()}</h1>
-            <span class="muted">${isOnlineMode() ? "Armazenamento online Supabase ativo" : "Modo local com preparacao Supabase"}</span>
+            <span class="muted">${isOnlineMode() ? "Armazenamento online ativo" : "Modo local com armazenamento preparado"}</span>
           </div>
           <div class="top-actions">
             <div class="global-search">
               ${icon("search")}
-              <input class="search-control" placeholder="Busca global..." value="${escapeAttr(searchTerm)}" />
+              <input class="search-control" placeholder="Pesquisa" value="${escapeAttr(searchTerm)}" />
             </div>
             <button class="btn icon" id="themeToggle" type="button" title="Alternar tema">${darkMode ? icon("sun") : icon("moon")}</button>
             <span class="role-pill">${roleName(user.role)}</span>
@@ -776,11 +776,11 @@ function renderDashboard() {
   return `
     <section class="hero-panel dashboard-hero">
       <div>
-        <span class="eyebrow">Centro operacional industrial</span>
-        <h2>Command center de terceiros, contratos e conformidade</h2>
-        <p>Visao dark enterprise com indicadores operacionais, riscos documentais e monitoramento de fornecedores em tempo real.</p>
+        <span class="eyebrow">Gestao operacional de terceiros</span>
+        <h2>Painel executivo de contratos, documentos e conformidade</h2>
+        <p>Visao enterprise moderna com indicadores operacionais, riscos documentais e acompanhamento de fornecedores.</p>
         <div class="hero-command-row">
-          <span>Supabase ${isOnlineMode() ? "online" : "standby"}</span>
+          <span>Armazenamento ${isOnlineMode() ? "online" : "local"}</span>
           <span>${companies.length} fornecedores</span>
           <span>${documents.length} documentos rastreados</span>
         </div>
@@ -791,7 +791,7 @@ function renderDashboard() {
         <i>Vercel Static Ready</i>
       </div>
     </section>
-    <section class="industrial-strip">
+    <section class="enterprise-strip">
       <div><span>Planta</span><strong>Operacao segura</strong></div>
       <div><span>Auditoria</span><strong>Rastreavel</strong></div>
       <div><span>Contratos</span><strong>Monitorados</strong></div>
@@ -1242,7 +1242,7 @@ function renderThirdPartyManagement() {
       <div>
         <span class="eyebrow">Gestao de terceiros</span>
         <h2>Carteira de fornecedores, riscos, equipes vinculadas e status operacional</h2>
-        <p>Resumo industrial para fiscalizacao de empresas terceirizadas sem alterar regras de negocio.</p>
+        <p>Resumo corporativo para fiscalizacao de empresas terceirizadas sem alterar regras de negocio.</p>
       </div>
     </section>
     <div class="supplier-grid">${cards || `<div class="empty">Nenhuma empresa encontrada.</div>`}</div>
@@ -1314,7 +1314,7 @@ function renderBlocks() {
 
 function renderIntegrations() {
   const items = [
-    ["Supabase", isOnlineMode() ? "Conectado" : "Preparado", "Auth, Database e Storage via supabase-config.js."],
+    ["Armazenamento online", isOnlineMode() ? "Conectado" : "Preparado", "Autenticacao, banco de dados e documentos configurados para operacao online."],
     ["Vercel", "Estatico", "HTML, CSS e JavaScript puro, sem etapa obrigatoria de framework."],
     ["ERP / Senior / TOTVS", "Roadmap", "Area reservada para integracoes corporativas futuras."],
   ];
@@ -1332,7 +1332,7 @@ function renderSettings() {
         <div class="modal-head"><h2>Configuracoes gerais</h2></div>
         <div class="modal-body item-list">
           <div class="item-card"><strong>Tema enterprise</strong><span class="muted">Use o botao no topo para alternar entre modo claro e escuro.</span></div>
-          <div class="item-card"><strong>Supabase</strong><span class="muted">Cole a URL do projeto e a chave anon publica em supabase-config.js.</span></div>
+          <div class="item-card"><strong>Armazenamento online</strong><span class="muted">Cole a URL do projeto e a chave anon publica em supabase-config.js.</span></div>
           <div class="item-card"><strong>Publicacao</strong><span class="muted">Interface mantida em HTML, CSS e JavaScript puro.</span></div>
         </div>
       </section>
