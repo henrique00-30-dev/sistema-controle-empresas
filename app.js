@@ -6,7 +6,7 @@ const PROFILE_LABELS = {
   admin: "Administrador",
   fiscal: "Fiscal",
   supplier: "Fornecedor",
-  visitor:"Visitante",
+  visitor: "Visitante",
 };
 
 const DB_PROFILE_TO_APP_ROLE = {
@@ -28,7 +28,7 @@ const APP_ROLE_TO_DB_PROFILE = {
 
 const ROLE_PERMISSIONS = {
   admin: {
-    view: ["dashboard", "companies", "employees", "documents", "users", "reports"],
+    view: ["dashboard", "companies", "contracts", "employees", "documents", "workflow", "thirdparty", "compliance", "approvals", "blocks", "reports", "integrations", "settings", "users"],
     create: ["company", "employee", "document", "user"],
     edit: ["company", "employee", "document", "user"],
     delete: ["company", "employee", "document", "user"],
@@ -38,7 +38,7 @@ const ROLE_PERMISSIONS = {
     reports: true,
   },
   fiscal: {
-    view: ["dashboard", "companies", "employees", "documents", "reports"],
+    view: ["dashboard", "companies", "contracts", "employees", "documents", "workflow", "thirdparty", "compliance", "approvals", "blocks", "reports", "integrations", "settings"],
     create: [],
     edit: ["document", "employeeStatus"],
     delete: [],
@@ -48,7 +48,7 @@ const ROLE_PERMISSIONS = {
     reports: true,
   },
   supplier: {
-    view: ["dashboard", "companies", "employees", "documents"],
+    view: ["dashboard", "companies", "contracts", "employees", "documents", "workflow", "thirdparty", "compliance", "blocks", "integrations", "settings"],
     create: ["employee", "document"],
     edit: ["companyOwn", "employeeOwn", "documentOwn"],
     delete: [],
@@ -58,7 +58,7 @@ const ROLE_PERMISSIONS = {
     reports: false,
   },
   visitor: {
-    view: ["dashboard", "companies", "employees", "documents"],
+    view: ["dashboard", "companies", "contracts", "employees", "documents", "workflow", "thirdparty", "compliance", "blocks", "settings"],
     create: [],
     edit: [],
     delete: [],
@@ -172,7 +172,7 @@ const hiringStatuses = [
 
 const documentStatuses = ["Regular", "Pendente", "A vencer", "Vencido", "Reprovado"];
 
-const app = document.querySelector("#app");
+const app = document.querySelector("#app") || document.querySelector("#root");
 const supabaseConfig = window.SUPABASE_CONFIG || {};
 const supabaseClient =
   supabaseConfig.url && supabaseConfig.anonKey && window.supabase
@@ -186,6 +186,8 @@ let editingEmployeeId = null;
 let employeeStatusFilter = "Todos";
 let authMode = supabaseClient ? "supabase" : "local";
 let isLoading = Boolean(supabaseClient);
+let darkMode = localStorage.getItem("sctempresas.theme") !== "light";
+let sidebarCollapsed = localStorage.getItem("sctempresas.sidebar") === "collapsed";
 
 function loadState() {
   const saved = localStorage.getItem(STORAGE_KEY);
@@ -386,6 +388,19 @@ function icon(name) {
     company: "M3 21h18M5 21V5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v16M9 7h1m-1 4h1m-1 4h1m5-6h3a2 2 0 0 1 2 2v10m-4-6h1",
     users: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm13 10v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75",
     docs: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Zm0 0v6h6M8 13h8M8 17h5",
+    contracts: "M9 12h6M9 16h6M8 3h8l2 2h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2l2-2Z",
+    approve: "M9 12l2 2 4-5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z",
+    block: "M18.36 5.64 5.64 18.36M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z",
+    reports: "M3 3v18h18M8 17V9m5 8V5m5 12v-6",
+    integrations: "M13 2 3 14h8l-2 8 10-12h-8l2-8Z",
+    settings: "M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5ZM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.65 1.65 0 0 0 15 19.4a1.65 1.65 0 0 0-1 .6 1.65 1.65 0 0 0-.33 1.82V22a2 2 0 1 1-4 0v-.18A1.65 1.65 0 0 0 8.6 20a1.65 1.65 0 0 0-1.82-.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-.6-1 1.65 1.65 0 0 0-1.82-.33H2a2 2 0 1 1 0-4h.18A1.65 1.65 0 0 0 4 8.6a1.65 1.65 0 0 0-.33-1.82l-.06-.06A2 2 0 1 1 6.44 3.9l.06.06A1.65 1.65 0 0 0 8.6 4.6a1.65 1.65 0 0 0 1-.6A1.65 1.65 0 0 0 9.93 2.18V2a2 2 0 1 1 4 0v.18A1.65 1.65 0 0 0 15 4a1.65 1.65 0 0 0 1.82.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 8.6a1.65 1.65 0 0 0 .6 1 1.65 1.65 0 0 0 1.82.33H22a2 2 0 1 1 0 4h-.18A1.65 1.65 0 0 0 20 13.4a1.65 1.65 0 0 0-.6 1Z",
+    workflow: "M4 7h5l2 3h9M4 7v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M8 14h8M8 17h5",
+    factory: "M3 21V9l6 4V9l6 4V5h5v16H3Zm4-4h2m3 0h2m3 0h2",
+    shield: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Zm-3-10 2 2 4-5",
+    search: "M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z",
+    menu: "M4 6h16M4 12h16M4 18h16",
+    moon: "M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z",
+    sun: "M12 1v2m0 18v2m11-11h-2M3 12H1m18.36 6.36-1.41-1.41M6.05 6.05 4.64 4.64m14.72 0-1.41 1.41M6.05 17.95l-1.41 1.41M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z",
     plus: "M12 5v14M5 12h14",
     edit: "M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z",
     trash: "M3 6h18M8 6V4h8v2m-9 0 1 14h8l1-14",
@@ -417,10 +432,11 @@ function renderLogin() {
     <section class="login-shell">
       <div class="login-panel">
         <div class="login-brand">
-          <div class="logo-mark">CT</div>
+          <div class="logo-mark">CI</div>
           <div>
-            <h1>Controle de Terceirizadas</h1>
-            <p>Gestao de fornecedores, funcionarios e documentos obrigatorios.</p>
+            <span class="eyebrow">Industrial Enterprise Portal</span>
+            <h1>Controle Industrial de Terceiros</h1>
+            <p>Command center dark para fornecedores, funcionarios, contratos, documentos e conformidade operacional.</p>
           </div>
         </div>
         <form class="login-form" id="loginForm">
@@ -438,6 +454,24 @@ function renderLogin() {
           Fiscal: fiscal@sistema.com / fiscal123<br />
           Fornecedor: fornecedor@sistema.com / fornecedor123<br />
           Visitante: visitante@sistema.com / visitante123
+        </div>
+      </div>
+      <div class="login-intel">
+        <div class="intel-topline">
+          <span>OPERATIONAL CONTROL ROOM</span>
+          <strong>LIVE</strong>
+        </div>
+        <div class="intel-orbit">
+          <div class="orbit-core">
+            <strong>360</strong>
+            <span>Compliance</span>
+          </div>
+        </div>
+        <div class="intel-grid">
+          <div><strong>24/7</strong><span>Monitoramento</span></div>
+          <div><strong>RLS</strong><span>Supabase</span></div>
+          <div><strong>EHS</strong><span>Seguranca</span></div>
+          <div><strong>BI</strong><span>Indicadores</span></div>
         </div>
       </div>
     </section>
@@ -488,42 +522,94 @@ function renderLogin() {
 
 function renderApp() {
   const user = currentUser();
-  const views = [
-    ["dashboard", "Painel", "dashboard"],
-    ["companies", "Empresas", "company"],
-    ["employees", "Funcionarios", "users"],
-    ["documents", "Documentos", "docs"],
-    ["reports", "Relatorios", "docs"],
-  ].filter(([id]) => canView(id));
-  if (canView("users")) views.push(["users", "Usuarios", "users"]);
+  document.body.classList.toggle("dark", darkMode);
+  const groups = [
+    {
+      title: "Operacao",
+      items: [
+        ["dashboard", "Dashboard", "dashboard"],
+        ["companies", "Empresas", "company"],
+        ["contracts", "Contratos", "contracts"],
+        ["employees", "Funcionarios", "users"],
+        ["documents", "Documentos", "docs"],
+        ["workflow", "Workflow Docs", "workflow"],
+        ["thirdparty", "Gestao de Terceiros", "factory"],
+        ["compliance", "Conformidade", "shield"],
+      ],
+    },
+    {
+      title: "Controle",
+      items: [
+        ["approvals", "Aprovacoes", "approve"],
+        ["blocks", "Bloqueios", "block"],
+        ["reports", "Relatorios", "reports"],
+      ],
+    },
+    {
+      title: "Sistema",
+      items: [
+        ["integrations", "Integracoes", "integrations"],
+        ["settings", "Configuracoes", "settings"],
+      ],
+    },
+  ];
+  if (canView("users")) groups[2].items.unshift(["users", "Usuarios", "users"]);
+  const views = groups.flatMap((group) => group.items).filter(([id]) => canView(id));
   if (!canView(currentView)) currentView = views[0]?.[0] || "dashboard";
 
   app.innerHTML = `
-    <section class="app-shell">
+    <section class="app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}">
       <aside class="sidebar">
         <div class="side-head">
-          <div class="logo-mark">CT</div>
+          <div class="logo-mark">CI</div>
           <div>
-            <strong>Controle Terceiros</strong>
-            <span>${roleName(user.role)}</span>
+            <strong>CI Command</strong>
+            <span>Industrial Ops Suite</span>
           </div>
         </div>
         <nav class="nav">
-          ${views
-            .map(
-              ([id, label, iconName]) =>
-                `<button class="${currentView === id ? "active" : ""}" data-view="${id}">${icon(iconName)} ${label}</button>`,
-            )
+          ${groups
+            .map((group) => {
+              const items = group.items.filter(([id]) => canView(id));
+              if (!items.length) return "";
+              return `
+                <div class="nav-group">
+                  <span class="nav-label">${group.title}</span>
+                  ${items
+                    .map(
+                      ([id, label, iconName]) =>
+                        `<button class="${currentView === id ? "active" : ""}" data-view="${id}" title="${label}">${icon(iconName)} <span>${label}</span></button>`,
+                    )
+                    .join("")}
+                </div>
+              `;
+            })
             .join("")}
         </nav>
+        <div class="side-user">
+          <button class="btn ghost sidebar-toggle" id="sidebarToggle" type="button">${icon("menu")} <span>Recolher menu</span></button>
+          <div class="user-mini">
+            <div class="avatar">${user.name.slice(0, 2).toUpperCase()}</div>
+            <div>
+              <strong>${user.name}</strong>
+              <span>${roleName(user.role)}</span>
+            </div>
+          </div>
+        </div>
       </aside>
       <div class="main">
         <header class="topbar">
           <div>
+            <span class="breadcrumb">Industrial Control / ${viewTitle()}</span>
             <h1>${viewTitle()}</h1>
-            <span class="muted">Bem-vindo, ${user.name} - ${isOnlineMode() ? "online Supabase" : "modo local"}</span>
+            <span class="muted">${isOnlineMode() ? "Armazenamento online Supabase ativo" : "Modo local com preparacao Supabase"}</span>
           </div>
           <div class="top-actions">
+            <div class="global-search">
+              ${icon("search")}
+              <input class="search-control" placeholder="Busca global..." value="${escapeAttr(searchTerm)}" />
+            </div>
+            <button class="btn icon" id="themeToggle" type="button" title="Alternar tema">${darkMode ? icon("sun") : icon("moon")}</button>
             <span class="role-pill">${roleName(user.role)}</span>
             <button class="btn secondary" id="logoutBtn">${icon("logout")} Sair</button>
           </div>
@@ -548,6 +634,18 @@ function renderApp() {
     render();
   });
 
+  document.querySelector("#themeToggle")?.addEventListener("click", () => {
+    darkMode = !darkMode;
+    localStorage.setItem("sctempresas.theme", darkMode ? "dark" : "light");
+    renderApp();
+  });
+
+  document.querySelector("#sidebarToggle")?.addEventListener("click", () => {
+    sidebarCollapsed = !sidebarCollapsed;
+    localStorage.setItem("sctempresas.sidebar", sidebarCollapsed ? "collapsed" : "expanded");
+    renderApp();
+  });
+
   bindViewEvents();
 }
 
@@ -559,10 +657,18 @@ function viewTitle() {
   return {
     dashboard: "Painel de conformidade",
     companies: "Empresas terceirizadas",
+    contracts: "Contratos",
     employees: "Funcionarios",
     documents: "Documentos",
+    workflow: "Workflow de documentos",
+    thirdparty: "Gestao de terceiros",
+    compliance: "Conformidade",
+    approvals: "Aprovacoes",
+    blocks: "Bloqueios",
     users: "Usuarios administrativos",
     reports: "Relatorios",
+    integrations: "Integracoes",
+    settings: "Configuracoes",
   }[currentView];
 }
 
@@ -570,10 +676,18 @@ function renderView() {
   return {
     dashboard: renderDashboard,
     companies: renderCompanies,
+    contracts: renderContracts,
     employees: renderEmployees,
     documents: renderDocuments,
+    workflow: renderDocumentWorkflow,
+    thirdparty: renderThirdPartyManagement,
+    compliance: renderCompliance,
+    approvals: renderApprovals,
+    blocks: renderBlocks,
     users: renderUsers,
     reports: renderReports,
+    integrations: renderIntegrations,
+    settings: renderSettings,
   }[currentView]();
 }
 
@@ -627,32 +741,109 @@ function visibleDocuments() {
 }
 
 function renderDashboard() {
+  const companies = visibleCompanies();
+  const employees = visibleEmployees();
+  const documents = visibleDocuments();
   const totals = {
-    companies: visibleCompanies().length,
-    employees: visibleEmployees().length,
-    expired: visibleDocuments().filter((doc) => docStatus(doc) === "Vencido").length,
-    warning: visibleDocuments().filter((doc) => docStatus(doc) === "A vencer").length,
+    activeEmployees: employees.filter((employee) => ["Aprovado", "Ativo"].includes(normalizeEmployee(employee).status)).length,
+    blockedEmployees: employees.filter((employee) => ["Bloqueado", "Inativo"].includes(normalizeEmployee(employee).status)).length,
+    medicine: employees.filter((employee) => normalizeEmployee(employee).status === "Aguardando exames" || ["Vencido", "A vencer"].includes(normalizeEmployee(employee).docStatus)).length,
+    ehs: employees.filter((employee) => ["Em treinamento", "Documentos pendente"].includes(normalizeEmployee(employee).status)).length,
+    contracts: companies.filter((company) => contractDays(company) >= 0 && contractDays(company) <= 60).length,
+    blockedCompanies: companies.filter((company) => ["Bloqueada", "Bloqueado", "Inativa", "Desmobilizada"].includes(normalizeCompany(company).status)).length,
   };
   const criticalDocs = visibleDocuments().filter((doc) => ["Vencido", "A vencer", "Pendente"].includes(docStatus(doc))).slice(0, 6);
+  const dashboardCards = [
+    ["Funcionarios ativos", totals.activeEmployees, "Liberados para atividade", "users", "success"],
+    ["Bloqueados", totals.blockedEmployees, "Restricao operacional", "block", "danger"],
+    ["Pendentes medicina", totals.medicine, "ASO e exames", "shield", "warning"],
+    ["Pendentes EHS", totals.ehs, "Treinamentos e seguranca", "factory", "info"],
+    ["Contratos vencendo", totals.contracts, "Proximos 60 dias", "contracts", "special"],
+    ["Empresas bloqueadas", totals.blockedCompanies, "Fornecedores restritos", "company", "danger"],
+  ];
+  const operationalRows = employees.slice(0, 6).map((employee) => {
+    const item = normalizeEmployee(employee);
+    return `
+      <tr>
+        <td><strong>${item.name}</strong><span>${item.role}</span></td>
+        <td>${companyName(item.companyId)}</td>
+        <td>${statusBadge(item.docStatus)}</td>
+        <td>${statusBadge(item.status)}</td>
+      </tr>
+    `;
+  }).join("");
 
   return `
-    <div class="stats-grid">
-      <div class="stat-card"><span>Empresas ativas</span><strong>${totals.companies}</strong></div>
-      <div class="stat-card"><span>Funcionarios</span><strong>${totals.employees}</strong></div>
-      <div class="stat-card"><span>Documentos vencidos</span><strong>${totals.expired}</strong></div>
-      <div class="stat-card"><span>A vencer</span><strong>${totals.warning}</strong></div>
+    <section class="hero-panel dashboard-hero">
+      <div>
+        <span class="eyebrow">Centro operacional industrial</span>
+        <h2>Command center de terceiros, contratos e conformidade</h2>
+        <p>Visao dark enterprise com indicadores operacionais, riscos documentais e monitoramento de fornecedores em tempo real.</p>
+        <div class="hero-command-row">
+          <span>Supabase ${isOnlineMode() ? "online" : "standby"}</span>
+          <span>${companies.length} fornecedores</span>
+          <span>${documents.length} documentos rastreados</span>
+        </div>
+      </div>
+      <div class="hero-status">
+        <span>Perfil ativo</span>
+        <strong>${roleName(currentUser().role)}</strong>
+        <i>Vercel Static Ready</i>
+      </div>
+    </section>
+    <section class="industrial-strip">
+      <div><span>Planta</span><strong>Operacao segura</strong></div>
+      <div><span>Auditoria</span><strong>Rastreavel</strong></div>
+      <div><span>Contratos</span><strong>Monitorados</strong></div>
+      <div><span>Documentos</span><strong>Workflow ativo</strong></div>
+    </section>
+    <div class="kpi-grid">
+      ${dashboardCards.map(([label, value, helper, iconName, tone]) => `
+        <article class="kpi-card ${tone}">
+          <div class="kpi-icon">${icon(iconName)}</div>
+          <div>
+            <span>${label}</span>
+            <strong>${value}</strong>
+            <small>${helper}</small>
+          </div>
+        </article>
+      `).join("")}
     </div>
-    <div class="grid-two">
-      <section class="panel">
-        <div class="modal-head"><h2>Alertas documentais</h2><span class="mini-pill">${criticalDocs.length} itens</span></div>
-        <div class="item-list modal-body">
-          ${criticalDocs.length ? criticalDocs.map(renderDocCard).join("") : `<div class="empty">Nenhum alerta documental agora.</div>`}
+    <div class="dashboard-grid">
+      <section class="bi-card wide">
+        <div class="bi-head">
+          <div><span class="eyebrow">Power panel</span><h2>Distribuicao por contratacao</h2></div>
+          <span class="mini-pill">${employees.length} registros</span>
+        </div>
+        <div class="bi-chart">
+          ${hiringStatuses
+            .map((status) => {
+              const count = employees.filter((employee) => normalizeEmployee(employee).status === status).length;
+              if (!count) return "";
+              const width = Math.max(8, (count / Math.max(1, employees.length)) * 100);
+              return `<div class="power-row"><div><strong>${status}</strong><span>${count}</span></div><i style="--bar:${width}%"></i></div>`;
+            })
+            .join("") || `<div class="empty">Sem funcionarios cadastrados.</div>`}
         </div>
       </section>
-      <section class="panel">
-        <div class="modal-head"><h2>Fornecedores por risco</h2></div>
-        <div class="modal-body item-list">
-          ${["Alto", "Medio", "Baixo"].map((risk) => renderRiskLine(risk)).join("")}
+      <section class="bi-card gauge-card">
+        <div class="bi-head"><div><span class="eyebrow">Compliance</span><h2>Score documental</h2></div></div>
+        <div class="gauge" style="--score:${Math.round((documents.filter((doc) => docStatus(doc) === "Aprovado").length / Math.max(1, documents.length)) * 100)}">
+          <strong>${Math.round((documents.filter((doc) => docStatus(doc) === "Aprovado").length / Math.max(1, documents.length)) * 100)}%</strong>
+          <span>aprovado</span>
+        </div>
+      </section>
+      <section class="bi-card">
+        <div class="bi-head"><div><span class="eyebrow">Radar</span><h2>Alertas documentais</h2></div><span class="mini-pill">${criticalDocs.length}</span></div>
+        <div class="item-list dense-list">${criticalDocs.length ? criticalDocs.map(renderDocCard).join("") : `<div class="empty">Nenhum alerta documental agora.</div>`}</div>
+      </section>
+      <section class="bi-card wide">
+        <div class="bi-head"><div><span class="eyebrow">Mesa operacional</span><h2>Funcionarios em monitoramento</h2></div></div>
+        <div class="ops-table">
+          <table>
+            <thead><tr><th>Funcionario</th><th>Empresa</th><th>Documental</th><th>Contratacao</th></tr></thead>
+            <tbody>${operationalRows || emptyRow(4)}</tbody>
+          </table>
         </div>
       </section>
     </div>
@@ -892,6 +1083,264 @@ function renderDocuments() {
   `;
 }
 
+function renderContracts() {
+  const items = filtered(visibleCompanies(), [(item) => item.name, (item) => item.contract, (item) => item.status]);
+  return `
+    ${sectionHead("Contratos", "Acompanhe vigencia, status e proximos vencimentos contratuais.", "Nova empresa", "company")}
+    <section class="panel table-wrap">
+      <table>
+        <thead><tr><th>Contrato</th><th>Empresa</th><th>Inicio</th><th>Fim</th><th>Dias restantes</th><th>Status</th><th>Acoes</th></tr></thead>
+        <tbody>
+          ${
+            items.length
+              ? items
+                  .map((company) => {
+                    const item = normalizeCompany(company);
+                    const days = contractDays(item);
+                    return `
+                      <tr>
+                        <td><strong>${item.contract || "Nao informado"}</strong></td>
+                        <td>${item.name}<br><span class="muted">${item.cnpj}</span></td>
+                        <td>${formatDate(item.startDate)}</td>
+                        <td>${formatDate(item.endDate)}</td>
+                        <td>${Number.isFinite(days) ? `${days} dia(s)` : "Nao informado"}</td>
+                        <td>${statusBadge(item.status)}</td>
+                        <td>${companyRowActions(company.id)}</td>
+                      </tr>
+                    `;
+                  })
+                  .join("")
+              : emptyRow(7)
+          }
+        </tbody>
+      </table>
+    </section>
+  `;
+}
+
+function renderApprovals() {
+  const items = visibleDocuments().filter((doc) => ["Pendente", "Reprovado", "A vencer", "Vencido"].includes(docStatus(doc)));
+  return `
+    <section class="panel">
+      <div class="modal-head">
+        <div>
+          <h2>Aprovacoes documentais</h2>
+          <span class="muted">Fila de documentos para avaliacao do fiscal.</span>
+        </div>
+        <span class="mini-pill">${items.length} item(ns)</span>
+      </div>
+      <div class="modal-body item-list">
+        ${
+          items.length
+            ? items
+                .map(
+                  (doc) => `
+                    <div class="item-card approval-card">
+                      <div class="item-row">
+                        <div>
+                          <strong>${doc.type}</strong>
+                          <span class="muted">${companyName(doc.companyId)} - ${doc.employeeId ? employeeName(doc.employeeId) : "Documento da empresa"}</span>
+                        </div>
+                        ${statusBadge(docStatus(doc))}
+                      </div>
+                      <div class="actions wrap">${documentRowActions(doc)}</div>
+                    </div>
+                  `,
+                )
+                .join("")
+            : `<div class="empty">Nenhum documento aguardando aprovacao.</div>`
+        }
+      </div>
+    </section>
+  `;
+}
+
+function renderDocumentWorkflow() {
+  const documents = visibleDocuments();
+  const stages = [
+    ["Recebidos", documents.length, "Documentos registrados no portal", "info"],
+    ["Pendentes", documents.filter((doc) => docStatus(doc) === "Pendente").length, "Aguardando envio ou revisao", "warn"],
+    ["Em analise fiscal", documents.filter((doc) => ["A vencer", "Reprovado"].includes(docStatus(doc))).length, "Itens que exigem tratamento", "special"],
+    ["Aprovados", documents.filter((doc) => docStatus(doc) === "Aprovado").length, "Liberados para conformidade", "ok"],
+  ];
+  const flowItems = documents
+    .slice(0, 8)
+    .map((doc) => {
+      const status = docStatus(doc);
+      return `
+        <div class="workflow-row">
+          <div class="workflow-node ${statusClass(status)}"></div>
+          <div>
+            <strong>${doc.type}</strong>
+            <span>${companyName(doc.companyId)} - ${doc.employeeId ? employeeName(doc.employeeId) : "Empresa"}</span>
+          </div>
+          ${statusBadge(status)}
+        </div>
+      `;
+    })
+    .join("");
+
+  return `
+    <section class="hero-panel compact-hero">
+      <div>
+        <span class="eyebrow">Workflow documental</span>
+        <h2>Esteira de documentos, analise fiscal e liberacao operacional</h2>
+        <p>Visao corporativa do ciclo de vida documental, com aprovacao, reprovacao, vencimento e pendencias.</p>
+      </div>
+    </section>
+    <div class="stats-grid">
+      ${stages.map(([label, value, helper, tone]) => `<div class="stat-card ${tone}"><span>${label}</span><strong>${value}</strong><small>${helper}</small></div>`).join("")}
+    </div>
+    <div class="grid-two">
+      <section class="panel">
+        <div class="modal-head"><h2>Esteira operacional</h2><span class="mini-pill">${documents.length} documento(s)</span></div>
+        <div class="modal-body workflow-list">${flowItems || `<div class="empty">Nenhum documento cadastrado.</div>`}</div>
+      </section>
+      <section class="panel">
+        <div class="modal-head"><h2>SLA documental</h2></div>
+        <div class="modal-body chart-list">
+          ${stages.map(([label, value]) => `<div class="bar-row"><div><strong>${label}</strong><span>${value}</span></div><i style="--bar:${Math.max(8, (value / Math.max(1, documents.length)) * 100)}%"></i></div>`).join("")}
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function renderThirdPartyManagement() {
+  const companies = visibleCompanies();
+  const employees = visibleEmployees();
+  const cards = companies
+    .map((company) => {
+      const companyEmployees = employees.filter((employee) => employee.companyId === company.id);
+      const blocked = companyEmployees.filter((employee) => ["Bloqueado", "Inativo"].includes(normalizeEmployee(employee).status)).length;
+      const approved = companyEmployees.filter((employee) => ["Aprovado", "Ativo"].includes(normalizeEmployee(employee).status)).length;
+      return `
+        <article class="supplier-card">
+          <div class="supplier-card-head">
+            <div>
+              <span class="eyebrow">Fornecedor</span>
+              <h2>${company.name}</h2>
+              <p>${company.contract || "Contrato nao informado"} - ${company.cnpj}</p>
+            </div>
+            ${statusBadge(company.status)}
+          </div>
+          <div class="supplier-metrics">
+            <span><strong>${companyEmployees.length}</strong> funcionarios</span>
+            <span><strong>${approved}</strong> liberados</span>
+            <span><strong>${blocked}</strong> bloqueados</span>
+          </div>
+          <div class="supplier-footer">
+            <span>Fiscal: ${company.fiscal || "Nao informado"}</span>
+            <span>Fim: ${formatDate(company.endDate)}</span>
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+  return `
+    <section class="hero-panel compact-hero">
+      <div>
+        <span class="eyebrow">Gestao de terceiros</span>
+        <h2>Carteira de fornecedores, riscos, equipes vinculadas e status operacional</h2>
+        <p>Resumo industrial para fiscalizacao de empresas terceirizadas sem alterar regras de negocio.</p>
+      </div>
+    </section>
+    <div class="supplier-grid">${cards || `<div class="empty">Nenhuma empresa encontrada.</div>`}</div>
+  `;
+}
+
+function renderCompliance() {
+  const companies = visibleCompanies();
+  const employees = visibleEmployees();
+  const documents = visibleDocuments();
+  const approvedDocs = documents.filter((doc) => docStatus(doc) === "Aprovado").length;
+  const complianceScore = Math.round((approvedDocs / Math.max(1, documents.length)) * 100);
+  const risks = [
+    ["Documentos vencidos", documents.filter((doc) => docStatus(doc) === "Vencido").length, "bad"],
+    ["Empresas desmobilizadas", companies.filter((company) => normalizeCompany(company).status === "Desmobilizada").length, "warn"],
+    ["Funcionarios bloqueados", employees.filter((employee) => normalizeEmployee(employee).status === "Bloqueado").length, "bad"],
+    ["Pendencias totais", documents.filter((doc) => docStatus(doc) !== "Aprovado").length, "info"],
+  ];
+  return `
+    <section class="compliance-shell">
+      <div class="compliance-score">
+        <span class="eyebrow">Conformidade</span>
+        <strong>${complianceScore}%</strong>
+        <p>Indice documental aprovado na visao atual</p>
+      </div>
+      <div class="compliance-grid">
+        ${risks.map(([label, value, tone]) => `<div class="stat-card ${tone}"><span>${label}</span><strong>${value}</strong><small>Monitoramento operacional</small></div>`).join("")}
+      </div>
+    </section>
+    <div class="grid-two">
+      <section class="panel">
+        <div class="modal-head"><h2>Matriz de conformidade</h2></div>
+        <div class="modal-body item-list">
+          ${["Politica documental", "Medicina ocupacional", "Treinamento EHS", "Liberacao fiscal"].map((item, index) => `<div class="item-card"><div class="item-row"><strong>${item}</strong>${statusBadge(index === 0 && complianceScore > 70 ? "Aprovado" : "Pendente")}</div><span class="muted">Controle preparado para auditoria e rastreabilidade.</span></div>`).join("")}
+        </div>
+      </section>
+      <section class="panel">
+        <div class="modal-head"><h2>Resumo executivo</h2></div>
+        <div class="modal-body item-list">
+          <div class="item-card"><strong>${companies.length} empresas monitoradas</strong><span class="muted">Carteira visivel conforme perfil do usuario.</span></div>
+          <div class="item-card"><strong>${employees.length} funcionarios vinculados</strong><span class="muted">Status de contratacao e documentacao acompanhados.</span></div>
+          <div class="item-card"><strong>${documents.length} documentos rastreados</strong><span class="muted">Validade, aprovacao e historico de observacoes.</span></div>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function renderBlocks() {
+  const blockedCompanies = visibleCompanies().filter((company) => ["Bloqueada", "Bloqueado", "Inativa", "Desmobilizada"].includes(normalizeCompany(company).status));
+  const blockedEmployees = visibleEmployees().filter((employee) => ["Bloqueado", "Inativo"].includes(normalizeEmployee(employee).status));
+  return `
+    <div class="grid-two">
+      <section class="panel">
+        <div class="modal-head"><h2>Empresas bloqueadas</h2><span class="mini-pill">${blockedCompanies.length}</span></div>
+        <div class="modal-body item-list">
+          ${blockedCompanies.length ? blockedCompanies.map((company) => `<div class="item-card danger-zone"><div class="item-row"><strong>${company.name}</strong>${statusBadge(company.status)}</div><span class="muted">${company.contract || "Contrato nao informado"}</span></div>`).join("") : `<div class="empty">Nenhuma empresa bloqueada.</div>`}
+        </div>
+      </section>
+      <section class="panel">
+        <div class="modal-head"><h2>Funcionarios bloqueados</h2><span class="mini-pill">${blockedEmployees.length}</span></div>
+        <div class="modal-body item-list">
+          ${blockedEmployees.length ? blockedEmployees.map((employee) => `<div class="item-card danger-zone"><div class="item-row"><strong>${employee.name}</strong>${statusBadge(employee.status)}</div><span class="muted">${companyName(employee.companyId)} - ${employee.role}</span></div>`).join("") : `<div class="empty">Nenhum funcionario bloqueado.</div>`}
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function renderIntegrations() {
+  const items = [
+    ["Supabase", isOnlineMode() ? "Conectado" : "Preparado", "Auth, Database e Storage via supabase-config.js."],
+    ["Vercel", "Estatico", "HTML, CSS e JavaScript puro, sem etapa obrigatoria de framework."],
+    ["ERP / Senior / TOTVS", "Roadmap", "Area reservada para integracoes corporativas futuras."],
+  ];
+  return `
+    <div class="integration-grid">
+      ${items.map(([title, status, description]) => `<section class="panel integration-card"><div class="integration-icon">${icon("integrations")}</div><h2>${title}</h2><p>${description}</p>${statusBadge(status)}</section>`).join("")}
+    </div>
+  `;
+}
+
+function renderSettings() {
+  return `
+    <div class="grid-two">
+      <section class="panel">
+        <div class="modal-head"><h2>Configuracoes gerais</h2></div>
+        <div class="modal-body item-list">
+          <div class="item-card"><strong>Tema enterprise</strong><span class="muted">Use o botao no topo para alternar entre modo claro e escuro.</span></div>
+          <div class="item-card"><strong>Supabase</strong><span class="muted">Cole a URL do projeto e a chave anon publica em supabase-config.js.</span></div>
+          <div class="item-card"><strong>Publicacao</strong><span class="muted">Interface mantida em HTML, CSS e JavaScript puro.</span></div>
+        </div>
+      </section>
+      ${canView("users") ? `<section class="panel"><div class="modal-head"><h2>Acesso rapido</h2></div><div class="modal-body"><button class="btn primary" type="button" data-view="users">${icon("users")} Gerenciar usuarios</button></div></section>` : ""}
+    </div>
+  `;
+}
+
 function renderDocumentRow(doc) {
   return `
     <tr>
@@ -989,7 +1438,7 @@ function sectionHead(title, subtitle, buttonLabel, type) {
 function toolbar(placeholder) {
   return `
     <div class="toolbar">
-      <input class="search" id="searchInput" placeholder="${placeholder}" value="${searchTerm}" />
+      <input class="search search-control" placeholder="${placeholder}" value="${escapeAttr(searchTerm)}" />
     </div>
   `;
 }
@@ -1033,6 +1482,8 @@ function statusBadge(status) {
     Ativa: "ok",
     Ativo: "ok",
     Integrado: "ok",
+    Conectado: "ok",
+    Estatico: "ok",
     "A vencer": "warn",
     Pendente: "warn",
     "Em analise": "analysis",
@@ -1046,14 +1497,32 @@ function statusBadge(status) {
     Desmobilizada: "bad",
     Reprovado: "bad",
     Bloqueado: "bad",
+    Preparado: "info",
+    Roadmap: "info",
   }[status] || "info";
   return `<span class="status ${kind}">${status}</span>`;
 }
 
+function statusClass(status) {
+  return {
+    Aprovado: "ok",
+    Regular: "ok",
+    Ativa: "ok",
+    Pendente: "warn",
+    "A vencer": "warn",
+    Reprovado: "bad",
+    Vencido: "bad",
+    Bloqueado: "bad",
+    "Em analise": "info",
+  }[status] || "info";
+}
+
 function bindViewEvents() {
-  document.querySelector("#searchInput")?.addEventListener("input", (event) => {
-    searchTerm = event.target.value;
-    renderApp();
+  document.querySelectorAll(".search-control").forEach((input) => {
+    input.addEventListener("input", (event) => {
+      searchTerm = event.target.value;
+      renderApp();
+    });
   });
 
   document.querySelectorAll("[data-create]").forEach((button) => {
@@ -1636,6 +2105,13 @@ function docStatus(doc) {
   if (diffDays < 0) return "Vencido";
   if (diffDays <= 30) return "A vencer";
   return "Aprovado";
+}
+
+function contractDays(company) {
+  if (!company?.endDate) return Number.NaN;
+  const due = new Date(company.endDate);
+  if (Number.isNaN(due.getTime())) return Number.NaN;
+  return Math.ceil((due - new Date(today())) / 86400000);
 }
 
 function formatDate(value) {
