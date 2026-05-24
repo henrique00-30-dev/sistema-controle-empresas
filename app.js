@@ -6,7 +6,7 @@ const PROFILE_LABELS = {
   admin: "Administrador",
   fiscal: "Fiscal",
   supplier: "Fornecedor",
-  visitor: "Visitante",
+  visitor:"Visitante",
 };
 
 const DB_PROFILE_TO_APP_ROLE = {
