@@ -874,7 +874,6 @@ function renderDashboard() {
       <div>
         <span class="eyebrow">Gestao operacional de terceiros</span>
         <h2>Painel executivo de contratos, documentos e conformidade</h2>
-        <p>Visao enterprise moderna com indicadores operacionais, riscos documentais e acompanhamento de fornecedores.</p>
         <div class="hero-command-row">
           <span>Armazenamento ${isOnlineMode() ? "online" : "local"}</span>
           <span>${companies.length} fornecedores</span>
@@ -882,9 +881,18 @@ function renderDashboard() {
         </div>
       </div>
       <div class="hero-status">
-        <span>Perfil ativo</span>
-        <strong>${roleName(currentUser().role)}</strong>
-        <i>Vercel Static Ready</i>
+        <div>
+          <span>Usuario</span>
+          <strong>${currentUser().name || currentUser().email || "Usuario"}</strong>
+        </div>
+        <div>
+          <span>Status</span>
+          <strong>Ativo</strong>
+        </div>
+        <div>
+          <span>Ultima atualizacao</span>
+          <strong>${currentSystemTime()}</strong>
+        </div>
       </div>
     </section>
     <section class="enterprise-strip">
@@ -3139,6 +3147,13 @@ function formatDateTime(value) {
     dateStyle: "short",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+function currentSystemTime() {
+  return new Intl.DateTimeFormat("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date());
 }
 
 function today() {

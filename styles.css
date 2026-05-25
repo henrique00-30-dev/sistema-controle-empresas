@@ -596,17 +596,20 @@ textarea {
 
 .hero-panel {
   display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 20px;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
+  gap: 24px;
   align-items: center;
-  padding: 28px;
+  padding: 30px;
   border-radius: 20px;
   color: #fff;
   background:
-    radial-gradient(circle at 90% 15%, rgba(214, 161, 95, 0.36), transparent 16rem),
-    linear-gradient(135deg, #0f1b2d, #5e1a27 58%, #8f2638);
-  box-shadow: var(--shadow);
+    radial-gradient(circle at 18% 18%, rgba(214, 161, 95, 0.12), transparent 15rem),
+    radial-gradient(circle at 86% 12%, rgba(143, 38, 56, 0.34), transparent 19rem),
+    linear-gradient(135deg, rgba(15, 27, 45, 0.94), rgba(94, 26, 39, 0.78) 58%, rgba(51, 14, 22, 0.92));
+  box-shadow: 0 24px 70px rgba(3, 8, 15, 0.42);
+  border: 1px solid rgba(214, 161, 95, 0.14);
   margin-bottom: 18px;
+  backdrop-filter: blur(14px);
 }
 
 .compact-hero {
@@ -624,22 +627,34 @@ textarea {
 }
 
 .hero-status {
-  min-width: 170px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.08);
-  padding: 16px;
+  display: grid;
+  gap: 12px;
+  min-width: 220px;
+  border: 1px solid rgba(245, 241, 234, 0.14);
+  border-radius: 18px;
+  background:
+    linear-gradient(145deg, rgba(245, 241, 234, 0.085), rgba(245, 241, 234, 0.025)),
+    rgba(15, 27, 45, 0.24);
+  padding: 18px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 18px 42px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(16px);
 }
 
 .hero-status span {
-  color: #b6c8de;
-  font-size: 0.8rem;
+  display: block;
+  color: #d8c6b2;
+  font-size: 0.72rem;
+  font-weight: 850;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .hero-status strong {
   display: block;
   margin-top: 4px;
-  font-size: 1.1rem;
+  color: #f5f1ea;
+  font-size: 0.95rem;
+  line-height: 1.25;
 }
 
 .hero-command-row {
@@ -652,22 +667,16 @@ textarea {
 .hero-command-row span {
   border: 1px solid rgba(214, 161, 95, 0.26);
   border-radius: 999px;
-  background: rgba(15, 23, 42, 0.46);
+  background: rgba(15, 23, 42, 0.34);
   color: #f5f1ea;
   padding: 8px 12px;
   font-size: 0.78rem;
   font-weight: 900;
+  backdrop-filter: blur(10px);
 }
 
 .hero-status i {
-  display: block;
-  margin-top: 8px;
-  color: #d6a15f;
-  font-size: 0.74rem;
-  font-style: normal;
-  font-weight: 900;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
+  display: none;
 }
 
 .enterprise-strip {
