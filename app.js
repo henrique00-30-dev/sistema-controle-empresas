@@ -171,6 +171,8 @@ const hiringStatuses = [
 ];
 
 const documentStatuses = ["Regular", "Pendente", "A vencer", "Vencido", "Reprovado"];
+const DOC_META_MARKER = "\n\n[SCT_ENTERPRISE_META]";
+const DOCUMENT_WORKFLOW_SECTORS = ["Fiscal", "Medicina", "EHS", "Patrimonial"];
 
 const app = document.querySelector("#app") || document.querySelector("#root");
 const supabaseConfig = window.SUPABASE_CONFIG || {};
@@ -284,6 +286,9 @@ function makeDoc(companyId, employeeId, type, dueDate, status) {
     dueDate,
     status,
     notes: "",
+    filePath: "",
+    auditTrail: [],
+    sectorComments: {},
   };
 }
 
@@ -1874,17 +1879,121 @@ function renderSettings() {
 }
 
 function renderDocumentRow(doc) {
+  const cleanNotes = documentVisibleNotes(doc);
   return `
     <tr>
-      <td><strong>${doc.type}</strong></td>
+      <td><strong>${doc.type}</strong><br><button class="btn secondary compact" type="button" data-document-detail="${doc.id}">${icon("docs")} Ver ficha</button></td>
       <td>${companyName(doc.companyId)}</td>
       <td>${doc.employeeId ? employeeName(doc.employeeId) : "Empresa"}</td>
       <td>${formatDate(doc.dueDate)}</td>
       <td>${statusBadge(docStatus(doc))}</td>
-      <td>${doc.notes || "<span class='muted'>Sem observacao</span>"}${doc.filePath ? `<br><span class="muted">${doc.filePath}</span>` : ""}</td>
+      <td>${cleanNotes || "<span class='muted'>Sem observacao</span>"}${doc.filePath ? `<br><span class="muted">${doc.filePath}</span>` : ""}</td>
       <td>${documentRowActions(doc)}</td>
     </tr>
   `;
+}
+
+function openDocumentDetails(id) {
+  const doc = visibleDocuments().find((item) => item.id === id) || state.documents.find((item) => item.id === id);
+  if (!doc) return;
+  const status = docStatus(doc);
+  const modal = document.createElement("div");
+  modal.className = "modal-backdrop";
+  modal.innerHTML = `
+    <section class="modal document-detail-modal">
+      <div class="modal-head">
+        <div>
+          <span class="eyebrow">Ficha documental enterprise</span>
+          <h2>${doc.type}</h2>
+          <span class="muted">${companyName(doc.companyId)} - ${doc.employeeId ? employeeName(doc.employeeId) : "Documento da empresa"}</span>
+        </div>
+        <div class="actions wrap">
+          ${statusBadge(status)}
+          <button class="btn icon" type="button" data-close title="Fechar">${icon("close")}</button>
+        </div>
+      </div>
+      <div class="modal-body document-detail-grid">
+        <section class="document-preview-panel">
+          ${renderDocumentPreview(doc)}
+        </section>
+        <section class="document-info-panel">
+          <div class="detail-grid">
+            ${detailCard("Empresa", companyName(doc.companyId))}
+            ${detailCard("Funcionario", doc.employeeId ? employeeName(doc.employeeId) : "Documento da empresa")}
+            ${detailCard("Vencimento", formatDate(doc.dueDate))}
+            ${detailCard("Status automatico", statusBadge(status))}
+          </div>
+          <div class="document-flow">${renderDocumentWorkflowSteps(doc)}</div>
+        </section>
+        <section class="panel document-comments-panel">
+          <div class="modal-head"><h2>Comentarios por setor</h2><span class="mini-pill">Fiscal / Medicina / EHS / Patrimonial</span></div>
+          <div class="document-sector-comments">${renderSectorComments(doc)}</div>
+        </section>
+        <section class="panel document-audit-panel">
+          <div class="modal-head"><h2>Timeline e auditoria imutavel</h2><span class="mini-pill">${documentAuditTrail(doc).length} evento(s)</span></div>
+          <div class="document-timeline">${renderDocumentAuditTrail(doc)}</div>
+        </section>
+      </div>
+    </section>
+  `;
+  document.body.appendChild(modal);
+  modal.querySelectorAll("[data-close]").forEach((button) => button.addEventListener("click", () => modal.remove()));
+  modal.addEventListener("click", (event) => {
+    if (event.target === modal) modal.remove();
+  });
+}
+
+function renderDocumentPreview(doc) {
+  const path = doc.filePath || "";
+  if (!path) {
+    return `<div class="document-preview-empty">${icon("docs")}<strong>Nenhum arquivo vinculado</strong><span>Use o cadastro do documento para enviar PDF ou imagem.</span></div>`;
+  }
+  const lower = path.toLowerCase();
+  const src = path.startsWith("http") || path.startsWith("blob:") || path.startsWith("data:") ? path : "";
+  if (src && lower.endsWith(".pdf")) return `<iframe class="document-preview-frame" src="${escapeAttr(src)}" title="Preview PDF"></iframe>`;
+  if (src && /\.(png|jpg|jpeg|webp|gif)$/i.test(lower)) return `<img class="document-preview-image" src="${escapeAttr(src)}" alt="Preview do documento" />`;
+  return `<div class="document-preview-empty">${icon("docs")}<strong>Arquivo armazenado</strong><span>${escapeHtml(path)}</span><small>Preview direto disponivel para URLs publicas de PDF ou imagem.</small></div>`;
+}
+
+function renderDocumentWorkflowSteps(doc) {
+  const comments = documentSectorComments(doc);
+  const status = docStatus(doc);
+  const steps = DOCUMENT_WORKFLOW_SECTORS.map((sector) => {
+    const hasComment = Boolean(comments[sector]);
+    const stepStatus = status === "Aprovado" || hasComment ? "Aprovado" : status === "Reprovado" ? "Reprovado" : "Pendente";
+    return `
+      <div class="employee-flow-step ${statusClass(stepStatus)}">
+        <span>${DOCUMENT_WORKFLOW_SECTORS.indexOf(sector) + 1}</span>
+        <strong>${sector}</strong>
+        ${statusBadge(stepStatus)}
+      </div>
+    `;
+  });
+  return steps.join("");
+}
+
+function renderSectorComments(doc) {
+  const comments = documentSectorComments(doc);
+  return DOCUMENT_WORKFLOW_SECTORS.map((sector) => `
+    <div class="item-card">
+      <div class="item-row"><strong>${sector}</strong>${comments[sector] ? statusBadge("Aprovado") : statusBadge("Pendente")}</div>
+      <span class="muted">${comments[sector] || "Sem comentario registrado."}</span>
+    </div>
+  `).join("");
+}
+
+function renderDocumentAuditTrail(doc) {
+  const trail = documentAuditTrail(doc);
+  if (!trail.length) return `<div class="empty">Nenhum evento de auditoria registrado.</div>`;
+  return trail
+    .map((event) => `
+      <div class="timeline-item">
+        <span>${formatDateTime(event.at)}</span>
+        <strong>${event.action}</strong>
+        <p>${event.sector || "Sistema"} - ${event.status || "Sem status"}${event.comment ? `: ${escapeHtml(event.comment)}` : ""}</p>
+      </div>
+    `)
+    .join("");
 }
 
 function renderUsers() {
@@ -2164,6 +2273,13 @@ function bindViewEvents() {
     });
   });
 
+  document.querySelectorAll("[data-document-detail]").forEach((item) => {
+    item.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openDocumentDetails(item.dataset.documentDetail);
+    });
+  });
+
   document.querySelectorAll("[data-dashboard-card]").forEach((card) => {
     const openTarget = () => {
       const target = card.dataset.targetView;
@@ -2266,6 +2382,7 @@ function openForm(type, id = null) {
     </form>
   `;
   document.body.appendChild(modal);
+  if (type === "document") bindDocumentUpload(modal);
 
   modal.querySelectorAll("[data-close]").forEach((button) => {
     button.addEventListener("click", () => modal.remove());
@@ -2315,7 +2432,64 @@ function textAreaField(name, label, value = "") {
 }
 
 function fileField(name, label) {
-  return `<label>${label}<input name="${name}" type="file" /></label>`;
+  return `
+    <label class="wide">${label}
+      <div class="dropzone" data-dropzone>
+        <input name="${name}" type="file" accept="application/pdf,image/*" />
+        <div class="dropzone-content">
+          ${icon("docs")}
+          <strong>Arraste PDF ou imagem aqui</strong>
+          <span>ou clique para selecionar o arquivo</span>
+        </div>
+      </div>
+      <div class="document-upload-preview" data-upload-preview></div>
+    </label>
+  `;
+}
+
+function bindDocumentUpload(scope) {
+  const dropzone = scope.querySelector("[data-dropzone]");
+  const input = dropzone?.querySelector("input[type='file']");
+  const preview = scope.querySelector("[data-upload-preview]");
+  if (!dropzone || !input || !preview) return;
+  const showPreview = () => {
+    const file = input.files?.[0];
+    if (!file) {
+      preview.innerHTML = "";
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    if (file.type === "application/pdf") {
+      preview.innerHTML = `<iframe class="document-preview-frame compact" src="${url}" title="Preview PDF"></iframe><span class="muted">${file.name}</span>`;
+      return;
+    }
+    if (file.type.startsWith("image/")) {
+      preview.innerHTML = `<img class="document-preview-image compact" src="${url}" alt="Preview do arquivo" /><span class="muted">${file.name}</span>`;
+      return;
+    }
+    preview.innerHTML = `<span class="muted">${file.name}</span>`;
+  };
+  ["dragenter", "dragover"].forEach((eventName) => {
+    dropzone.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      dropzone.classList.add("dragging");
+    });
+  });
+  ["dragleave", "drop"].forEach((eventName) => {
+    dropzone.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      dropzone.classList.remove("dragging");
+    });
+  });
+  dropzone.addEventListener("drop", (event) => {
+    const file = event.dataTransfer?.files?.[0];
+    if (!file) return;
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    input.files = transfer.files;
+    showPreview();
+  });
+  input.addEventListener("change", showPreview);
 }
 
 function companyForm(id) {
@@ -2388,6 +2562,7 @@ function employeeForm(id) {
 
 function documentForm(id) {
   const item = state.documents.find((doc) => doc.id === id) || {};
+  const comments = documentSectorComments(item);
   const companyOptions = visibleCompanies().map((company) => ({ value: company.id, label: company.name }));
   const employeeSource = currentUser()?.role === "supplier" ? visibleEmployees() : state.employees;
   const employees = [{ value: "", label: "Documento da empresa" }].concat(
@@ -2403,7 +2578,11 @@ function documentForm(id) {
       selectField("status", "Status manual", item.status || "Pendente", ["Aprovado", "Pendente", "Reprovado"].map(option)),
       inputField("filePath", "Arquivo ou URL do documento", item.filePath || ""),
       fileField("documentFile", "Enviar arquivo"),
-      textAreaField("notes", "Observacoes", item.notes),
+      textAreaField("notes", "Observacoes gerais", documentVisibleNotes(item)),
+      textAreaField("commentFiscal", "Comentario Fiscal", comments.Fiscal || ""),
+      textAreaField("commentMedicina", "Comentario Medicina", comments.Medicina || ""),
+      textAreaField("commentEHS", "Comentario EHS", comments.EHS || ""),
+      textAreaField("commentPatrimonial", "Comentario Patrimonial", comments.Patrimonial || ""),
     ],
     async save(form) {
       const payload = normalizeDocumentFormPayload(form, item.filePath);
@@ -2414,6 +2593,7 @@ function documentForm(id) {
         ...payload,
         filePath: filePath || payload.filePath,
       };
+      saved.auditTrail = buildDocumentAuditTrail(item, saved, id ? "Documento atualizado" : "Documento cadastrado");
       try {
         await syncCollection("documents", saved);
         upsert("documents", id || saved.id, saved);
@@ -2429,14 +2609,21 @@ function documentForm(id) {
 }
 
 function normalizeDocumentFormPayload(form, fallbackPath = "") {
+  const sectorComments = {
+    Fiscal: form.get("commentFiscal") || "",
+    Medicina: form.get("commentMedicina") || "",
+    EHS: form.get("commentEHS") || "",
+    Patrimonial: form.get("commentPatrimonial") || "",
+  };
   return {
-        companyId: form.get("companyId"),
-        employeeId: form.get("employeeId"),
-        type: form.get("type"),
-        dueDate: form.get("dueDate"),
-        status: form.get("status"),
+    companyId: form.get("companyId"),
+    employeeId: form.get("employeeId"),
+    type: form.get("type"),
+    dueDate: form.get("dueDate"),
+    status: form.get("status"),
     filePath: form.get("filePath") || fallbackPath || "",
-        notes: form.get("notes"),
+    notes: form.get("notes"),
+    sectorComments,
   };
 }
 
@@ -2625,8 +2812,20 @@ async function uploadDocumentFile(form, fallbackPath = "") {
 function updateDocumentStatus(id, status) {
   const doc = state.documents.find((item) => item.id === id);
   if (!doc || !can("approveDocuments", doc)) return;
+  const previous = structuredClone(doc);
   doc.status = status;
-  doc.notes = `${doc.notes ? `${doc.notes}\n` : ""}${roleName(currentUser().role)}: documento ${status.toLowerCase()} em ${formatDate(today())}`;
+  doc.notes = documentVisibleNotes(doc);
+  doc.auditTrail = [
+    ...documentAuditTrail(previous),
+    {
+      at: new Date().toISOString(),
+      user: currentUser()?.email || currentUser()?.name || "Sistema",
+      action: "Status atualizado",
+      sector: "Fiscal",
+      status,
+      comment: `${roleName(currentUser().role)} marcou documento como ${status.toLowerCase()}.`,
+    },
+  ];
   syncCollection("documents", doc).catch((error) => {
     logPersistenceError(error, { table: "public.documents", operation: "atualizar status" });
     alert(`Nao foi possivel atualizar online.\n\n${persistenceMessage(error)}`);
@@ -2803,6 +3002,7 @@ function mapEmployeeToDb(employee) {
 }
 
 function mapDocumentFromDb(doc) {
+  const meta = parseDocumentMeta(doc.notes || "");
   return {
     id: doc.id,
     companyId: doc.company_id,
@@ -2810,8 +3010,10 @@ function mapDocumentFromDb(doc) {
     type: doc.type,
     dueDate: doc.due_date,
     status: doc.status,
-    notes: doc.notes || "",
+    notes: meta.notes,
     filePath: doc.file_path || "",
+    auditTrail: meta.auditTrail,
+    sectorComments: meta.sectorComments,
   };
 }
 
@@ -2823,9 +3025,73 @@ function mapDocumentToDb(doc) {
     type: doc.type,
     due_date: doc.dueDate || null,
     status: doc.status,
-    notes: doc.notes || "",
+    notes: serializeDocumentNotes(doc),
     file_path: doc.filePath || null,
   };
+}
+
+function parseDocumentMeta(notes = "") {
+  const [visibleNotes, rawMeta] = String(notes || "").split(DOC_META_MARKER);
+  if (!rawMeta) return { notes: visibleNotes, auditTrail: [], sectorComments: {} };
+  try {
+    const meta = JSON.parse(rawMeta.trim());
+    return {
+      notes: visibleNotes.trim(),
+      auditTrail: Array.isArray(meta.auditTrail) ? meta.auditTrail : [],
+      sectorComments: meta.sectorComments && typeof meta.sectorComments === "object" ? meta.sectorComments : {},
+    };
+  } catch (error) {
+    console.error("Nao foi possivel ler metadados do documento", error);
+    return { notes: visibleNotes.trim(), auditTrail: [], sectorComments: {} };
+  }
+}
+
+function serializeDocumentNotes(doc) {
+  const visibleNotes = documentVisibleNotes(doc);
+  const meta = {
+    auditTrail: documentAuditTrail(doc),
+    sectorComments: documentSectorComments(doc),
+  };
+  return `${visibleNotes}${DOC_META_MARKER}${JSON.stringify(meta)}`;
+}
+
+function documentVisibleNotes(doc) {
+  return parseDocumentMeta(doc?.notes || "").notes || "";
+}
+
+function documentAuditTrail(doc) {
+  return Array.isArray(doc?.auditTrail) ? doc.auditTrail : parseDocumentMeta(doc?.notes || "").auditTrail;
+}
+
+function documentSectorComments(doc) {
+  const parsed = doc?.sectorComments && typeof doc.sectorComments === "object" ? doc.sectorComments : parseDocumentMeta(doc?.notes || "").sectorComments;
+  return DOCUMENT_WORKFLOW_SECTORS.reduce((acc, sector) => {
+    acc[sector] = parsed?.[sector] || "";
+    return acc;
+  }, {});
+}
+
+function buildDocumentAuditTrail(previousDoc, nextDoc, action) {
+  const previousComments = documentSectorComments(previousDoc || {});
+  const nextComments = documentSectorComments(nextDoc || {});
+  const events = [...documentAuditTrail(previousDoc || {})];
+  const pushEvent = (event) => {
+    events.push({
+      at: new Date().toISOString(),
+      user: currentUser()?.email || currentUser()?.name || "Sistema",
+      ...event,
+    });
+  };
+  if (!previousDoc?.id) pushEvent({ action, sector: "Fiscal", status: docStatus(nextDoc), comment: "Documento incluido no workflow." });
+  if (previousDoc?.id && (previousDoc.status !== nextDoc.status || previousDoc.dueDate !== nextDoc.dueDate || previousDoc.filePath !== nextDoc.filePath)) {
+    pushEvent({ action, sector: "Fiscal", status: docStatus(nextDoc), comment: "Dados documentais atualizados." });
+  }
+  DOCUMENT_WORKFLOW_SECTORS.forEach((sector) => {
+    if ((previousComments[sector] || "") !== (nextComments[sector] || "") && nextComments[sector]) {
+      pushEvent({ action: "Comentario registrado", sector, status: docStatus(nextDoc), comment: nextComments[sector] });
+    }
+  });
+  return events;
 }
 
 function option(value) {
@@ -2841,13 +3107,14 @@ function employeeName(id) {
 }
 
 function docStatus(doc) {
-  if (doc.status !== "Aprovado") return doc.status;
+  if (doc.status === "Reprovado") return "Reprovado";
   const todayDate = new Date(today());
   const due = new Date(doc.dueDate);
+  if (Number.isNaN(due.getTime())) return doc.status || "Pendente";
   const diffDays = Math.ceil((due - todayDate) / 86400000);
   if (diffDays < 0) return "Vencido";
   if (diffDays <= 30) return "A vencer";
-  return "Aprovado";
+  return ["Aprovado", "Regular"].includes(doc.status) ? "Aprovado" : "Pendente";
 }
 
 function contractDays(company) {
@@ -2864,6 +3131,14 @@ function contractUnit(company) {
 function formatDate(value) {
   if (!value) return "Nao informado";
   return new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(new Date(value));
+}
+
+function formatDateTime(value) {
+  if (!value) return "Nao informado";
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(new Date(value));
 }
 
 function today() {
