@@ -1590,25 +1590,104 @@ function renderEmployeeDocsTable(docs, title) {
 }
 
 function renderEmployeeWorkflow(employee) {
-  const docs = state.documents.filter((doc) => doc.employeeId === employee.id);
-  const steps = [
-    ["Fiscal", employee.status === "Aguardando aprovacao do fiscal" ? "Pendente" : "Aprovado"],
-    ["Documentos pessoais", employee.docStatus === "Regular" || docs.some((doc) => docStatus(doc) === "Aprovado") ? "Aprovado" : "Pendente"],
-    ["Medicina", employeeMedicineStatus(employee, docs)],
-    ["EHS", employeeEhsStatus(employee, docs)],
-    ["Patrimonial/liberacao final", employeePatrimonialStatus(employee)],
-  ];
+  const steps = employeeWorkflowSteps(employee);
+  const progress = Math.round(
+    (steps.filter((step) => ["Aprovado", "Aprovado com pendencia"].includes(step.status)).length / Math.max(1, steps.length)) * 100,
+  );
   return steps
     .map(
-      ([label, status], index) => `
-        <div class="employee-flow-step ${statusClass(status)}">
-          <span>${index + 1}</span>
-          <strong>${label}</strong>
-          ${statusBadge(status)}
+      (step, index) => `
+        ${index === 0 ? `<div class="employee-workflow-progress" style="--workflow-progress:${progress}%"><i></i></div>` : ""}
+        <div class="employee-flow-step ${workflowStatusClass(step.status)}">
+          <span class="employee-flow-icon">${icon(step.icon)}<small>${index + 1}</small></span>
+          <strong>${step.label}</strong>
+          ${statusBadge(step.status)}
+          <em>${step.detail}</em>
         </div>
       `,
     )
     .join("");
+}
+
+function employeeWorkflowSteps(employee) {
+  const item = normalizeEmployee(employee);
+  const docs = state.documents.filter((doc) => doc.employeeId === item.id);
+  const exception = hasPendingApprovalException(item);
+  const fiscalDocs = docs.filter((doc) => documentOperationalSector(doc) === "Fiscal");
+  const medicineDocs = docs.filter((doc) => documentOperationalSector(doc) === "Medicina");
+  const ehsDocs = docs.filter((doc) => documentOperationalSector(doc) === "EHS");
+  const patrimonialDocs = docs.filter((doc) => documentOperationalSector(doc) === "Patrimonial");
+  const steps = [
+    {
+      label: "Fiscal / Documentos pessoais",
+      icon: "docs",
+      status: resolveWorkflowStepStatus(item, fiscalDocs, {
+        pending: item.status === "Documentos pendente" || item.docStatus === "Pendente",
+        approved: item.docStatus === "Regular" || fiscalDocs.some((doc) => docStatus(doc) === "Aprovado"),
+        exception,
+      }),
+      detail: "Cadastro, CPF, vinculo e documentos pessoais",
+    },
+    {
+      label: "Medicina",
+      icon: "shield",
+      status: resolveWorkflowStepStatus(item, medicineDocs, {
+        pending: item.status === "Aguardando exames" || employeeMedicineStatus(item, docs) === "Pendente",
+        approved: employeeMedicineStatus(item, docs) === "Aprovado",
+        exception,
+      }),
+      detail: "ASO, exames e validade ocupacional",
+    },
+    {
+      label: "EHS",
+      icon: "factory",
+      status: resolveWorkflowStepStatus(item, ehsDocs, {
+        pending: item.status === "Em treinamento" || employeeEhsStatus(item, docs) === "Pendente",
+        approved: employeeEhsStatus(item, docs) === "Aprovado",
+        exception,
+      }),
+      detail: "Treinamentos, NR, EPI e seguranca",
+    },
+    {
+      label: "Patrimonial",
+      icon: "block",
+      status: resolveWorkflowStepStatus(item, patrimonialDocs, {
+        pending: item.status === "Aguardando aprovacao do fiscal" || employeePatrimonialStatus(item) === "Pendente",
+        approved: employeePatrimonialStatus(item) === "Aprovado",
+        exception,
+      }),
+      detail: "Acesso, credencial e liberacao patrimonial",
+    },
+  ];
+  const blockingStatus = item.status === "Bloqueado" || steps.some((step) => step.status === "Bloqueado");
+  const rejectedStatus = steps.some((step) => step.status === "Reprovado");
+  const pendingStatus = steps.some((step) => ["Pendente", "Aprovado com pendencia"].includes(step.status));
+  steps.push({
+    label: "Liberacao final",
+    icon: "approve",
+    status: blockingStatus ? "Bloqueado" : rejectedStatus ? "Reprovado" : pendingStatus ? (exception ? "Aprovado com pendencia" : "Pendente") : "Aprovado",
+    detail: "Consolidacao fiscal para inicio ou manutencao",
+  });
+  return steps;
+}
+
+function resolveWorkflowStepStatus(employee, docs, { pending = false, approved = false, exception = false } = {}) {
+  if (employee.status === "Bloqueado") return "Bloqueado";
+  if (docs.some((doc) => doc.status === "Reprovado" || docStatus(doc) === "Reprovado")) return "Reprovado";
+  if (docs.some((doc) => docStatus(doc) === "Vencido")) return "Bloqueado";
+  if (pending || docs.some((doc) => ["Pendente", "A vencer"].includes(docStatus(doc)))) return exception ? "Aprovado com pendencia" : "Pendente";
+  if (approved || docs.some((doc) => docStatus(doc) === "Aprovado")) return "Aprovado";
+  return exception ? "Aprovado com pendencia" : "Pendente";
+}
+
+function workflowStatusClass(status) {
+  return {
+    Aprovado: "ok",
+    "Aprovado com pendencia": "conditional",
+    Pendente: "warn",
+    Reprovado: "bad",
+    Bloqueado: "blocked",
+  }[status] || statusClass(status);
 }
 
 function employeeInitials(name = "") {
@@ -2883,6 +2962,7 @@ function emptyRow(columns) {
 function statusBadge(status) {
   const kind = {
     Aprovado: "ok",
+    "Aprovado com pendencia": "conditional",
     Regular: "ok",
     Ativa: "ok",
     Ativo: "ok",
@@ -2913,6 +2993,7 @@ function statusBadge(status) {
 function statusClass(status) {
   return {
     Aprovado: "ok",
+    "Aprovado com pendencia": "conditional",
     Regular: "ok",
     Ativa: "ok",
     Ativo: "ok",

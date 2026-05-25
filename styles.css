@@ -1197,6 +1197,7 @@ tr:last-child td {
 .status.ok { background: rgba(95, 143, 102, 0.16); color: #a7cfae; }
 .status.warn { background: rgba(214, 161, 95, 0.18); color: #e7bd7f; }
 .status.bad { background: rgba(143, 38, 56, 0.2); color: #e88d9b; }
+.status.conditional { background: rgba(126, 87, 194, 0.18); color: #d6c2ff; }
 .status.info { background: rgba(122, 74, 43, 0.2); color: #d6a15f; }
 .status.analysis { background: rgba(100, 116, 139, 0.15); color: var(--muted); }
 .status.pending-docs { background: rgba(183, 107, 0, 0.14); color: var(--warn); }
@@ -2086,10 +2087,11 @@ tr:last-child td {
 }
 
 .employee-workflow {
+  position: relative;
   display: grid;
   grid-template-columns: repeat(5, minmax(130px, 1fr));
-  gap: 10px;
-  padding: 14px 16px;
+  gap: 12px;
+  padding: 22px 16px 16px;
   border-bottom: 1px solid var(--line);
   background: rgba(15, 27, 45, 0.7);
 }
@@ -2101,41 +2103,80 @@ tr:last-child td {
   background: rgba(245, 241, 234, 0.04);
 }
 
+.employee-workflow-progress {
+  position: absolute;
+  left: 42px;
+  right: 42px;
+  top: 39px;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(245, 241, 234, 0.12);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.employee-workflow-progress i {
+  display: block;
+  width: var(--workflow-progress);
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #8f2638, #d6a15f, #5f8f66);
+  box-shadow: 0 0 24px rgba(214, 161, 95, 0.28);
+}
+
 .employee-flow-step {
   position: relative;
   display: grid;
   gap: 8px;
   align-content: start;
-  min-height: 122px;
+  min-height: 148px;
   padding: 14px;
   border: 1px solid var(--line);
-  border-radius: 18px;
+  border-radius: 16px;
   background: linear-gradient(145deg, rgba(23, 36, 58, 0.9), rgba(94, 26, 39, 0.12));
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.16);
 }
 
 .employee-flow-step::after {
-  content: "";
-  position: absolute;
-  top: 31px;
-  right: -11px;
-  width: 12px;
-  height: 2px;
-  background: var(--line-strong);
+  display: none;
 }
 
 .employee-flow-step:last-child::after {
   display: none;
 }
 
-.employee-flow-step > span {
-  width: 34px;
-  height: 34px;
+.employee-flow-icon {
+  position: relative;
+  z-index: 1;
+  width: 42px;
+  height: 42px;
   display: grid;
   place-items: center;
   border-radius: 999px;
   background: rgba(214, 161, 95, 0.16);
   color: #d6a15f;
   font-weight: 950;
+  border: 1px solid rgba(214, 161, 95, 0.26);
+}
+
+.employee-flow-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.employee-flow-icon small {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #0f1b2d;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  font-size: 0.64rem;
 }
 
 .employee-flow-step strong {
@@ -2143,8 +2184,21 @@ tr:last-child td {
   line-height: 1.2;
 }
 
+.employee-flow-step em {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-style: normal;
+  line-height: 1.35;
+}
+
 .employee-flow-step.ok {
   border-color: rgba(95, 143, 102, 0.38);
+}
+
+.employee-flow-step.ok .employee-flow-icon {
+  background: rgba(95, 143, 102, 0.16);
+  color: #a7cfae;
+  border-color: rgba(95, 143, 102, 0.34);
 }
 
 .employee-flow-step.warn,
@@ -2153,8 +2207,27 @@ tr:last-child td {
   border-color: rgba(214, 161, 95, 0.4);
 }
 
-.employee-flow-step.bad {
+.employee-flow-step.conditional {
+  border-color: rgba(126, 87, 194, 0.42);
+  background: linear-gradient(145deg, rgba(23, 36, 58, 0.92), rgba(126, 87, 194, 0.12));
+}
+
+.employee-flow-step.conditional .employee-flow-icon {
+  background: rgba(126, 87, 194, 0.18);
+  color: #d6c2ff;
+  border-color: rgba(126, 87, 194, 0.36);
+}
+
+.employee-flow-step.bad,
+.employee-flow-step.blocked {
   border-color: rgba(143, 38, 56, 0.48);
+}
+
+.employee-flow-step.bad .employee-flow-icon,
+.employee-flow-step.blocked .employee-flow-icon {
+  background: rgba(143, 38, 56, 0.2);
+  color: #e88d9b;
+  border-color: rgba(143, 38, 56, 0.42);
 }
 
 .employee-tabs {
@@ -2244,6 +2317,10 @@ tr:last-child td {
 
   .employee-workflow {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .employee-workflow-progress {
+    display: none;
   }
 
   .document-detail-grid,
@@ -2340,6 +2417,10 @@ tr:last-child td {
 
   .employee-workflow {
     grid-template-columns: 1fr;
+  }
+
+  .employee-workflow-progress {
+    display: none;
   }
 
   .employee-tabs {
