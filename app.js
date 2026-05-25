@@ -1223,7 +1223,7 @@ function companyRowActions(id) {
   const company = state.companies.find((item) => item.id === id);
   return `
     <div class="actions wrap">
-      <button class="btn secondary compact" type="button" data-contract-detail="${id}">${icon("docs")} Ver detalhes</button>
+      <button class="btn secondary compact" type="button" data-company-detail="${id}">${icon("company")} Ver detalhes</button>
       ${can("edit.company", company) ? `<button class="btn secondary compact" type="button" data-edit="company" data-id="${id}">${icon("edit")} Editar</button>` : ""}
       ${can("edit.company", company) ? `<button class="btn warning compact" type="button" data-demobilize="company" data-id="${id}">Desmobilizar</button>` : ""}
       ${can("delete.company", company) ? `<button class="btn danger compact" type="button" data-delete="company" data-id="${id}">${icon("trash")} Excluir</button>` : ""}
@@ -1610,8 +1610,8 @@ function renderContracts() {
   const { pageItems, totalPages } = paginateItems("contracts", contracts);
   const active = visibleCompanies().filter((company) => normalizeCompany(company).status === "Ativa").length;
   const expiring = visibleCompanies().filter((company) => contractDays(company) >= 0 && contractDays(company) <= 60).length;
-  const blocked = visibleCompanies().filter((company) => ["Inativa", "Desmobilizada", "Bloqueada", "Bloqueado"].includes(normalizeCompany(company).status)).length;
-  const noDate = visibleCompanies().filter((company) => !normalizeCompany(company).endDate).length;
+  const inactive = visibleCompanies().filter((company) => ["Inativa", "Bloqueada", "Bloqueado"].includes(normalizeCompany(company).status)).length;
+  const closed = visibleCompanies().filter((company) => normalizeCompany(company).status === "Desmobilizada").length;
   const statusItems = ["Ativa", "Pendente", "Inativa", "Desmobilizada"]
     .map((status) => ({ status, count: visibleCompanies().filter((company) => normalizeCompany(company).status === status).length }))
     .filter((item) => item.count);
@@ -1628,8 +1628,8 @@ function renderContracts() {
       <article class="contract-summary-card"><span>Total de contratos</span><strong>${visibleCompanies().length}</strong><small>Base real de empresas cadastradas</small></article>
       <article class="contract-summary-card ok"><span>Ativos</span><strong>${active}</strong><small>Contratos liberados</small></article>
       <article class="contract-summary-card warn"><span>Vencendo</span><strong>${expiring}</strong><small>Proximos 60 dias</small></article>
-      <article class="contract-summary-card danger"><span>Criticos</span><strong>${blocked}</strong><small>Inativos ou desmobilizados</small></article>
-      <article class="contract-summary-card neutral"><span>Sem data fim</span><strong>${noDate}</strong><small>Exigem revisao cadastral</small></article>
+      <article class="contract-summary-card danger"><span>Inativos</span><strong>${inactive}</strong><small>Inativos ou bloqueados</small></article>
+      <article class="contract-summary-card neutral"><span>Encerrados</span><strong>${closed}</strong><small>Contratos desmobilizados</small></article>
     </div>
     <div class="contract-layout">
       <section class="contract-chart-card">
@@ -1757,6 +1757,159 @@ function renderContractOperationalSummary(company) {
       <div><span>Bloqueios ativos</span><strong>${blocks}</strong></div>
     </div>
   `;
+}
+
+function openCompanyDetails(id) {
+  const company = visibleCompanies().find((item) => item.id === id) || state.companies.find((item) => item.id === id);
+  if (!company) return;
+  const item = normalizeCompany(company);
+  const modal = document.createElement("div");
+  modal.className = "modal-backdrop company-detail-backdrop";
+  modal.innerHTML = `
+    <section class="modal contract-detail-modal company-detail-modal">
+      <div class="modal-head contract-detail-head">
+        <div>
+          <span class="eyebrow">Detalhe da empresa</span>
+          <h2>${item.name}</h2>
+          <span class="muted">${item.cnpj} - Fiscal: ${item.fiscal || "Nao informado"}</span>
+        </div>
+        <button class="btn icon" type="button" data-close title="Fechar">${icon("close")}</button>
+      </div>
+      <div class="contract-tabs" role="tablist">
+        ${[
+          ["general", "Dados Gerais"],
+          ["contracts", "Contratos"],
+          ["people", "Funcionarios"],
+          ["docs", "Documentos"],
+          ["history", "Historico"],
+        ]
+          .map(([tab, label], index) => `<button class="${index === 0 ? "active" : ""}" type="button" data-company-tab="${tab}">${label}</button>`)
+          .join("")}
+      </div>
+      <div class="modal-body company-tab-content">${renderCompanyTab(company, "general")}</div>
+    </section>
+  `;
+  document.body.appendChild(modal);
+  modal.querySelectorAll("[data-close]").forEach((button) => button.addEventListener("click", () => modal.remove()));
+  modal.addEventListener("click", (event) => {
+    if (event.target === modal) modal.remove();
+  });
+  modal.querySelectorAll("[data-company-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      modal.querySelectorAll("[data-company-tab]").forEach((item) => item.classList.remove("active"));
+      button.classList.add("active");
+      modal.querySelector(".company-tab-content").innerHTML = renderCompanyTab(company, button.dataset.companyTab);
+      bindCompanyDetailEvents(modal, company);
+    });
+  });
+  bindCompanyDetailEvents(modal, company);
+}
+
+function bindCompanyDetailEvents(modal, company) {
+  modal.querySelector("[data-company-contract-new]")?.addEventListener("click", () => {
+    alert("A estrutura atual possui um contrato por cadastro de empresa. Para cadastrar novo contrato sem alterar o banco, atualize os campos de contrato no cadastro da empresa.");
+    editingCompanyId = company.id;
+    modal.remove();
+    currentView = "companies";
+    renderApp();
+  });
+  modal.querySelector("[data-company-contract-open]")?.addEventListener("click", () => openContractDetails(company.id));
+  modal.querySelector("[data-company-contract-close]")?.addEventListener("click", () => {
+    if (closeCompanyContract(company.id)) modal.remove();
+  });
+  modal.querySelectorAll("[data-employee-record]").forEach((button) => button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    openEmployeeRecord(button.dataset.employeeRecord);
+  }));
+  modal.querySelectorAll("[data-document-detail]").forEach((button) => button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    openDocumentDetails(button.dataset.documentDetail);
+  }));
+}
+
+function renderCompanyTab(company, tab) {
+  const item = normalizeCompany(company);
+  const employees = state.employees.filter((employee) => employee.companyId === company.id);
+  const documents = state.documents.filter((doc) => doc.companyId === company.id);
+  if (tab === "general") {
+    return `
+      <div class="detail-grid">
+        ${detailCard("Empresa", item.name)}
+        ${detailCard("CNPJ", item.cnpj)}
+        ${detailCard("Status", statusBadge(item.status))}
+        ${detailCard("Fiscal", item.fiscal || "Nao informado")}
+        ${detailCard("Responsavel", item.responsible || "Nao informado")}
+        ${detailCard("Contato", `${item.phone || "Nao informado"} / ${item.email || "Nao informado"}`)}
+        ${detailCard("Contrato atual", item.contract || "Nao informado")}
+        ${detailCard("Inicio", formatDate(item.startDate))}
+        ${detailCard("Fim", formatDate(item.endDate))}
+      </div>
+    `;
+  }
+  if (tab === "contracts") {
+    const days = contractDays(item);
+    return `
+      <div class="contract-inner-toolbar">
+        <button class="btn primary compact" type="button" data-company-contract-new>${icon("plus")} Novo contrato para esta empresa</button>
+        <button class="btn secondary compact" type="button" data-company-contract-open>${icon("docs")} Abrir contrato</button>
+        ${can("edit.company", company) ? `<button class="btn warning compact" type="button" data-company-contract-close>Encerrar contrato</button>` : ""}
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Contrato</th><th>Empresa</th><th>Periodo</th><th>Dias</th><th>Status</th><th>Acoes</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><strong>${item.contract || "Nao informado"}</strong><span>${item.cnpj}</span></td>
+              <td>${item.name}</td>
+              <td>${formatDate(item.startDate)}<br><span class="muted">ate ${formatDate(item.endDate)}</span></td>
+              <td>${Number.isFinite(days) ? `${days} dia(s)` : "Nao informado"}</td>
+              <td>${statusBadge(item.status)}</td>
+              <td><button class="btn secondary compact" type="button" data-company-contract-open>${icon("docs")} Abrir contrato</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+  if (tab === "people") {
+    return `
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Funcionario</th><th>CPF</th><th>Funcao</th><th>Status</th><th>Acoes</th></tr></thead>
+          <tbody>${employees.length ? employees.map((employee) => `<tr><td><strong>${employee.name}</strong></td><td>${employee.cpf}</td><td>${employee.role}</td><td>${statusBadge(normalizeEmployee(employee).status)}</td><td><button class="btn secondary compact" type="button" data-employee-record="${employee.id}">${icon("users")} Abrir ficha</button></td></tr>`).join("") : emptyRow(5)}</tbody>
+        </table>
+      </div>
+    `;
+  }
+  if (tab === "docs") {
+    return `
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Documento</th><th>Funcionario</th><th>Vencimento</th><th>Status</th><th>Acoes</th></tr></thead>
+          <tbody>${documents.length ? documents.map((doc) => `<tr><td><strong>${doc.type}</strong></td><td>${doc.employeeId ? employeeName(doc.employeeId) : "Empresa"}</td><td>${formatDate(doc.dueDate)}</td><td>${statusBadge(docStatus(doc))}</td><td><button class="btn secondary compact" type="button" data-document-detail="${doc.id}">${icon("docs")} Abrir</button></td></tr>`).join("") : emptyRow(5)}</tbody>
+        </table>
+      </div>
+    `;
+  }
+  return `
+    <div class="history-list">
+      <div class="item-card"><strong>Empresa cadastrada</strong><span class="muted">${item.name} - ${item.cnpj}</span></div>
+      <div class="item-card"><strong>Contrato atual</strong><span class="muted">${item.contract || "Nao informado"} - ${formatDate(item.startDate)} ate ${formatDate(item.endDate)}</span></div>
+      <div class="item-card"><strong>Funcionarios vinculados</strong><span class="muted">${employees.length} funcionario(s)</span></div>
+      <div class="item-card"><strong>Documentos vinculados</strong><span class="muted">${documents.length} documento(s)</span></div>
+    </div>
+  `;
+}
+
+function closeCompanyContract(id) {
+  const company = state.companies.find((item) => item.id === id);
+  if (!company || !can("edit.company", company)) return false;
+  if (!confirm(`Deseja encerrar o contrato da empresa ${company.name}?`)) return false;
+  company.status = "Desmobilizada";
+  syncCollection("companies", company).catch((error) => alert(`Nao foi possivel atualizar online: ${error.message}`));
+  saveState();
+  renderApp();
+  return true;
 }
 
 function bindContractDetailEvents(modal, company) {
@@ -2645,6 +2798,13 @@ function bindViewEvents() {
     item.addEventListener("click", (event) => {
       event.stopPropagation();
       openContractDetails(item.dataset.contractDetail);
+    });
+  });
+
+  document.querySelectorAll("[data-company-detail]").forEach((item) => {
+    item.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openCompanyDetails(item.dataset.companyDetail);
     });
   });
 
