@@ -1064,9 +1064,237 @@ function renderEmployeeRow(employee) {
       <td>ASO: ${formatDate(item.asoValidity)}<br><span class="muted">Treinamento: ${formatDate(item.trainingValidity)}</span></td>
       <td>${statusBadge(item.docStatus)}</td>
       <td>${statusBadge(item.status)}${item.notes ? `<br><span class="muted">${item.notes}</span>` : ""}</td>
-      <td>${rowActions("employee", employee.id)}</td>
+      <td>
+        <div class="actions wrap">
+          <button class="btn secondary compact" type="button" data-employee-record="${employee.id}">${icon("users")} Ficha</button>
+          ${rowActions("employee", employee.id)}
+        </div>
+      </td>
     </tr>
   `;
+}
+
+function openEmployeeRecord(id) {
+  const employee = visibleEmployees().find((item) => item.id === id) || state.employees.find((item) => item.id === id);
+  if (!employee) return;
+  const item = normalizeEmployee(employee);
+  const company = state.companies.find((entry) => entry.id === item.companyId);
+  const modal = document.createElement("div");
+  modal.className = "modal-backdrop employee-record-backdrop";
+  modal.innerHTML = `
+    <section class="modal employee-record-modal">
+      <div class="employee-record-header">
+        <div class="employee-avatar">${employeeInitials(item.name)}</div>
+        <div class="employee-record-title">
+          <span class="eyebrow">Ficha Funcionarios/FIT</span>
+          <h2>${item.name}</h2>
+          <div class="employee-record-meta">
+            <span>CPF ${item.cpf || "Nao informado"}</span>
+            <span>Matricula ${employeeRegistration(item)}</span>
+            <span>${company?.name || "Empresa nao informada"}</span>
+          </div>
+        </div>
+        <div class="employee-record-status">
+          ${statusBadge(item.status)}
+          ${statusBadge(employeeActiveState(item))}
+        </div>
+        <button class="btn icon" type="button" data-close title="Fechar">${icon("close")}</button>
+      </div>
+      <div class="employee-workflow">
+        ${renderEmployeeWorkflow(item)}
+      </div>
+      <div class="contract-tabs employee-tabs" role="tablist">
+        ${[
+          ["personal", "Dados Pessoais"],
+          ["docs", "Documentos Pessoais"],
+          ["medicine", "Medicina Ocupacional"],
+          ["ehs", "Seguranca do Trabalho/EHS"],
+          ["patrimonial", "Seguranca Patrimonial"],
+          ["integration", "Integracao"],
+          ["history", "Historico"],
+          ["demobilization", "Desmobilizacao"],
+        ]
+          .map(([tab, label], index) => `<button class="${index === 0 ? "active" : ""}" type="button" data-employee-tab="${tab}">${label}</button>`)
+          .join("")}
+      </div>
+      <div class="modal-body employee-tab-content">${renderEmployeeRecordTab(item, "personal")}</div>
+    </section>
+  `;
+  document.body.appendChild(modal);
+  modal.querySelectorAll("[data-close]").forEach((button) => button.addEventListener("click", () => modal.remove()));
+  modal.addEventListener("click", (event) => {
+    if (event.target === modal) modal.remove();
+  });
+  modal.querySelectorAll("[data-employee-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      modal.querySelectorAll("[data-employee-tab]").forEach((item) => item.classList.remove("active"));
+      button.classList.add("active");
+      modal.querySelector(".employee-tab-content").innerHTML = renderEmployeeRecordTab(item, button.dataset.employeeTab);
+    });
+  });
+}
+
+function renderEmployeeRecordTab(employee, tab) {
+  const company = state.companies.find((item) => item.id === employee.companyId);
+  const companyDocs = state.documents.filter((doc) => doc.companyId === employee.companyId && !doc.employeeId);
+  const employeeDocs = state.documents.filter((doc) => doc.employeeId === employee.id);
+  const allDocs = [...employeeDocs, ...companyDocs];
+  if (tab === "personal") {
+    return `
+      <div class="detail-grid">
+        ${detailCard("Nome", employee.name)}
+        ${detailCard("CPF", employee.cpf || "Nao informado")}
+        ${detailCard("Matricula", employeeRegistration(employee))}
+        ${detailCard("Empresa", company?.name || "Nao informado")}
+        ${detailCard("Contrato vinculado", company?.contract || "Nao informado")}
+        ${detailCard("Centro de custo", employeeCostCenter(employee, company))}
+        ${detailCard("Funcao", employee.role || "Nao informado")}
+        ${detailCard("Status", statusBadge(employee.status))}
+        ${detailCard("Data de admissao", formatDate(employee.admission || employee.startDate))}
+        ${detailCard("Situacao", statusBadge(employeeActiveState(employee)))}
+        ${detailCard("Endereco", employee.address || "Nao informado")}
+        ${detailCard("Observacoes", employee.notes || "Sem observacoes")}
+      </div>
+    `;
+  }
+  if (tab === "docs") return renderEmployeeDocsTable(employeeDocs, "Documentos pessoais do funcionario");
+  if (tab === "medicine") {
+    const medicineDocs = employeeDocs.filter((doc) => /aso|exame|medic/i.test(doc.type));
+    return `
+      <div class="detail-grid">
+        ${detailCard("Validade ASO", formatDate(employee.asoValidity))}
+        ${detailCard("Status documental", statusBadge(employee.docStatus))}
+        ${detailCard("Status medicina", statusBadge(employeeMedicineStatus(employee, medicineDocs)))}
+      </div>
+      ${renderEmployeeDocsTable(medicineDocs, "Documentos de medicina ocupacional")}
+    `;
+  }
+  if (tab === "ehs") {
+    const ehsDocs = employeeDocs.filter((doc) => /nr-|treinamento|epi|segur/i.test(doc.type));
+    return `
+      <div class="detail-grid">
+        ${detailCard("Validade treinamento", formatDate(employee.trainingValidity))}
+        ${detailCard("Status EHS", statusBadge(employeeEhsStatus(employee, ehsDocs)))}
+        ${detailCard("Funcao analisada", employee.role || "Nao informado")}
+      </div>
+      ${renderEmployeeDocsTable(ehsDocs, "Treinamentos e seguranca do trabalho")}
+    `;
+  }
+  if (tab === "patrimonial") {
+    return `
+      <div class="detail-grid">
+        ${detailCard("Liberacao patrimonial", statusBadge(employeePatrimonialStatus(employee)))}
+        ${detailCard("Empresa", company?.name || "Nao informado")}
+        ${detailCard("Contrato", company?.contract || "Nao informado")}
+      </div>
+      <div class="item-card"><strong>Controle patrimonial</strong><span class="muted">Acesso final condicionado a documentacao, medicina, EHS e aprovacao fiscal.</span></div>
+    `;
+  }
+  if (tab === "integration") {
+    return `
+      <div class="employee-workflow large">${renderEmployeeWorkflow(employee)}</div>
+      <div class="item-card"><strong>Integracao</strong><span class="muted">Fluxo de integracao do trabalhador/FIT com etapas de fiscal, documentos, medicina, EHS e liberacao final.</span></div>
+    `;
+  }
+  if (tab === "history") {
+    return `
+      <div class="history-list">
+        <div class="item-card"><strong>Cadastro do trabalhador/FIT</strong><span class="muted">${formatDate(employee.admission || employee.startDate)} - ${employee.name}</span></div>
+        <div class="item-card"><strong>Empresa vinculada</strong><span class="muted">${company?.name || "Nao informado"}</span></div>
+        <div class="item-card"><strong>Documentos associados</strong><span class="muted">${allDocs.length} documento(s) monitorados.</span></div>
+        <div class="item-card"><strong>Status atual</strong><span class="muted">${employee.status}</span></div>
+      </div>
+    `;
+  }
+  return `
+    <div class="detail-grid">
+      ${detailCard("Situacao atual", statusBadge(employeeActiveState(employee)))}
+      ${detailCard("Data referencia", formatDate(today()))}
+      ${detailCard("Contrato", company?.contract || "Nao informado")}
+    </div>
+    <div class="item-card danger-zone"><strong>Desmobilizacao</strong><span class="muted">A desmobilizacao deve preservar historico documental e vinculos para auditoria. Use o status Inativo ou Bloqueado conforme regra operacional.</span></div>
+  `;
+}
+
+function renderEmployeeDocsTable(docs, title) {
+  return `
+    <section class="employee-doc-section">
+      <div class="modal-head"><h2>${title}</h2><span class="mini-pill">${docs.length} item(ns)</span></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Documento</th><th>Validade</th><th>Status</th><th>Observacoes</th></tr></thead>
+          <tbody>
+            ${docs.length ? docs.map((doc) => `<tr><td><strong>${doc.type}</strong></td><td>${formatDate(doc.dueDate)}</td><td>${statusBadge(docStatus(doc))}</td><td>${doc.notes || "<span class='muted'>Sem observacao</span>"}</td></tr>`).join("") : emptyRow(4)}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function renderEmployeeWorkflow(employee) {
+  const docs = state.documents.filter((doc) => doc.employeeId === employee.id);
+  const steps = [
+    ["Fiscal", employee.status === "Aguardando aprovacao do fiscal" ? "Pendente" : "Aprovado"],
+    ["Documentos pessoais", employee.docStatus === "Regular" || docs.some((doc) => docStatus(doc) === "Aprovado") ? "Aprovado" : "Pendente"],
+    ["Medicina", employeeMedicineStatus(employee, docs)],
+    ["EHS", employeeEhsStatus(employee, docs)],
+    ["Patrimonial/liberacao final", employeePatrimonialStatus(employee)],
+  ];
+  return steps
+    .map(
+      ([label, status], index) => `
+        <div class="employee-flow-step ${statusClass(status)}">
+          <span>${index + 1}</span>
+          <strong>${label}</strong>
+          ${statusBadge(status)}
+        </div>
+      `,
+    )
+    .join("");
+}
+
+function employeeInitials(name = "") {
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase() || "FT";
+}
+
+function employeeRegistration(employee) {
+  return employee.registration || employee.matricula || `FIT-${String(employee.id || "").slice(0, 8).toUpperCase()}`;
+}
+
+function employeeCostCenter(employee, company) {
+  return employee.costCenter || employee.centroCusto || company?.costCenter || company?.contract || "Nao informado";
+}
+
+function employeeActiveState(employee) {
+  if (employee.status === "Bloqueado") return "Bloqueado";
+  if (employee.status === "Inativo") return "Inativo";
+  return "Ativo";
+}
+
+function employeeMedicineStatus(employee, docs = []) {
+  if (employee.status === "Aguardando exames") return "Pendente";
+  if (employee.docStatus === "Vencido" || employee.docStatus === "A vencer") return employee.docStatus;
+  if (docs.some((doc) => /aso|exame|medic/i.test(doc.type) && docStatus(doc) === "Aprovado")) return "Aprovado";
+  return employee.asoValidity ? "Aprovado" : "Pendente";
+}
+
+function employeeEhsStatus(employee, docs = []) {
+  if (employee.status === "Em treinamento") return "Pendente";
+  if (docs.some((doc) => /nr-|treinamento|epi|segur/i.test(doc.type) && docStatus(doc) === "Aprovado")) return "Aprovado";
+  return employee.trainingValidity ? "Aprovado" : "Pendente";
+}
+
+function employeePatrimonialStatus(employee) {
+  if (["Bloqueado", "Inativo"].includes(employee.status)) return employee.status;
+  if (employee.status === "Aprovado" || employee.status === "Ativo") return "Aprovado";
+  return "Pendente";
 }
 
 function renderDocuments() {
@@ -1717,11 +1945,13 @@ function statusClass(status) {
     Aprovado: "ok",
     Regular: "ok",
     Ativa: "ok",
+    Ativo: "ok",
     Pendente: "warn",
     "A vencer": "warn",
     Reprovado: "bad",
     Vencido: "bad",
     Bloqueado: "bad",
+    Inativo: "bad",
     "Em analise": "info",
   }[status] || "info";
 }
@@ -1778,6 +2008,13 @@ function bindViewEvents() {
     item.addEventListener("click", (event) => {
       event.stopPropagation();
       openContractDetails(item.dataset.contractDetail);
+    });
+  });
+
+  document.querySelectorAll("[data-employee-record]").forEach((item) => {
+    item.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openEmployeeRecord(item.dataset.employeeRecord);
     });
   });
 
