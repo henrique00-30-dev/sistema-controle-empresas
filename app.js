@@ -1262,7 +1262,7 @@ function renderEmployees() {
       <table>
         <thead><tr>${sortableHeader("employees", "Funcionario", "name")}${sortableHeader("employees", "CPF", "cpf")}${sortableHeader("employees", "Funcao", "sector")}${sortableHeader("employees", "Empresa vinculada", "company")}<th>Validades</th>${sortableHeader("employees", "Status documental", "status")}<th>Contratacao</th><th>Acoes</th></tr></thead>
         <tbody>
-          ${pageItems.length ? pageItems.map(renderEmployeeRow).join("") : emptyRow(8)}
+          ${renderEmployeeGroupedRows(pageItems)}
         </tbody>
       </table>
       ${renderPagination("employees", items.length, totalPages)}
@@ -1325,8 +1325,9 @@ function renderEmployeeStatusFilters() {
 
 function renderEmployeeRow(employee) {
   const item = normalizeEmployee(employee);
+  const group = employeeVisualGroup(item);
   return `
-    <tr>
+    <tr class="employee-row employee-row-${group.key}">
       <td><strong>${item.name}</strong><br><span class="muted">${item.address || "Endereco nao informado"}</span></td>
       <td>${item.cpf}</td>
       <td>${item.role}</td>
@@ -1337,11 +1338,42 @@ function renderEmployeeRow(employee) {
       <td>
         <div class="actions wrap">
           <button class="btn secondary compact" type="button" data-employee-record="${employee.id}">${icon("users")} Ficha</button>
-          ${rowActions("employee", employee.id)}
+          ${employeeRowActions(item)}
         </div>
       </td>
     </tr>
   `;
+}
+
+function renderEmployeeGroupedRows(items) {
+  if (!items.length) return emptyRow(8);
+  const groups = [
+    { key: "active", title: "Funcionarios ativos" },
+    { key: "blocked", title: "Funcionarios bloqueados" },
+    { key: "inactive", title: "Funcionarios desmobilizados/inativos" },
+  ];
+  return groups
+    .map((group) => {
+      const employees = items.filter((employee) => employeeVisualGroup(employee).key === group.key);
+      if (!employees.length) return "";
+      return `
+        <tr class="employee-group-row employee-group-${group.key}">
+          <td colspan="8">
+            <span>${group.title}</span>
+            <strong>${employees.length}</strong>
+          </td>
+        </tr>
+        ${employees.map(renderEmployeeRow).join("")}
+      `;
+    })
+    .join("");
+}
+
+function employeeVisualGroup(employee) {
+  const status = normalizeEmployee(employee).status;
+  if (status === "Bloqueado") return { key: "blocked", title: "Funcionarios bloqueados" };
+  if (["Desmobilizado", "Desmobilizada", "Inativo", "Inativa"].includes(status)) return { key: "inactive", title: "Funcionarios desmobilizados/inativos" };
+  return { key: "active", title: "Funcionarios ativos" };
 }
 
 function openEmployeeRecord(id) {
@@ -2617,6 +2649,10 @@ function toolbar(placeholder) {
 }
 
 function rowActions(type, id) {
+  if (type === "employee") {
+    const employee = state.employees.find((entry) => entry.id === id);
+    return employee ? employeeRowActions(employee) : "";
+  }
   const collection = {
     employee: state.employees,
     document: state.documents,
@@ -2629,6 +2665,19 @@ function rowActions(type, id) {
       ${can(`delete.${type}`, item) ? `<button class="btn icon" title="Excluir" data-delete="${type}" data-id="${id}">${icon("trash")}</button>` : ""}
       ${!can(`edit.${type}`, item) && !can(`delete.${type}`, item) ? `<span class="mini-pill">Somente leitura</span>` : ""}
     </div>
+  `;
+}
+
+function employeeRowActions(employee) {
+  const item = normalizeEmployee(employee);
+  const canEditEmployee = can("edit.employee", item);
+  const canOperateEmployee = can("updateHiringStatus", item);
+  if (!canEditEmployee && !canOperateEmployee) return `<span class="mini-pill">Somente leitura</span>`;
+  return `
+    ${canEditEmployee ? `<button class="btn icon" title="Editar" data-edit="employee" data-id="${item.id}">${icon("edit")}</button>` : ""}
+    ${canOperateEmployee ? `<button class="btn warning compact" type="button" data-employee-action="demobilize" data-id="${item.id}">Desmobilizar</button>` : ""}
+    ${canOperateEmployee ? `<button class="btn secondary compact" type="button" data-employee-action="inactivate" data-id="${item.id}">Inativar</button>` : ""}
+    ${canOperateEmployee ? `<button class="btn danger compact" type="button" data-employee-action="block" data-id="${item.id}">Bloquear</button>` : ""}
   `;
 }
 
@@ -2667,6 +2716,7 @@ function statusBadge(status) {
     Vencido: "bad",
     Inativa: "bad",
     Inativo: "bad",
+    Desmobilizado: "bad",
     Desmobilizada: "bad",
     Reprovado: "bad",
     Bloqueado: "bad",
@@ -2688,6 +2738,8 @@ function statusClass(status) {
     Vencido: "bad",
     Bloqueado: "bad",
     Inativo: "bad",
+    Desmobilizado: "bad",
+    Desmobilizada: "bad",
     "Em analise": "info",
   }[status] || "info";
 }
@@ -2876,6 +2928,10 @@ function bindViewEvents() {
 
   document.querySelectorAll("[data-delete]").forEach((button) => {
     button.addEventListener("click", () => removeItem(button.dataset.delete, button.dataset.id));
+  });
+
+  document.querySelectorAll("[data-employee-action]").forEach((button) => {
+    button.addEventListener("click", () => updateEmployeeOperationalStatus(button.dataset.id, button.dataset.employeeAction));
   });
 
   document.querySelectorAll("[data-doc-status]").forEach((button) => {
@@ -3334,6 +3390,53 @@ function saveEmployeeFromForm(form) {
   render();
 }
 
+function updateEmployeeOperationalStatus(id, action) {
+  const employee = state.employees.find((item) => item.id === id);
+  if (!employee) return;
+  if (!can("updateHiringStatus", employee)) {
+    alert("Seu perfil nao possui permissao para alterar o status deste funcionario.");
+    return;
+  }
+
+  const actions = {
+    demobilize: { label: "desmobilizar", status: "Inativo", historyStatus: "Desmobilizado" },
+    inactivate: { label: "inativar", status: "Inativo", historyStatus: "Inativado" },
+    block: { label: "bloquear", status: "Bloqueado", historyStatus: "Bloqueado" },
+  };
+  const config = actions[action];
+  if (!config) return;
+
+  const reason = prompt(`Informe o motivo obrigatorio para ${config.label} o funcionario ${employee.name}:`);
+  if (!reason || !reason.trim()) {
+    alert("Motivo obrigatorio. A alteracao nao foi aplicada.");
+    return;
+  }
+
+  const actor = currentUser()?.name || currentUser()?.email || "Usuario do sistema";
+  const timestamp = new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(new Date());
+  const historyLine = `[${timestamp}] ${actor}: ${config.historyStatus}. Motivo: ${reason.trim()}`;
+  const currentNotes = normalizeEmployee(employee).notes;
+
+  employee.status = config.status;
+  employee.notes = currentNotes ? `${currentNotes}\n${historyLine}` : historyLine;
+
+  syncCollection("employees", employee).catch((error) => {
+    console.error("Falha ao atualizar status operacional do funcionario", {
+      table: "employees",
+      id,
+      action,
+      status: config.status,
+      error,
+    });
+    alert(`Nao foi possivel atualizar online: ${error.message}`);
+  });
+  saveState();
+  render();
+}
+
 async function uploadDocumentFile(form, fallbackPath = "") {
   const file = form.get("documentFile");
   if (!isOnlineMode() || !file || !file.name || file.size === 0) return fallbackPath;
@@ -3397,6 +3500,10 @@ function demobilizeCompany(id) {
 }
 
 function removeItem(type, id) {
+  if (type === "employee") {
+    alert("Funcionarios nao sao excluidos fisicamente. Use Desmobilizar, Inativar ou Bloquear para manter o historico.");
+    return;
+  }
   const collections = {
     company: "companies",
     employee: "employees",
