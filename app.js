@@ -140,6 +140,7 @@ const defaultData = {
   ],
   employees: [],
   documents: [],
+  historico: [],
 };
 
 const employeeSeed = [
@@ -204,6 +205,8 @@ let isLoading = Boolean(supabaseClient);
 let darkMode = localStorage.getItem("sctempresas.theme") !== "light";
 let sidebarCollapsed = localStorage.getItem("sctempresas.sidebar") === "collapsed";
 
+applyAutomaticStatusRules({ source: "Inicializacao local" });
+
 function loadState() {
   const saved = localStorage.getItem(STORAGE_KEY);
   if (saved) return migrateState(JSON.parse(saved));
@@ -239,6 +242,7 @@ function migrateState(data) {
   data.companies ||= [];
   data.employees ||= [];
   data.documents ||= [];
+  data.historico ||= data.history || [];
 
   if (!data.users.some((user) => user.role === "supplier")) {
     data.users.push({
@@ -398,6 +402,7 @@ async function hydrateSupabaseSession(authUser) {
   state.session = profile.id;
   state.users = upsertById(state.users, profile);
   await loadRemoteData();
+  await persistAutomaticStatusChanges(applyAutomaticStatusRules({ source: "Login e carga Supabase" }));
   saveState();
 }
 
@@ -423,6 +428,19 @@ async function loadRemoteData() {
   state.employees = employees.data.map(mapEmployeeFromDb);
   state.documents = documents.data.map(mapDocumentFromDb);
   state.users = profiles.data.map(mapProfileFromDb);
+  state.historico = await loadRemoteHistory();
+}
+
+async function loadRemoteHistory() {
+  if (!isOnlineMode()) return state.historico || [];
+  try {
+    const { data, error } = await supabaseClient.from("historico").select("*").order("criado_em", { ascending: false }).limit(500);
+    if (error) throw error;
+    return data || [];
+  } catch (error) {
+    console.warn("Tabela historico indisponivel ou sem permissao de leitura. O sistema continuara sem quebrar.", error);
+    return state.historico || [];
+  }
 }
 
 async function syncCollection(collection, item) {
@@ -452,6 +470,43 @@ async function syncCollection(collection, item) {
   } catch (error) {
     throw wrapPersistenceError(error, context);
   }
+}
+
+async function syncHistoryEvent(event) {
+  if (!isOnlineMode()) return;
+  const payload = {
+    id: event.id,
+    entidade_tipo: event.entityType,
+    entidade_id: event.entityId,
+    acao: event.action,
+    status_anterior: event.previousStatus || null,
+    status_novo: event.nextStatus || null,
+    usuario_id: event.userId || null,
+    usuario_nome: event.userName || "Sistema",
+    observacao: event.observation || "",
+    criado_em: event.createdAt,
+  };
+  try {
+    await ensureOnlineSession("public.historico");
+    const { error } = await supabaseClient.from("historico").insert(payload);
+    if (error) throw error;
+  } catch (error) {
+    console.warn("Nao foi possivel registrar em public.historico. A mudanca foi mantida localmente.", { payload, error });
+  }
+}
+
+async function persistAutomaticStatusChanges(changes) {
+  if (!isOnlineMode() || !changes.length) return;
+  const byKey = new Map();
+  changes.forEach((change) => byKey.set(`${change.collection}:${change.item.id}`, change));
+  await Promise.all(
+    Array.from(byKey.values()).map((change) =>
+      syncCollection(change.collection, change.item).catch((error) => {
+        console.warn("Nao foi possivel sincronizar status automatico.", { collection: change.collection, id: change.item.id, error });
+      }),
+    ),
+  );
+  await Promise.all(changes.map((change) => syncHistoryEvent(change.history)));
 }
 
 async function deleteRemote(collection, id) {
@@ -1599,6 +1654,134 @@ function employeePatrimonialStatus(employee) {
   return "Pendente";
 }
 
+function applyAutomaticStatusRules({ syncRemote = false, source = "Motor automatico de status" } = {}) {
+  if (!state?.companies || !state?.employees || !state?.documents) return [];
+  state.historico ||= [];
+  const changes = [];
+
+  const registerStatusChange = (collection, entityType, item, nextStatus, observation) => {
+    const previousStatus = item.status || "";
+    if (!nextStatus || previousStatus === nextStatus) return;
+    item.status = nextStatus;
+    const history = createHistoryEvent({
+      entityType,
+      entityId: item.id,
+      action: "Status automatico",
+      previousStatus,
+      nextStatus,
+      observation: `${source}: ${observation}`,
+    });
+    state.historico = upsertById(state.historico, history);
+    changes.push({ collection, item, history });
+  };
+
+  state.employees.forEach((employee) => {
+    const item = normalizeEmployee(employee);
+    if (["Inativo", "Desmobilizado", "Desmobilizada"].includes(item.status)) return;
+    const docs = state.documents.filter((doc) => doc.employeeId === item.id);
+    const expiredDocs = docs.filter((doc) => docStatus(doc) === "Vencido" || doc.status === "Reprovado");
+    const pendingDocs = docs.filter((doc) => ["Pendente", "A vencer", "Reprovado", "Vencido"].includes(docStatus(doc)));
+    const hasPendingApproval = ["Aprovado", "Ativo"].includes(item.status) && pendingDocs.length && !hasPendingApprovalException(item);
+
+    if (expiredDocs.length) {
+      registerStatusChange("employees", "funcionario", employee, "Bloqueado", `documento vencido ou reprovado (${expiredDocs[0].type})`);
+      employee.docStatus = "Vencido";
+      return;
+    }
+    if (hasPendingApproval || pendingDocs.length) {
+      const sector = documentOperationalSector(pendingDocs[0]);
+      const nextStatus =
+        sector === "Medicina"
+          ? "Aguardando exames"
+          : sector === "EHS"
+            ? "Em treinamento"
+            : sector === "Patrimonial"
+              ? "Aguardando aprovacao do fiscal"
+              : "Documentos pendente";
+      registerStatusChange("employees", "funcionario", employee, nextStatus, `pendencia documental no setor ${sector}`);
+      employee.docStatus = pendingDocs.some((doc) => docStatus(doc) === "A vencer") ? "A vencer" : "Pendente";
+      return;
+    }
+    if (item.docStatus !== "Regular" && docs.length && docs.every((doc) => docStatus(doc) === "Aprovado")) {
+      employee.docStatus = "Regular";
+    }
+  });
+
+  state.companies.forEach((company) => {
+    const item = normalizeCompany(company);
+    const days = contractDays(item);
+    const docs = state.documents.filter((doc) => doc.companyId === item.id);
+    const employees = state.employees.filter((employee) => employee.companyId === item.id);
+    const hasCriticalPendency = docs.some((doc) => ["Vencido", "Reprovado"].includes(docStatus(doc))) || employees.some((employee) => normalizeEmployee(employee).status === "Bloqueado");
+    const hasPendency = docs.some((doc) => ["Pendente", "A vencer"].includes(docStatus(doc))) || employees.some((employee) => ["Documentos pendente", "Aguardando exames", "Em treinamento", "Aguardando aprovacao do fiscal"].includes(normalizeEmployee(employee).status));
+
+    if (Number.isFinite(days) && days < 0 && !["Inativa", "Desmobilizada"].includes(item.status)) {
+      registerStatusChange("companies", "contrato", company, "Inativa", "contrato vencido");
+      return;
+    }
+    if (hasCriticalPendency && !["Inativa", "Desmobilizada", "Bloqueada"].includes(item.status)) {
+      registerStatusChange("companies", "empresa", company, "Bloqueada", "pendencia critica em contrato, documento ou funcionario");
+      return;
+    }
+    if (hasPendency && item.status === "Ativa") {
+      registerStatusChange("companies", "empresa", company, "Pendente", "pendencias documentais por setor");
+    }
+  });
+
+  if (changes.length) {
+    saveState();
+    if (syncRemote) persistAutomaticStatusChanges(changes);
+  }
+  return changes;
+}
+
+function createHistoryEvent({ entityType, entityId, action, previousStatus, nextStatus, observation }) {
+  const user = currentUser();
+  return {
+    id: crypto.randomUUID(),
+    entityType,
+    entityId,
+    action,
+    previousStatus,
+    nextStatus,
+    userId: user?.id || null,
+    userName: user?.name || user?.email || "Sistema",
+    observation,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function recordManualStatusHistory(entityType, entityId, previousStatus, nextStatus, observation) {
+  if ((previousStatus || "") === (nextStatus || "")) return null;
+  const history = createHistoryEvent({
+    entityType,
+    entityId,
+    action: "Status manual",
+    previousStatus,
+    nextStatus,
+    observation,
+  });
+  state.historico = upsertById(state.historico, history);
+  syncHistoryEvent(history);
+  return history;
+}
+
+function hasPendingApprovalException(employee) {
+  const registration = employee.registration || employee.matricula;
+  const manager = employee.manager || employee.gestor || employee.responsible || employee.responsavel;
+  const reason = employee.exceptionReason || employee.motivo || (/motivo/i.test(employee.notes || "") ? employee.notes : "");
+  const deadline = employee.exceptionDeadline || employee.prazo;
+  return Boolean(manager && registration && reason && deadline && new Date(deadline) >= new Date(today()));
+}
+
+function documentOperationalSector(doc = {}) {
+  const text = `${doc.type || ""} ${documentVisibleNotes(doc) || ""}`.toLowerCase();
+  if (/aso|exame|medic/.test(text)) return "Medicina";
+  if (/nr-|treinamento|epi|segur|ehs/.test(text)) return "EHS";
+  if (/patrimonial|cracha|liberacao|portaria/.test(text)) return "Patrimonial";
+  return "Fiscal";
+}
+
 function renderDocuments() {
   const baseItems = visibleDocuments();
   const filteredItems = filtered(baseItems, [
@@ -2720,6 +2903,7 @@ function statusBadge(status) {
     Desmobilizada: "bad",
     Reprovado: "bad",
     Bloqueado: "bad",
+    Bloqueada: "bad",
     Preparado: "info",
     Roadmap: "info",
   }[status] || "info";
@@ -2737,6 +2921,7 @@ function statusClass(status) {
     Reprovado: "bad",
     Vencido: "bad",
     Bloqueado: "bad",
+    Bloqueada: "bad",
     Inativo: "bad",
     Desmobilizado: "bad",
     Desmobilizada: "bad",
@@ -3196,6 +3381,7 @@ function documentForm(id) {
       const payload = normalizeDocumentFormPayload(form, item.filePath);
       validateDocumentPayload(payload);
       const filePath = await uploadDocumentFile(form, item.filePath);
+      const previousStatus = item.status || "";
       const saved = {
         ...(id ? item : { id: crypto.randomUUID() }),
         ...payload,
@@ -3205,6 +3391,8 @@ function documentForm(id) {
       try {
         await syncCollection("documents", saved);
         upsert("documents", id || saved.id, saved);
+        recordManualStatusHistory("documento", saved.id, previousStatus, saved.status, `Documento ${saved.type} salvo pelo formulario.`);
+        await persistAutomaticStatusChanges(applyAutomaticStatusRules({ source: "Documento salvo" }));
       } catch (error) {
         throw wrapPersistenceError(error, {
           table: "public.documents",
@@ -3337,6 +3525,7 @@ function upsert(collection, id, data) {
 
 function saveCompanyFromForm(form) {
   const id = form.get("id") || null;
+  const previousStatus = state.companies.find((company) => company.id === id)?.status || "";
   const saved = upsert("companies", id, {
     name: form.get("name"),
     cnpj: form.get("cnpj"),
@@ -3351,7 +3540,9 @@ function saveCompanyFromForm(form) {
     contract: form.get("contract"),
     risk: "Medio",
   });
+  recordManualStatusHistory("empresa", saved.id, previousStatus, saved.status, `Empresa ${saved.name} salva pelo formulario.`);
   syncCollection("companies", saved).catch((error) => alert(`Nao foi possivel salvar online: ${error.message}`));
+  persistAutomaticStatusChanges(applyAutomaticStatusRules({ source: "Empresa salva" }));
   saveState();
   editingCompanyId = null;
   render();
@@ -3364,6 +3555,7 @@ function saveEmployeeFromForm(form) {
     return;
   }
   const existing = state.employees.find((employee) => employee.id === id);
+  const previousStatus = existing?.status || "";
   const canEditFullEmployee =
     currentUser()?.role === "admin" ||
     (currentUser()?.role === "supplier" && (!existing || existing.companyId === currentUser()?.companyId));
@@ -3384,7 +3576,9 @@ function saveEmployeeFromForm(form) {
     : payload;
 
   const saved = upsert("employees", id, canEditFullEmployee ? payload : fiscalPayload);
+  recordManualStatusHistory("funcionario", saved.id, previousStatus, saved.status, `Funcionario ${saved.name} salvo pelo formulario.`);
   syncCollection("employees", saved).catch((error) => alert(`Nao foi possivel salvar online: ${error.message}`));
+  persistAutomaticStatusChanges(applyAutomaticStatusRules({ source: "Funcionario salvo" }));
   saveState();
   editingEmployeeId = null;
   render();
@@ -3417,11 +3611,45 @@ function updateEmployeeOperationalStatus(id, action) {
     dateStyle: "short",
     timeStyle: "short",
   }).format(new Date());
-  const historyLine = `[${timestamp}] ${actor}: ${config.historyStatus}. Motivo: ${reason.trim()}`;
+  let historyLine = `[${timestamp}] ${actor}: ${config.historyStatus}. Motivo: ${reason.trim()}`;
   const currentNotes = normalizeEmployee(employee).notes;
+  const previousStatus = employee.status || "";
+
+  if (action === "demobilize") {
+    const approver = prompt("Informe o responsavel que aprovou a desmobilizacao:");
+    if (!approver || !approver.trim()) {
+      const pendingLine = `[${timestamp}] ${actor}: Solicitacao de desmobilizacao pendente de aprovacao. Motivo: ${reason.trim()}`;
+      employee.notes = currentNotes ? `${currentNotes}\n${pendingLine}` : pendingLine;
+      const history = createHistoryEvent({
+        entityType: "funcionario",
+        entityId: employee.id,
+        action: "Desmobilizacao solicitada",
+        previousStatus,
+        nextStatus: previousStatus,
+        observation: `Motivo: ${reason.trim()}. Aguardando aprovacao do responsavel.`,
+      });
+      state.historico = upsertById(state.historico, history);
+      syncHistoryEvent(history);
+      syncCollection("employees", employee).catch((error) => alert(`Nao foi possivel atualizar online: ${error.message}`));
+      saveState();
+      render();
+      alert("Desmobilizacao registrada como pendente. O status so muda apos aprovacao do responsavel.");
+      return;
+    }
+    historyLine = `${historyLine}. Aprovado por: ${approver.trim()}`;
+  }
 
   employee.status = config.status;
   employee.notes = currentNotes ? `${currentNotes}\n${historyLine}` : historyLine;
+  const history = createHistoryEvent({
+    entityType: "funcionario",
+    entityId: employee.id,
+    action: config.historyStatus,
+    previousStatus,
+    nextStatus: config.status,
+    observation: `Motivo: ${reason.trim()}`,
+  });
+  state.historico = upsertById(state.historico, history);
 
   syncCollection("employees", employee).catch((error) => {
     console.error("Falha ao atualizar status operacional do funcionario", {
@@ -3433,6 +3661,8 @@ function updateEmployeeOperationalStatus(id, action) {
     });
     alert(`Nao foi possivel atualizar online: ${error.message}`);
   });
+  syncHistoryEvent(history);
+  persistAutomaticStatusChanges(applyAutomaticStatusRules({ source: "Acao operacional de funcionario" }));
   saveState();
   render();
 }
@@ -3468,6 +3698,7 @@ function updateDocumentStatus(id, status) {
   const doc = state.documents.find((item) => item.id === id);
   if (!doc || !can("approveDocuments", doc)) return;
   const previous = structuredClone(doc);
+  const previousStatus = doc.status || "";
   doc.status = status;
   doc.notes = documentVisibleNotes(doc);
   doc.auditTrail = [
@@ -3481,10 +3712,21 @@ function updateDocumentStatus(id, status) {
       comment: `${roleName(currentUser().role)} marcou documento como ${status.toLowerCase()}.`,
     },
   ];
+  const history = createHistoryEvent({
+    entityType: "documento",
+    entityId: doc.id,
+    action: "Status documental",
+    previousStatus,
+    nextStatus: status,
+    observation: `Status alterado manualmente para ${status}`,
+  });
+  state.historico = upsertById(state.historico, history);
   syncCollection("documents", doc).catch((error) => {
     logPersistenceError(error, { table: "public.documents", operation: "atualizar status" });
     alert(`Nao foi possivel atualizar online.\n\n${persistenceMessage(error)}`);
   });
+  syncHistoryEvent(history);
+  persistAutomaticStatusChanges(applyAutomaticStatusRules({ source: "Status documental atualizado" }));
   saveState();
   render();
 }
@@ -3493,8 +3735,19 @@ function demobilizeCompany(id) {
   const company = state.companies.find((item) => item.id === id);
   if (!company) return;
   if (!confirm(`Deseja desmobilizar o contrato da empresa ${company.name}?`)) return;
+  const previousStatus = company.status || "";
   company.status = "Desmobilizada";
+  const history = createHistoryEvent({
+    entityType: "contrato",
+    entityId: company.id,
+    action: "Desmobilizacao de contrato",
+    previousStatus,
+    nextStatus: company.status,
+    observation: `Contrato ${company.contract || company.name} desmobilizado manualmente.`,
+  });
+  state.historico = upsertById(state.historico, history);
   syncCollection("companies", company).catch((error) => alert(`Nao foi possivel atualizar online: ${error.message}`));
+  syncHistoryEvent(history);
   saveState();
   render();
 }
@@ -3640,6 +3893,10 @@ function mapEmployeeFromDb(employee) {
     address: employee.address,
     notes: employee.notes,
     status: employee.hiring_status,
+    registration: employee.registration || employee.matricula,
+    manager: employee.manager || employee.gestor || employee.responsavel,
+    exceptionReason: employee.exception_reason || employee.motivo,
+    exceptionDeadline: employee.exception_deadline || employee.prazo,
   });
 }
 
