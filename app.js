@@ -295,6 +295,67 @@ function isOnlineMode() {
   return authMode === "supabase" && supabaseClient;
 }
 
+class PersistenceError extends Error {
+  constructor(message, context = {}, originalError = null) {
+    super(message);
+    this.name = "PersistenceError";
+    this.context = context;
+    this.originalError = originalError;
+  }
+}
+
+function persistenceMessage(error) {
+  if (error instanceof PersistenceError) return error.message;
+  return error?.message || "Erro desconhecido de persistencia.";
+}
+
+function logPersistenceError(error, fallbackContext = {}) {
+  const context = error?.context || fallbackContext;
+  const originalError = error?.originalError || error;
+  console.error("[Persistencia Supabase] Falha ao salvar dados", {
+    tabela: context.table || "nao identificada",
+    operacao: context.operation || "nao identificada",
+    dica: context.hint || "Verifique policies, auth.uid(), foreign keys e campos obrigatorios.",
+    payload: context.payload || null,
+    erro: originalError,
+  });
+}
+
+function wrapPersistenceError(error, context) {
+  if (error instanceof PersistenceError) return error;
+  const rawMessage = String(error?.message || "");
+  const code = error?.code || error?.statusCode || error?.status;
+  const isRls = code === "42501" || /row-level security|violates row-level security|rls/i.test(rawMessage);
+  const isFk = code === "23503" || /foreign key/i.test(rawMessage);
+  const isRequired = code === "23502" || /null value|not-null|violates not-null/i.test(rawMessage);
+  const isAuth = /auth\.uid|jwt|session|not authenticated|unauthorized/i.test(rawMessage);
+  const hint = isRls
+    ? "Permissao negada por policy. Se a tabela public.documents esta unrestricted, verifique principalmente policies do bucket storage.objects e auth.uid()."
+    : isFk
+      ? "Chave estrangeira invalida. Confira se empresa e funcionario existem e se o funcionario pertence a empresa selecionada."
+      : isRequired
+        ? "Campo obrigatorio ausente. Confira empresa, tipo, status e demais campos obrigatorios."
+        : isAuth
+          ? "Sessao invalida ou auth.uid() indisponivel. Entre novamente no sistema."
+          : "Falha retornada pelo Supabase. Veja o erro detalhado no console.";
+  return new PersistenceError(`Falha em ${context.table}: ${hint}`, { ...context, hint }, error);
+}
+
+async function ensureOnlineSession(table) {
+  if (!isOnlineMode()) return null;
+  const {
+    data: { user },
+    error,
+  } = await supabaseClient.auth.getUser();
+  if (error || !user) {
+    throw wrapPersistenceError(error || new Error("Usuario nao autenticado; auth.uid() indisponivel."), {
+      table,
+      operation: "auth.uid()",
+    });
+  }
+  return user;
+}
+
 async function boot() {
   if (!supabaseClient) {
     render();
@@ -362,8 +423,19 @@ async function syncCollection(collection, item) {
     documents: mapDocumentToDb,
     users: mapProfileToDb,
   }[collection];
-  const { error } = await supabaseClient.from(table).upsert(mapper(item));
-  if (error) throw error;
+  const payload = mapper(item);
+  const context = {
+    table: `public.${table}`,
+    operation: "upsert",
+    payload,
+  };
+  try {
+    await ensureOnlineSession(context.table);
+    const { error } = await supabaseClient.from(table).upsert(payload);
+    if (error) throw error;
+  } catch (error) {
+    throw wrapPersistenceError(error, context);
+  }
 }
 
 async function deleteRemote(collection, id) {
@@ -2211,7 +2283,8 @@ function openForm(type, id = null) {
       modal.remove();
       render();
     } catch (error) {
-      alert(`Nao foi possivel salvar: ${error.message}`);
+      logPersistenceError(error, { table: type === "document" ? "public.documents/storage.objects" : type, operation: "salvar formulario" });
+      alert(`Nao foi possivel salvar.\n\n${persistenceMessage(error)}`);
       submit.disabled = false;
     }
   });
@@ -2333,19 +2406,93 @@ function documentForm(id) {
       textAreaField("notes", "Observacoes", item.notes),
     ],
     async save(form) {
+      const payload = normalizeDocumentFormPayload(form, item.filePath);
+      validateDocumentPayload(payload);
       const filePath = await uploadDocumentFile(form, item.filePath);
-      const saved = upsert("documents", id, {
+      const saved = {
+        ...(id ? item : { id: crypto.randomUUID() }),
+        ...payload,
+        filePath: filePath || payload.filePath,
+      };
+      try {
+        await syncCollection("documents", saved);
+        upsert("documents", id || saved.id, saved);
+      } catch (error) {
+        throw wrapPersistenceError(error, {
+          table: "public.documents",
+          operation: "upsert",
+          payload: mapDocumentToDb(saved),
+        });
+      }
+    },
+  };
+}
+
+function normalizeDocumentFormPayload(form, fallbackPath = "") {
+  return {
         companyId: form.get("companyId"),
         employeeId: form.get("employeeId"),
         type: form.get("type"),
         dueDate: form.get("dueDate"),
         status: form.get("status"),
-        filePath: filePath || form.get("filePath"),
+    filePath: form.get("filePath") || fallbackPath || "",
         notes: form.get("notes"),
-      });
-      await syncCollection("documents", saved);
-    },
   };
+}
+
+function validateDocumentPayload(payload) {
+  if (!payload.companyId) {
+    throw new PersistenceError("Falha em public.documents: selecione uma empresa antes de salvar o documento.", {
+      table: "public.documents",
+      operation: "validacao",
+      hint: "Campo obrigatorio company_id ausente.",
+      payload,
+    });
+  }
+  const companyExists = state.companies.some((company) => company.id === payload.companyId);
+  if (!companyExists) {
+    throw new PersistenceError("Falha em public.documents: empresa vinculada nao existe ou nao esta disponivel para o usuario atual.", {
+      table: "public.documents",
+      operation: "validacao de foreign key",
+      hint: "company_id nao encontrado em public.companies.",
+      payload,
+    });
+  }
+  if (payload.employeeId) {
+    const employee = state.employees.find((item) => item.id === payload.employeeId);
+    if (!employee) {
+      throw new PersistenceError("Falha em public.documents: funcionario vinculado nao existe.", {
+        table: "public.documents",
+        operation: "validacao de foreign key",
+        hint: "employee_id nao encontrado em public.employees.",
+        payload,
+      });
+    }
+    if (employee.companyId !== payload.companyId) {
+      throw new PersistenceError("Falha em public.documents: o funcionario selecionado nao pertence a empresa do documento.", {
+        table: "public.documents",
+        operation: "validacao de relacionamento",
+        hint: "employee_id pertence a outra company_id.",
+        payload,
+      });
+    }
+  }
+  if (!payload.type) {
+    throw new PersistenceError("Falha em public.documents: informe o tipo de documento.", {
+      table: "public.documents",
+      operation: "validacao",
+      hint: "Campo obrigatorio type ausente.",
+      payload,
+    });
+  }
+  if (!payload.status) {
+    throw new PersistenceError("Falha em public.documents: informe o status do documento.", {
+      table: "public.documents",
+      operation: "validacao",
+      hint: "Campo obrigatorio status ausente.",
+      payload,
+    });
+  }
 }
 
 function userForm(id) {
@@ -2383,11 +2530,11 @@ function userForm(id) {
 }
 
 function upsert(collection, id, data) {
-  if (id) {
+  if (id && state[collection].some((item) => item.id === id)) {
     state[collection] = state[collection].map((item) => (item.id === id ? { ...item, ...data } : item));
     return state[collection].find((item) => item.id === id);
   } else {
-    const item = { id: crypto.randomUUID(), ...data };
+    const item = { id: id || crypto.randomUUID(), ...data };
     state[collection].push(item);
     return item;
   }
@@ -2454,9 +2601,25 @@ async function uploadDocumentFile(form, fallbackPath = "") {
   const companyId = form.get("companyId") || "sem-empresa";
   const cleanName = file.name.replace(/[^\w.-]+/g, "_");
   const path = `${companyId}/${crypto.randomUUID()}-${cleanName}`;
-  const { error } = await supabaseClient.storage.from("documents").upload(path, file, { upsert: false });
-  if (error) throw error;
-  return path;
+  const context = {
+    table: "storage.objects",
+    operation: "upload bucket documents",
+    payload: {
+      bucket: "documents",
+      path,
+      fileName: file.name,
+      fileSize: file.size,
+      companyId,
+    },
+  };
+  try {
+    await ensureOnlineSession(context.table);
+    const { error } = await supabaseClient.storage.from("documents").upload(path, file, { upsert: false });
+    if (error) throw error;
+    return path;
+  } catch (error) {
+    throw wrapPersistenceError(error, context);
+  }
 }
 
 function updateDocumentStatus(id, status) {
@@ -2464,7 +2627,10 @@ function updateDocumentStatus(id, status) {
   if (!doc || !can("approveDocuments", doc)) return;
   doc.status = status;
   doc.notes = `${doc.notes ? `${doc.notes}\n` : ""}${roleName(currentUser().role)}: documento ${status.toLowerCase()} em ${formatDate(today())}`;
-  syncCollection("documents", doc).catch((error) => alert(`Nao foi possivel atualizar online: ${error.message}`));
+  syncCollection("documents", doc).catch((error) => {
+    logPersistenceError(error, { table: "public.documents", operation: "atualizar status" });
+    alert(`Nao foi possivel atualizar online.\n\n${persistenceMessage(error)}`);
+  });
   saveState();
   render();
 }
