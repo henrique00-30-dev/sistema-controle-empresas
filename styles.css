@@ -262,6 +262,11 @@ label {
   font-size: 0.9rem;
 }
 
+.required-mark {
+  color: #e7bd7f;
+  font-weight: 950;
+}
+
 input,
 select,
 textarea {
@@ -1228,6 +1233,30 @@ tr:last-child td {
 .company-form,
 .employee-form {
   grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.form-section {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(245, 241, 234, 0.035);
+}
+
+.form-section legend {
+  padding: 0 8px;
+  color: #d6a15f;
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.form-section-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
 }
 
 .form-actions {
@@ -2354,6 +2383,10 @@ tr:last-child td {
   .employee-form {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .form-section-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 640px) {
@@ -2383,7 +2416,8 @@ tr:last-child td {
   .compliance-grid,
   .form-grid.two,
   .company-form,
-  .employee-form {
+  .employee-form,
+  .form-section-grid {
     grid-template-columns: 1fr;
   }
 

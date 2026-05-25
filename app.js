@@ -229,6 +229,7 @@ const hiringStatuses = [
 
 const documentStatuses = ["Regular", "Pendente", "A vencer", "Vencido", "Reprovado"];
 const DOC_META_MARKER = "\n\n[SCT_ENTERPRISE_META]";
+const EMPLOYEE_META_MARKER = "\n\n[SCT_EMPLOYEE_META]";
 const DOCUMENT_WORKFLOW_SECTORS = ["Fiscal", "Medicina", "EHS", "Patrimonial"];
 
 const app = document.querySelector("#app") || document.querySelector("#root");
@@ -1433,6 +1434,7 @@ function renderEmployeeEditor(employee = null) {
   if (!can("create.employee") && !can("edit.employee", employee)) return "";
   const item = normalizeEmployee(employee || {});
   const companyOptions = visibleCompanies().map((company) => ({ value: company.id, label: company.name }));
+  const linkedCompany = state.companies.find((company) => company.id === item.companyId) || state.companies[0];
   if (!companyOptions.length) {
     return `
       <section class="panel company-editor">
@@ -1451,16 +1453,35 @@ function renderEmployeeEditor(employee = null) {
       </div>
       <form id="employeeEditorForm" class="form-grid employee-form">
         <input type="hidden" name="id" value="${escapeAttr(employee?.id || "")}" />
-        ${inputField("name", "Nome", item.name, "required")}
-        ${inputField("cpf", "CPF", item.cpf, "required")}
-        ${inputField("role", "Funcao", item.role, "required")}
-        ${selectField("companyId", "Empresa vinculada", item.companyId || state.companies[0]?.id, companyOptions)}
-        ${inputField("asoValidity", "Validade de ASO", item.asoValidity, "type='date' required")}
-        ${inputField("trainingValidity", "Validade de treinamento", item.trainingValidity, "type='date' required")}
-        ${selectField("docStatus", "Status documental", item.docStatus || "Pendente", documentStatuses.map(option))}
-        ${selectField("status", "Status de contratacao", item.status || "Em analise", hiringStatuses.map(option))}
-        ${textAreaField("address", "Endereco", item.address)}
-        ${textAreaField("notes", "Observacoes", item.notes)}
+        ${formSection("Identificacao", [
+          inputField("registration", "Matricula do funcionario", item.registration, "required"),
+          inputField("name", "Nome completo", item.name, "required"),
+          inputField("cpf", "CPF", item.cpf, "required inputmode='numeric' maxlength='14' data-mask='cpf' placeholder='000.000.000-00'"),
+          inputField("birthDate", "Data de nascimento", item.birthDate, "type='date' required"),
+          inputField("motherName", "Nome da mae", item.motherName, "required"),
+          inputField("fatherName", "Nome do pai", item.fatherName),
+        ])}
+        ${formSection("Vinculo contratual", [
+          inputField("role", "Funcao", item.role, "required"),
+          selectField("companyId", "Empresa vinculada", item.companyId || state.companies[0]?.id, companyOptions),
+          inputField("contract", "Contrato vinculado", item.contract || linkedCompany?.contract || "", "required"),
+          inputField("costCenter", "Centro de custo", item.costCenter || employeeCostCenter(item, linkedCompany), "required"),
+        ])}
+        ${formSection("Endereco", [
+          inputField("cep", "CEP", item.cep, "required inputmode='numeric' maxlength='9' data-mask='cep' placeholder='00000-000'"),
+          inputField("city", "Cidade", item.city, "required"),
+          inputField("district", "Bairro", item.district, "required"),
+          inputField("street", "Rua", item.street, "required"),
+          inputField("number", "Numero", item.number, "required"),
+          inputField("complement", "Complemento", item.complement),
+        ])}
+        ${formSection("Status operacional", [
+          inputField("asoValidity", "Validade de ASO", item.asoValidity, "type='date' required"),
+          inputField("trainingValidity", "Validade de treinamento", item.trainingValidity, "type='date' required"),
+          selectField("docStatus", "Status documental", item.docStatus || "Pendente", documentStatuses.map(option)),
+          selectField("status", "Status", item.status || "Em analise", hiringStatuses.map(option)),
+          textAreaField("notes", "Observacoes", item.notes),
+        ])}
         <div class="form-actions wide">
           <button class="btn primary" type="submit">${icon("save")} Salvar</button>
         </div>
@@ -1614,14 +1635,22 @@ function renderEmployeeRecordTab(employee, tab) {
         ${detailCard("Nome", employee.name)}
         ${detailCard("CPF", employee.cpf || "Nao informado")}
         ${detailCard("Matricula", employeeRegistration(employee))}
+        ${detailCard("Data de nascimento", formatDate(employee.birthDate))}
+        ${detailCard("Nome da mae", employee.motherName || "Nao informado")}
+        ${detailCard("Nome do pai", employee.fatherName || "Nao informado")}
         ${detailCard("Empresa", company?.name || "Nao informado")}
-        ${detailCard("Contrato vinculado", company?.contract || "Nao informado")}
-        ${detailCard("Centro de custo", employeeCostCenter(employee, company))}
+        ${detailCard("Contrato vinculado", employee.contract || company?.contract || "Nao informado")}
+        ${detailCard("Centro de custo", employee.costCenter || employeeCostCenter(employee, company))}
         ${detailCard("Funcao", employee.role || "Nao informado")}
         ${detailCard("Status", statusBadge(employee.status))}
         ${detailCard("Data de admissao", formatDate(employee.admission || employee.startDate))}
         ${detailCard("Situacao", statusBadge(employeeActiveState(employee)))}
-        ${detailCard("Endereco", employee.address || "Nao informado")}
+        ${detailCard("CEP", employee.cep || "Nao informado")}
+        ${detailCard("Cidade", employee.city || "Nao informado")}
+        ${detailCard("Bairro", employee.district || "Nao informado")}
+        ${detailCard("Rua", employee.street || "Nao informado")}
+        ${detailCard("Numero", employee.number || "Nao informado")}
+        ${detailCard("Complemento", employee.complement || "Nao informado")}
         ${detailCard("Observacoes", employee.notes || "Sem observacoes")}
       </div>
     `;
@@ -3123,6 +3152,7 @@ function statusClass(status) {
 }
 
 function bindViewEvents() {
+  bindInputMasks(document);
   document.querySelectorAll(".search-control").forEach((input) => {
     input.addEventListener("input", (event) => {
       const cursor = event.target.selectionStart || 0;
@@ -3339,12 +3369,42 @@ function bindViewEvents() {
     event.preventDefault();
     saveEmployeeFromForm(new FormData(event.currentTarget));
   });
+  bindEmployeeCompanyContractSync();
 
   document.querySelectorAll("[data-employee-status]").forEach((button) => {
     button.addEventListener("click", () => {
       employeeStatusFilter = button.dataset.employeeStatus;
       renderApp();
     });
+  });
+}
+
+function bindInputMasks(root = document) {
+  root.querySelectorAll("[data-mask='cpf']").forEach((input) => {
+    input.value = formatCpf(input.value);
+    input.addEventListener("input", () => {
+      input.value = formatCpf(input.value);
+    });
+  });
+  root.querySelectorAll("[data-mask='cep']").forEach((input) => {
+    input.value = formatCep(input.value);
+    input.addEventListener("input", () => {
+      input.value = formatCep(input.value);
+    });
+  });
+}
+
+function bindEmployeeCompanyContractSync() {
+  const form = document.querySelector("#employeeEditorForm");
+  if (!form) return;
+  const companySelect = form.querySelector("[name='companyId']");
+  const contractInput = form.querySelector("[name='contract']");
+  const costCenterInput = form.querySelector("[name='costCenter']");
+  companySelect?.addEventListener("change", () => {
+    const company = state.companies.find((item) => item.id === companySelect.value);
+    if (!company) return;
+    contractInput.value = company.contract || contractInput.value || "";
+    costCenterInput.value = company.costCenter || company.contract || costCenterInput.value || "";
   });
 }
 
@@ -3404,7 +3464,8 @@ function formConfig(type, id) {
 }
 
 function inputField(name, label, value = "", attrs = "") {
-  return `<label>${label}<input name="${name}" value="${escapeAttr(value)}" ${attrs} /></label>`;
+  const required = /\brequired\b/.test(attrs);
+  return `<label>${label}${required ? ` <span class="required-mark">*</span>` : ""}<input name="${name}" value="${escapeAttr(value)}" ${attrs} /></label>`;
 }
 
 function selectField(name, label, value, options) {
@@ -3415,6 +3476,15 @@ function selectField(name, label, value, options) {
 
 function textAreaField(name, label, value = "") {
   return `<label class="wide">${label}<textarea name="${name}">${escapeHtml(value)}</textarea></label>`;
+}
+
+function formSection(title, fields) {
+  return `
+    <fieldset class="form-section wide">
+      <legend>${title}</legend>
+      <div class="form-section-grid">${fields.join("")}</div>
+    </fieldset>
+  `;
 }
 
 function fileField(name, label) {
@@ -3751,6 +3821,16 @@ function saveEmployeeFromForm(form) {
     alert("Selecione uma empresa vinculada para o funcionario.");
     return;
   }
+  const cpfDigits = onlyDigits(form.get("cpf"));
+  const cepDigits = onlyDigits(form.get("cep"));
+  if (cpfDigits.length !== 11) {
+    alert("CPF invalido. Informe exatamente 11 numeros.");
+    return;
+  }
+  if (cepDigits.length !== 8) {
+    alert("CEP invalido. Informe exatamente 8 numeros.");
+    return;
+  }
   const existing = state.employees.find((employee) => employee.id === id);
   const previousStatus = existing?.status || "";
   const canEditFullEmployee =
@@ -3758,13 +3838,25 @@ function saveEmployeeFromForm(form) {
     (currentUser()?.role === "supplier" && (!existing || existing.companyId === currentUser()?.companyId));
   const payload = {
     name: form.get("name"),
-    cpf: form.get("cpf"),
+    cpf: cpfDigits,
+    registration: form.get("registration"),
+    birthDate: form.get("birthDate"),
+    motherName: form.get("motherName"),
+    fatherName: form.get("fatherName"),
     role: form.get("role"),
     companyId: form.get("companyId"),
+    contract: form.get("contract"),
+    costCenter: form.get("costCenter"),
+    cep: cepDigits,
+    city: form.get("city"),
+    district: form.get("district"),
+    street: form.get("street"),
+    number: form.get("number"),
+    complement: form.get("complement"),
     asoValidity: form.get("asoValidity"),
     trainingValidity: form.get("trainingValidity"),
     docStatus: form.get("docStatus"),
-    address: form.get("address"),
+    address: buildEmployeeAddressFromForm(form),
     notes: form.get("notes"),
     status: form.get("status"),
   };
@@ -3779,6 +3871,20 @@ function saveEmployeeFromForm(form) {
   saveState();
   editingEmployeeId = null;
   render();
+}
+
+function buildEmployeeAddressFromForm(form) {
+  const parts = [
+    form.get("street"),
+    form.get("number"),
+    form.get("complement"),
+    form.get("district"),
+    form.get("city"),
+    formatCep(form.get("cep")),
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  return parts.join(", ");
 }
 
 function updateEmployeeOperationalStatus(id, action) {
@@ -4005,17 +4111,67 @@ function normalizeCompany(company) {
 }
 
 function normalizeEmployee(employee) {
+  const meta = employeeMeta(employee);
   return {
     ...employee,
+    registration: employee.registration || employee.matricula || meta.registration || "",
+    cpf: formatCpf(employee.cpf || ""),
+    birthDate: employee.birthDate || employee.birth_date || meta.birthDate || "",
+    motherName: employee.motherName || employee.mother_name || meta.motherName || "",
+    fatherName: employee.fatherName || employee.father_name || meta.fatherName || "",
     role: employee.role || "",
     companyId: employee.companyId || state.companies[0]?.id || "",
+    contract: employee.contract || meta.contract || "",
+    costCenter: employee.costCenter || employee.centroCusto || meta.costCenter || "",
+    cep: formatCep(employee.cep || meta.cep || ""),
+    city: employee.city || meta.city || "",
+    district: employee.district || employee.bairro || meta.district || "",
+    street: employee.street || employee.rua || meta.street || "",
+    number: employee.number || employee.numero || meta.number || "",
+    complement: employee.complement || employee.complemento || meta.complement || "",
     asoValidity: employee.asoValidity || employee.admission || "",
     trainingValidity: employee.trainingValidity || "",
     docStatus: employee.docStatus || "Pendente",
     address: employee.address || "",
-    notes: employee.notes || "",
+    notes: employeeVisibleNotes(employee),
     status: employee.status || "Em analise",
   };
+}
+
+function employeeMeta(employee = {}) {
+  if (employee.employeeMeta && typeof employee.employeeMeta === "object") return employee.employeeMeta;
+  const notes = String(employee.notes || "");
+  const [, rawMeta] = notes.split(EMPLOYEE_META_MARKER);
+  if (!rawMeta) return {};
+  try {
+    return JSON.parse(rawMeta.trim()) || {};
+  } catch (error) {
+    console.warn("Nao foi possivel ler metadados do funcionario.", error);
+    return {};
+  }
+}
+
+function employeeVisibleNotes(employee = {}) {
+  return String(employee.notes || "").split(EMPLOYEE_META_MARKER)[0].trim();
+}
+
+function serializeEmployeeNotes(employee) {
+  const item = normalizeEmployee({ ...employee, notes: employeeVisibleNotes(employee) });
+  const meta = {
+    registration: item.registration || "",
+    birthDate: item.birthDate || "",
+    motherName: item.motherName || "",
+    fatherName: item.fatherName || "",
+    contract: item.contract || "",
+    costCenter: item.costCenter || "",
+    cep: onlyDigits(item.cep),
+    city: item.city || "",
+    district: item.district || "",
+    street: item.street || "",
+    number: item.number || "",
+    complement: item.complement || "",
+  };
+  return `${employeeVisibleNotes(employee)}${EMPLOYEE_META_MARKER}${JSON.stringify(meta)}`;
 }
 
 function mapProfileFromDb(profile) {
@@ -4119,14 +4275,14 @@ function mapEmployeeToDb(employee) {
   return {
     id: item.id,
     name: item.name,
-    cpf: item.cpf,
+    cpf: onlyDigits(item.cpf),
     job_role: item.role,
     company_id: item.companyId,
     aso_validity: item.asoValidity || null,
     training_validity: item.trainingValidity || null,
     document_status: item.docStatus,
     address: item.address,
-    notes: item.notes,
+    notes: serializeEmployeeNotes(item),
     hiring_status: item.status,
   };
 }
@@ -4280,6 +4436,23 @@ function currentSystemTime() {
 
 function today() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function onlyDigits(value = "") {
+  return String(value || "").replace(/\D/g, "");
+}
+
+function formatCpf(value = "") {
+  const digits = onlyDigits(value).slice(0, 11);
+  return digits
+    .replace(/^(\d{3})(\d)/, "$1.$2")
+    .replace(/^(\d{3})\.(\d{3})(\d)/, "$1.$2.$3")
+    .replace(/^(\d{3})\.(\d{3})\.(\d{3})(\d)/, "$1.$2.$3-$4");
+}
+
+function formatCep(value = "") {
+  const digits = onlyDigits(value).slice(0, 8);
+  return digits.replace(/^(\d{5})(\d)/, "$1-$2");
 }
 
 function escapeHtml(value = "") {
