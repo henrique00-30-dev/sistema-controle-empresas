@@ -198,6 +198,7 @@ const tableState = {
   blocks: { page: 1, pageSize: 25, sort: "name", dir: "asc", quick: "Bloqueado", company: "Todos", contract: "Todos", sector: "Todos", costCenter: "Todos" },
 };
 let searchRenderTimer = null;
+const contractDetailState = {};
 let authMode = supabaseClient ? "supabase" : "local";
 let isLoading = Boolean(supabaseClient);
 let darkMode = localStorage.getItem("sctempresas.theme") !== "light";
@@ -1697,6 +1698,7 @@ function renderContracts() {
 function openContractDetails(id) {
   const company = visibleCompanies().find((item) => item.id === id) || state.companies.find((item) => item.id === id);
   if (!company) return;
+  contractDetailState[company.id] ||= { employeeSearch: "", employeeStatus: "Todos" };
   const modal = document.createElement("div");
   modal.className = "modal-backdrop contract-detail-backdrop";
   modal.innerHTML = `
@@ -1709,14 +1711,15 @@ function openContractDetails(id) {
         </div>
         <button class="btn icon" type="button" data-close title="Fechar">${icon("close")}</button>
       </div>
+      ${renderContractOperationalSummary(company)}
       <div class="contract-tabs" role="tablist">
         ${[
           ["general", "Dados Gerais"],
-          ["docs", "Documentos Obrigatorios"],
-          ["people", "Funcionarios Vinculados/FIT"],
-          ["workflow", "Workflow"],
+          ["people", "Funcionarios"],
+          ["docs", "Documentos"],
+          ["approvals", "Aprovacoes"],
           ["history", "Historico"],
-          ["reports", "Relatorios do Contrato"],
+          ["pendencies", "Pendencias"],
         ]
           .map(([tab, label], index) => `<button class="${index === 0 ? "active" : ""}" type="button" data-contract-tab="${tab}">${label}</button>`)
           .join("")}
@@ -1734,7 +1737,90 @@ function openContractDetails(id) {
       modal.querySelectorAll("[data-contract-tab]").forEach((item) => item.classList.remove("active"));
       button.classList.add("active");
       modal.querySelector(".contract-tab-content").innerHTML = renderContractTab(company, button.dataset.contractTab);
+      bindContractDetailEvents(modal, company);
     });
+  });
+  bindContractDetailEvents(modal, company);
+}
+
+function renderContractOperationalSummary(company) {
+  const employees = state.employees.filter((employee) => employee.companyId === company.id);
+  const documents = state.documents.filter((doc) => doc.companyId === company.id);
+  const pendencies = documents.filter((doc) => docStatus(doc) !== "Aprovado").length + employees.filter((employee) => ["Documentos pendente", "Aguardando exames", "Em treinamento", "Aguardando aprovacao do fiscal"].includes(normalizeEmployee(employee).status)).length;
+  const expiring = documents.filter((doc) => docStatus(doc) === "A vencer").length + (contractDays(company) >= 0 && contractDays(company) <= 60 ? 1 : 0);
+  const blocks = employees.filter((employee) => ["Bloqueado", "Inativo"].includes(normalizeEmployee(employee).status)).length + (["Bloqueada", "Bloqueado", "Inativa", "Desmobilizada"].includes(normalizeCompany(company).status) ? 1 : 0);
+  return `
+    <div class="contract-ops-summary">
+      <div><span>Funcionarios</span><strong>${employees.length}</strong></div>
+      <div><span>Pendencias</span><strong>${pendencies}</strong></div>
+      <div><span>Vencimentos proximos</span><strong>${expiring}</strong></div>
+      <div><span>Bloqueios ativos</span><strong>${blocks}</strong></div>
+    </div>
+  `;
+}
+
+function bindContractDetailEvents(modal, company) {
+  modal.querySelectorAll("[data-contract-tab-jump]").forEach((button) => button.addEventListener("click", () => {
+    const target = button.dataset.contractTabJump;
+    modal.querySelectorAll("[data-contract-tab]").forEach((item) => item.classList.toggle("active", item.dataset.contractTab === target));
+    modal.querySelector(".contract-tab-content").innerHTML = renderContractTab(company, target);
+    bindContractDetailEvents(modal, company);
+  }));
+  modal.querySelector("[data-contract-employee-search]")?.addEventListener("input", (event) => {
+    contractDetailState[company.id].employeeSearch = event.target.value;
+    modal.querySelector(".contract-tab-content").innerHTML = renderContractTab(company, "people");
+    bindContractDetailEvents(modal, company);
+    requestAnimationFrame(() => {
+      const input = modal.querySelector("[data-contract-employee-search]");
+      input?.focus();
+      input?.setSelectionRange(event.target.value.length, event.target.value.length);
+    });
+  });
+  modal.querySelector("[data-contract-employee-status]")?.addEventListener("change", (event) => {
+    contractDetailState[company.id].employeeStatus = event.target.value;
+    modal.querySelector(".contract-tab-content").innerHTML = renderContractTab(company, "people");
+    bindContractDetailEvents(modal, company);
+  });
+  modal.querySelectorAll("[data-employee-record]").forEach((button) => button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    openEmployeeRecord(button.dataset.employeeRecord);
+  }));
+  modal.querySelectorAll("[data-document-detail]").forEach((button) => button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    openDocumentDetails(button.dataset.documentDetail);
+  }));
+  modal.querySelector("[data-contract-company-detail]")?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    openCompanyQuickDetails(company.id);
+  });
+}
+
+function openCompanyQuickDetails(id) {
+  const company = state.companies.find((item) => item.id === id);
+  if (!company) return;
+  const item = normalizeCompany(company);
+  const modal = document.createElement("div");
+  modal.className = "modal-backdrop";
+  modal.innerHTML = `
+    <section class="modal">
+      <div class="modal-head">
+        <div><span class="eyebrow">Empresa vinculada</span><h2>${item.name}</h2><span class="muted">${item.cnpj}</span></div>
+        <button class="btn icon" type="button" data-close title="Fechar">${icon("close")}</button>
+      </div>
+      <div class="modal-body detail-grid">
+        ${detailCard("Contrato", item.contract || "Nao informado")}
+        ${detailCard("Fiscal", item.fiscal || "Nao informado")}
+        ${detailCard("Responsavel", item.responsible || "Nao informado")}
+        ${detailCard("Contato", `${item.phone || "Nao informado"} / ${item.email || "Nao informado"}`)}
+        ${detailCard("Periodo", `${formatDate(item.startDate)} ate ${formatDate(item.endDate)}`)}
+        ${detailCard("Status", statusBadge(item.status))}
+      </div>
+    </section>
+  `;
+  document.body.appendChild(modal);
+  modal.querySelectorAll("[data-close]").forEach((button) => button.addEventListener("click", () => modal.remove()));
+  modal.addEventListener("click", (event) => {
+    if (event.target === modal) modal.remove();
   });
 }
 
@@ -1743,6 +1829,8 @@ function renderContractTab(company, tab) {
   const employees = state.employees.filter((employee) => employee.companyId === company.id);
   const documents = state.documents.filter((doc) => doc.companyId === company.id);
   const days = contractDays(item);
+  const blockedEmployees = employees.filter((employee) => ["Bloqueado", "Inativo"].includes(normalizeEmployee(employee).status));
+  const pendingDocs = documents.filter((doc) => docStatus(doc) !== "Aprovado");
   if (tab === "general") {
     return `
       <div class="detail-grid">
@@ -1757,39 +1845,68 @@ function renderContractTab(company, tab) {
         ${detailCard("Dias restantes", Number.isFinite(days) ? `${days} dia(s)` : "Nao informado")}
         ${detailCard("Status", statusBadge(item.status))}
       </div>
+      <div class="contract-context-actions">
+        <button class="btn secondary compact" type="button" data-contract-company-detail>${icon("company")} Ver empresa</button>
+        <button class="btn secondary compact" type="button" data-contract-tab-jump="people">${icon("users")} Ver funcionarios</button>
+        <button class="btn secondary compact" type="button" data-contract-tab-jump="docs">${icon("docs")} Ver documentos</button>
+      </div>
     `;
   }
-  if (tab === "docs") {
+  if (tab === "people") {
+    const detail = contractDetailState[company.id] || { employeeSearch: "", employeeStatus: "Todos" };
+    const term = detail.employeeSearch.trim().toLowerCase();
+    const statuses = ["Todos", ...hiringStatuses];
+    const items = employees.filter((employee) => {
+      const normalized = normalizeEmployee(employee);
+      const companyItem = normalizeCompany(company);
+      const searchable = [normalized.name, normalized.cpf, employeeRegistration(normalized), normalized.role, companyItem.name, companyItem.contract, employeeCostCenter(normalized, companyItem), normalized.status].join(" ").toLowerCase();
+      return (!term || searchable.includes(term)) && (detail.employeeStatus === "Todos" || normalized.status === detail.employeeStatus);
+    });
     return `
+      <div class="contract-inner-toolbar">
+        <input class="search" data-contract-employee-search placeholder="Buscar funcionario por nome, CPF, matricula ou status" value="${escapeAttr(detail.employeeSearch)}" />
+        <label class="compact-filter">Status
+          <select data-contract-employee-status>${statuses.map((status) => `<option value="${status}" ${detail.employeeStatus === status ? "selected" : ""}>${status}</option>`).join("")}</select>
+        </label>
+      </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Documento</th><th>Funcionario</th><th>Validade</th><th>Status</th><th>Observacoes</th></tr></thead>
+          <thead><tr><th>Funcionario/FIT</th><th>CPF</th><th>Funcao</th><th>ASO</th><th>Treinamento</th><th>Status</th><th>Acoes</th></tr></thead>
           <tbody>
             ${
-              documents.length
-                ? documents
-                    .map((doc) => `<tr><td><strong>${doc.type}</strong></td><td>${doc.employeeId ? employeeName(doc.employeeId) : "Empresa"}</td><td>${formatDate(doc.dueDate)}</td><td>${statusBadge(docStatus(doc))}</td><td>${doc.notes || "<span class='muted'>Sem observacao</span>"}</td></tr>`)
+              items.length
+                ? items
+                    .map((employee) => {
+                      const normalized = normalizeEmployee(employee);
+                      return `<tr><td><strong>${normalized.name}</strong><span>${employeeRegistration(normalized)}</span></td><td>${normalized.cpf}</td><td>${normalized.role}</td><td>${formatDate(normalized.asoValidity)}</td><td>${formatDate(normalized.trainingValidity)}</td><td>${statusBadge(normalized.status)}</td><td><button class="btn secondary compact" type="button" data-employee-record="${employee.id}">${icon("users")} Abrir ficha</button></td></tr>`;
+                    })
                     .join("")
-                : emptyRow(5)
+                : emptyRow(7)
             }
           </tbody>
         </table>
       </div>
     `;
   }
-  if (tab === "people") {
+  if (tab === "docs") {
+    const buckets = [
+      ["Vencidos", documents.filter((doc) => docStatus(doc) === "Vencido").length, "danger"],
+      ["A vencer", documents.filter((doc) => docStatus(doc) === "A vencer").length, "warning"],
+      ["Aprovados", documents.filter((doc) => docStatus(doc) === "Aprovado").length, "success"],
+      ["Pendentes", documents.filter((doc) => docStatus(doc) === "Pendente" || docStatus(doc) === "Reprovado").length, "info"],
+    ];
     return `
+      <div class="report-grid contract-report-grid">
+        ${buckets.map(([label, value, tone]) => `<div class="stat-card ${tone}"><span>${label}</span><strong>${value}</strong><small>Documento(s)</small></div>`).join("")}
+      </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Funcionario/FIT</th><th>Funcao</th><th>CPF</th><th>ASO</th><th>Treinamento</th><th>Status</th></tr></thead>
+          <thead><tr><th>Documento</th><th>Funcionario</th><th>Validade</th><th>Status</th><th>Observacoes</th><th>Acoes</th></tr></thead>
           <tbody>
             ${
-              employees.length
-                ? employees
-                    .map((employee) => {
-                      const normalized = normalizeEmployee(employee);
-                      return `<tr><td><strong>${normalized.name}</strong><span>${normalized.address || "Endereco nao informado"}</span></td><td>${normalized.role}</td><td>${normalized.cpf}</td><td>${formatDate(normalized.asoValidity)}</td><td>${formatDate(normalized.trainingValidity)}</td><td>${statusBadge(normalized.status)}</td></tr>`;
-                    })
+              documents.length
+                ? documents
+                    .map((doc) => `<tr><td><strong>${doc.type}</strong></td><td>${doc.employeeId ? `<button class="btn secondary compact" type="button" data-employee-record="${doc.employeeId}">${employeeName(doc.employeeId)}</button>` : "Empresa"}</td><td>${formatDate(doc.dueDate)}</td><td>${statusBadge(docStatus(doc))}</td><td>${documentVisibleNotes(doc) || "<span class='muted'>Sem observacao</span>"}</td><td><button class="btn secondary compact" type="button" data-document-detail="${doc.id}">${icon("docs")} Abrir</button></td></tr>`)
                     .join("")
                 : emptyRow(6)
             }
@@ -1798,15 +1915,13 @@ function renderContractTab(company, tab) {
       </div>
     `;
   }
-  if (tab === "workflow") {
-    const steps = [
-      ["Contrato cadastrado", item.startDate ? "Concluido" : "Pendente"],
-      ["Documentos obrigatorios", documents.every((doc) => docStatus(doc) === "Aprovado") && documents.length ? "Concluido" : "Pendente"],
-      ["Funcionarios/FIT vinculados", employees.length ? "Concluido" : "Pendente"],
-      ["Aprovacao fiscal", documents.some((doc) => docStatus(doc) !== "Aprovado") ? "Pendente" : "Concluido"],
-      ["Operacao monitorada", item.status === "Ativa" ? "Concluido" : "Pendente"],
-    ];
-    return `<div class="contract-workflow">${steps.map(([label, status]) => `<div class="workflow-row"><div class="workflow-node ${status === "Concluido" ? "ok" : "warn"}"></div><div><strong>${label}</strong><span>${status}</span></div>${statusBadge(status === "Concluido" ? "Aprovado" : "Pendente")}</div>`).join("")}</div>`;
+  if (tab === "approvals") {
+    const approvals = documents.filter((doc) => ["Pendente", "Reprovado", "A vencer", "Vencido"].includes(docStatus(doc)));
+    return `
+      <div class="history-list">
+        ${approvals.length ? approvals.map((doc) => `<div class="item-card"><div class="item-row"><div><strong>${doc.type}</strong><span class="muted">${doc.employeeId ? employeeName(doc.employeeId) : "Documento da empresa"} - ${formatDate(doc.dueDate)}</span></div>${statusBadge(docStatus(doc))}</div><div class="actions wrap"><button class="btn secondary compact" type="button" data-document-detail="${doc.id}">${icon("docs")} Ver detalhes</button>${documentRowActions(doc)}</div></div>`).join("") : `<div class="empty">Nenhuma aprovacao pendente neste contrato.</div>`}
+      </div>
+    `;
   }
   if (tab === "history") {
     return `
@@ -1815,17 +1930,21 @@ function renderContractTab(company, tab) {
         <div class="item-card"><strong>Status atual</strong><span class="muted">${item.status}</span></div>
         <div class="item-card"><strong>Documentos monitorados</strong><span class="muted">${documents.length} documento(s) associados ao contrato.</span></div>
         <div class="item-card"><strong>Funcionarios vinculados</strong><span class="muted">${employees.length} funcionario(s)/FIT vinculados.</span></div>
+        <div class="item-card"><strong>Pendencias atuais</strong><span class="muted">${pendingDocs.length} documento(s) e ${blockedEmployees.length} bloqueio(s) em acompanhamento.</span></div>
       </div>
     `;
   }
   return `
-    <div class="report-grid contract-report-grid">
-      <div class="stat-card"><span>Documentos</span><strong>${documents.length}</strong><small>Obrigatorios e enviados</small></div>
-      <div class="stat-card"><span>Aprovados</span><strong>${documents.filter((doc) => docStatus(doc) === "Aprovado").length}</strong><small>Sem pendencia</small></div>
-      <div class="stat-card"><span>Funcionarios/FIT</span><strong>${employees.length}</strong><small>Vinculados</small></div>
-      <div class="stat-card"><span>Bloqueados</span><strong>${employees.filter((employee) => ["Bloqueado", "Inativo"].includes(normalizeEmployee(employee).status)).length}</strong><small>Restricao operacional</small></div>
+    <div class="grid-two">
+      <section class="panel">
+        <div class="modal-head"><h2>Pendencias documentais</h2><span class="mini-pill">${pendingDocs.length}</span></div>
+        <div class="modal-body item-list">${pendingDocs.length ? pendingDocs.map((doc) => `<div class="item-card"><div class="item-row"><strong>${doc.type}</strong>${statusBadge(docStatus(doc))}</div><span class="muted">${doc.employeeId ? employeeName(doc.employeeId) : "Documento da empresa"} - ${formatDate(doc.dueDate)}</span></div>`).join("") : `<div class="empty">Sem pendencias documentais.</div>`}</div>
+      </section>
+      <section class="panel">
+        <div class="modal-head"><h2>Bloqueios</h2><span class="mini-pill">${blockedEmployees.length}</span></div>
+        <div class="modal-body item-list">${blockedEmployees.length ? blockedEmployees.map((employee) => `<div class="item-card danger-zone"><div class="item-row"><strong>${employee.name}</strong>${statusBadge(normalizeEmployee(employee).status)}</div><span class="muted">${employee.role} - ${employee.cpf}</span><button class="btn secondary compact" type="button" data-employee-record="${employee.id}">${icon("users")} Abrir ficha</button></div>`).join("") : `<div class="empty">Sem bloqueios ativos.</div>`}</div>
+      </section>
     </div>
-    <div class="item-card"><strong>Resumo do contrato</strong><span class="muted">${item.contract || "Contrato nao informado"} possui ${documents.length} documento(s) e ${employees.length} funcionario(s)/FIT vinculados.</span></div>
   `;
 }
 
