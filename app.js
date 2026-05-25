@@ -188,6 +188,16 @@ let editingEmployeeId = null;
 let employeeStatusFilter = "Todos";
 let contractStatusFilter = "Todos";
 let contractPage = 1;
+const PAGE_SIZE_OPTIONS = [25, 50, 100];
+const tableState = {
+  companies: { page: 1, pageSize: 25, sort: "name", dir: "asc", quick: "Todos", company: "Todos", contract: "Todos", sector: "Todos", costCenter: "Todos" },
+  contracts: { page: 1, pageSize: 25, sort: "contract", dir: "asc", quick: "Todos", company: "Todos", contract: "Todos", sector: "Todos", costCenter: "Todos" },
+  employees: { page: 1, pageSize: 25, sort: "name", dir: "asc", quick: "Todos", company: "Todos", contract: "Todos", sector: "Todos", costCenter: "Todos" },
+  documents: { page: 1, pageSize: 25, sort: "dueDate", dir: "asc", quick: "Todos", company: "Todos", contract: "Todos", sector: "Todos", costCenter: "Todos" },
+  approvals: { page: 1, pageSize: 25, sort: "dueDate", dir: "asc", quick: "Pendente", company: "Todos", contract: "Todos", sector: "Todos", costCenter: "Todos" },
+  blocks: { page: 1, pageSize: 25, sort: "name", dir: "asc", quick: "Bloqueado", company: "Todos", contract: "Todos", sector: "Todos", costCenter: "Todos" },
+};
+let searchRenderTimer = null;
 let authMode = supabaseClient ? "supabase" : "local";
 let isLoading = Boolean(supabaseClient);
 let darkMode = localStorage.getItem("sctempresas.theme") !== "light";
@@ -776,6 +786,140 @@ function filtered(items, fields) {
   return items.filter((item) => fields.some((field) => String(field(item) || "").toLowerCase().includes(term)));
 }
 
+function tableConfig(view) {
+  return tableState[view] || tableState.companies;
+}
+
+function resetTablePage(view = currentView) {
+  if (tableState[view]) tableState[view].page = 1;
+}
+
+function sortValue(view, item, key) {
+  const company = item.companyId ? state.companies.find((entry) => entry.id === item.companyId) : item;
+  const employee = item.employeeId ? state.employees.find((entry) => entry.id === item.employeeId) : null;
+  const companyItem = company ? normalizeCompany(company) : {};
+  const employeeItem = item.cpf || item.role ? normalizeEmployee(item) : employee ? normalizeEmployee(employee) : {};
+  const statusValue = item.dueDate || item.type ? docStatus(item) : item.cpf || item.role || item.blockType === "Funcionario" ? normalizeEmployee(item).status : companyItem.status;
+  const values = {
+    name: item.blockName || item.name || employeeItem.name || companyItem.name,
+    cpf: item.cpf || employeeItem.cpf,
+    registration: item.registration || item.matricula || employeeItem.registration || employeeItem.matricula,
+    company: companyItem.name || companyName(item.companyId),
+    contract: item.contract || companyItem.contract,
+    costCenter: employeeCostCenter(item, company) || companyItem.costCenter,
+    sector: item.blockType || item.type || item.role || employeeItem.role || contractUnit(companyItem),
+    status: statusValue,
+    dueDate: item.dueDate || item.endDate,
+  };
+  return String(values[key] ?? "").toLowerCase();
+}
+
+function sortItems(view, items) {
+  const config = tableConfig(view);
+  return [...items].sort((a, b) => {
+    const left = sortValue(view, a, config.sort);
+    const right = sortValue(view, b, config.sort);
+    return config.dir === "asc" ? left.localeCompare(right) : right.localeCompare(left);
+  });
+}
+
+function matchesQuickFilter(view, item, quick) {
+  if (!quick || quick === "Todos") return true;
+  const company = item.companyId ? state.companies.find((entry) => entry.id === item.companyId) : item;
+  const employee = item.cpf || item.role ? item : item.employeeId ? state.employees.find((entry) => entry.id === item.employeeId) : null;
+  const status = item.dueDate ? docStatus(item) : employee ? normalizeEmployee(employee).status : normalizeCompany(company).status;
+  if (quick === "Ativo") return ["Ativa", "Ativo", "Aprovado"].includes(status);
+  if (quick === "Bloqueado") return ["Bloqueado", "Inativo"].includes(status);
+  if (quick === "Pendente") return ["Pendente", "A vencer", "Reprovado", "Documentos pendente", "Aguardando exames", "Em treinamento", "Aguardando aprovacao do fiscal"].includes(status);
+  if (quick === "Vencido") return status === "Vencido";
+  if (quick === "Desmobilizado") return ["Desmobilizada", "Desmobilizado", "Inativa", "Inativo"].includes(status);
+  if (quick === "Vencendo") return contractDays(company) >= 0 && contractDays(company) <= 60;
+  if (quick === "Medicina") return employee ? employeeMedicineStatus(normalizeEmployee(employee)) === "Pendente" || normalizeEmployee(employee).status === "Aguardando exames" : /aso|exame|medic/i.test(item.type || "");
+  if (quick === "EHS") return employee ? employeeEhsStatus(normalizeEmployee(employee)) === "Pendente" || normalizeEmployee(employee).status === "Em treinamento" : /nr-|treinamento|epi|segur/i.test(item.type || "");
+  return status === quick;
+}
+
+function applyOperationalFilters(view, items) {
+  const config = tableConfig(view);
+  return items.filter((item) => {
+    const company = item.companyId ? state.companies.find((entry) => entry.id === item.companyId) : item;
+    const employee = item.cpf || item.role ? item : item.employeeId ? state.employees.find((entry) => entry.id === item.employeeId) : null;
+    const companyItem = company ? normalizeCompany(company) : {};
+    const employeeItem = employee ? normalizeEmployee(employee) : {};
+    const sector = item.type || employeeItem.role || contractUnit(companyItem);
+    const costCenter = employeeCostCenter(employeeItem, companyItem);
+    return (
+      matchesQuickFilter(view, item, config.quick) &&
+      (config.company === "Todos" || item.companyId === config.company || item.id === config.company) &&
+      (config.contract === "Todos" || companyItem.contract === config.contract) &&
+      (config.sector === "Todos" || sector === config.sector) &&
+      (config.costCenter === "Todos" || costCenter === config.costCenter)
+    );
+  });
+}
+
+function paginateItems(view, items) {
+  const config = tableConfig(view);
+  const totalPages = Math.max(1, Math.ceil(items.length / config.pageSize));
+  config.page = Math.min(Math.max(1, config.page), totalPages);
+  const start = (config.page - 1) * config.pageSize;
+  return { pageItems: items.slice(start, start + config.pageSize), totalPages };
+}
+
+function sortableHeader(view, label, key) {
+  const config = tableConfig(view);
+  const active = config.sort === key;
+  return `<th><button class="table-sort ${active ? "active" : ""}" type="button" data-sort-view="${view}" data-sort-key="${key}">${label}${active ? ` ${config.dir === "asc" ? "ASC" : "DESC"}` : ""}</button></th>`;
+}
+
+function renderPagination(view, total, totalPages) {
+  const config = tableConfig(view);
+  return `
+    <div class="pagination">
+      <span>Pagina ${config.page} de ${totalPages} - ${total} registro(s)</span>
+      <label class="compact-filter">Por pagina
+        <select data-page-size="${view}">
+          ${PAGE_SIZE_OPTIONS.map((size) => `<option value="${size}" ${config.pageSize === size ? "selected" : ""}>${size}</option>`).join("")}
+        </select>
+      </label>
+      <div>
+        <button class="btn secondary compact" type="button" data-page-view="${view}" data-page-step="-1" ${config.page <= 1 ? "disabled" : ""}>Anterior</button>
+        <button class="btn secondary compact" type="button" data-page-view="${view}" data-page-step="1" ${config.page >= totalPages ? "disabled" : ""}>Proxima</button>
+      </div>
+    </div>
+  `;
+}
+
+function uniqueOptions(values) {
+  return ["Todos", ...Array.from(new Set(values.filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b)))];
+}
+
+function renderOperationalFilters(view, items, extra = {}) {
+  const config = tableConfig(view);
+  const companies = uniqueOptions(items.map((item) => item.companyId || item.id).map((id) => state.companies.find((company) => company.id === id)?.id || id));
+  const companyLabels = new Map(state.companies.map((company) => [company.id, company.name]));
+  const contracts = uniqueOptions(items.map((item) => normalizeCompany(item.companyId ? state.companies.find((company) => company.id === item.companyId) : item).contract));
+  const sectors = uniqueOptions(items.map((item) => item.type || item.role || contractUnit(item.companyId ? state.companies.find((company) => company.id === item.companyId) : item)));
+  const costCenters = uniqueOptions(items.map((item) => employeeCostCenter(item, item.companyId ? state.companies.find((company) => company.id === item.companyId) : item)));
+  const quicks = extra.quicks || ["Todos", "Ativo", "Bloqueado", "Pendente", "Vencido", "Desmobilizado"];
+  return `
+    <div class="status-filter operational-filters" aria-label="Filtros rapidos">
+      ${quicks.map((filter) => `<button class="${config.quick === filter ? "active" : ""}" type="button" data-quick-view="${view}" data-quick-filter="${filter}">${filter}</button>`).join("")}
+      <button class="btn secondary compact" type="button" data-export-future="${extra.exportKey || view}">${icon("reports")} Exportar</button>
+    </div>
+    <div class="toolbar advanced-filters">
+      ${filterSelect("company", view, "Empresa", config.company, companies, companyLabels)}
+      ${filterSelect("contract", view, "Contrato", config.contract, contracts)}
+      ${filterSelect("sector", view, "Setor", config.sector, sectors)}
+      ${filterSelect("costCenter", view, "Centro de custo", config.costCenter, costCenters)}
+    </div>
+  `;
+}
+
+function filterSelect(field, view, label, value, options, labels = new Map()) {
+  return `<label class="compact-filter">${label}<select data-filter-view="${view}" data-filter-field="${field}">${options.map((option) => `<option value="${escapeAttr(option)}" ${String(option) === String(value) ? "selected" : ""}>${labels.get(option) || option}</option>`).join("")}</select></label>`;
+}
+
 function canView(view) {
   return ROLE_PERMISSIONS[currentUser()?.role || "visitor"].view.includes(view);
 }
@@ -848,14 +992,14 @@ function renderDashboard() {
   const metrics = operationalMetrics(companies, employees, documents);
   const criticalDocs = visibleDocuments().filter((doc) => ["Vencido", "A vencer", "Pendente"].includes(docStatus(doc))).slice(0, 6);
   const dashboardCards = [
-    ["Contratos ativos", metrics.activeContracts.length, "Contratos em operacao", "contracts", "success", "contracts", "", "Ativa"],
-    ["Contratos vencendo", metrics.expiringContracts.length, "Proximos 60 dias", "contracts", "warning", "contracts", "", "Todos"],
-    ["Funcionarios ativos", metrics.activeEmployees.length, "Liberados para atividade", "users", "success", "employees", "Aprovado", "Todos"],
-    ["Funcionarios bloqueados", metrics.blockedEmployees.length, "Restricao operacional", "block", "danger", "employees", "Bloqueado", "Bloqueado"],
-    ["Pendencias Medicina", metrics.medicinePendencies.length, "ASO, exames e vencimentos", "shield", "warning", "employees", "Aguardando exames", "Todos"],
-    ["Pendencias EHS", metrics.ehsPendencies.length, "Treinamentos e seguranca", "factory", "info", "employees", "Em treinamento", "Todos"],
-    ["Pendencias Patrimonial", metrics.patrimonialPendencies.length, "Liberacao final", "approve", "special", "employees", "Aguardando aprovacao do fiscal", "Todos"],
-    ["Documentos vencidos", metrics.expiredDocs.length, "Itens fora da validade", "docs", "danger", "documents", "Vencido", "Todos"],
+    ["Contratos ativos", metrics.activeContracts.length, "Contratos em operacao", "contracts", "success", "contracts", "", "Ativa", "Ativo"],
+    ["Contratos vencendo", metrics.expiringContracts.length, "Proximos 60 dias", "contracts", "warning", "contracts", "", "Todos", "Vencendo"],
+    ["Funcionarios ativos", metrics.activeEmployees.length, "Liberados para atividade", "users", "success", "employees", "Aprovado", "Todos", "Ativo"],
+    ["Funcionarios bloqueados", metrics.blockedEmployees.length, "Restricao operacional", "block", "danger", "employees", "Bloqueado", "Bloqueado", "Bloqueado"],
+    ["Pendencias Medicina", metrics.medicinePendencies.length, "ASO, exames e vencimentos", "shield", "warning", "employees", "Aguardando exames", "Todos", "Medicina"],
+    ["Pendencias EHS", metrics.ehsPendencies.length, "Treinamentos e seguranca", "factory", "info", "employees", "Em treinamento", "Todos", "EHS"],
+    ["Pendencias Patrimonial", metrics.patrimonialPendencies.length, "Liberacao final", "approve", "special", "employees", "Aguardando aprovacao do fiscal", "Todos", "Pendente"],
+    ["Documentos vencidos", metrics.expiredDocs.length, "Itens fora da validade", "docs", "danger", "documents", "Vencido", "Todos", "Vencido"],
   ];
   const operationalRows = employees.slice(0, 6).map((employee) => {
     const item = normalizeEmployee(employee);
@@ -902,8 +1046,8 @@ function renderDashboard() {
       <div><span>Documentos</span><strong>Workflow ativo</strong></div>
     </section>
     <div class="kpi-grid">
-      ${dashboardCards.map(([label, value, helper, iconName, tone, view, query, filter]) => `
-        <article class="kpi-card clickable-kpi ${tone}" role="button" tabindex="0" data-dashboard-card data-target-view="${view}" data-target-search="${escapeAttr(query)}" data-target-filter="${escapeAttr(filter)}" title="Abrir ${label}">
+      ${dashboardCards.map(([label, value, helper, iconName, tone, view, query, filter, quick]) => `
+        <article class="kpi-card clickable-kpi ${tone}" role="button" tabindex="0" data-dashboard-card data-target-view="${view}" data-target-search="${escapeAttr(query)}" data-target-filter="${escapeAttr(filter)}" data-target-quick="${escapeAttr(quick)}" title="Abrir ${label}">
           <div class="kpi-icon">${icon(iconName)}</div>
           <div>
             <span>${label}</span>
@@ -988,13 +1132,19 @@ function renderDocCard(doc) {
 }
 
 function renderCompanies() {
-  const items = filtered(visibleCompanies(), [
+  const baseItems = visibleCompanies();
+  const filteredItems = filtered(baseItems, [
     (item) => item.name,
     (item) => item.cnpj,
     (item) => item.fiscal,
     (item) => item.responsible || item.contact,
     (item) => item.contract,
+    (item) => contractUnit(item),
+    (item) => employeeCostCenter({}, item),
+    (item) => normalizeCompany(item).status,
   ]);
+  const items = sortItems("companies", applyOperationalFilters("companies", filteredItems));
+  const { pageItems, totalPages } = paginateItems("companies", items);
   const editingCompany = editingCompanyId
     ? state.companies.find((company) => company.id === editingCompanyId)
     : currentUser()?.role === "supplier"
@@ -1004,13 +1154,15 @@ function renderCompanies() {
     ${sectionHead("Empresas terceirizadas", "Cadastre fornecedores e acompanhe contrato, responsaveis e situacao.", "Nova empresa", "company")}
     ${renderCompanyEditor(editingCompany)}
     ${toolbar("Buscar por empresa, CNPJ, fiscal, responsavel ou contrato")}
+    ${renderOperationalFilters("companies", baseItems, { quicks: ["Todos", "Ativo", "Pendente", "Bloqueado", "Desmobilizado"], exportKey: "empresas" })}
     <section class="panel table-wrap">
       <table>
-        <thead><tr><th>Empresa</th><th>CNPJ</th><th>Fiscal</th><th>Responsavel</th><th>Contrato</th><th>Periodo</th><th>Status</th><th>Acoes</th></tr></thead>
+        <thead><tr>${sortableHeader("companies", "Empresa", "name")}<th>CNPJ</th><th>Fiscal</th><th>Responsavel</th>${sortableHeader("companies", "Contrato", "contract")}<th>Periodo</th>${sortableHeader("companies", "Status", "status")}<th>Acoes</th></tr></thead>
         <tbody>
-          ${items.length ? items.map(renderCompanyRow).join("") : emptyRow(8)}
+          ${pageItems.length ? pageItems.map(renderCompanyRow).join("") : emptyRow(8)}
         </tbody>
       </table>
+      ${renderPagination("companies", items.length, totalPages)}
     </section>
   `;
 }
@@ -1070,6 +1222,7 @@ function companyRowActions(id) {
   const company = state.companies.find((item) => item.id === id);
   return `
     <div class="actions wrap">
+      <button class="btn secondary compact" type="button" data-contract-detail="${id}">${icon("docs")} Ver detalhes</button>
       ${can("edit.company", company) ? `<button class="btn secondary compact" type="button" data-edit="company" data-id="${id}">${icon("edit")} Editar</button>` : ""}
       ${can("edit.company", company) ? `<button class="btn warning compact" type="button" data-demobilize="company" data-id="${id}">Desmobilizar</button>` : ""}
       ${can("delete.company", company) ? `<button class="btn danger compact" type="button" data-delete="company" data-id="${id}">${icon("trash")} Excluir</button>` : ""}
@@ -1080,30 +1233,38 @@ function companyRowActions(id) {
 
 function renderEmployees() {
   const editingEmployee = editingEmployeeId ? state.employees.find((employee) => employee.id === editingEmployeeId) : null;
-  const filteredByText = filtered(visibleEmployees(), [
+  const baseItems = visibleEmployees();
+  const filteredByText = filtered(baseItems, [
     (item) => item.name,
     (item) => item.cpf,
+    (item) => employeeRegistration(item),
     (item) => item.role,
     (item) => companyName(item.companyId),
+    (item) => state.companies.find((company) => company.id === item.companyId)?.contract,
+    (item) => employeeCostCenter(item, state.companies.find((company) => company.id === item.companyId)),
     (item) => normalizeEmployee(item).docStatus,
     (item) => normalizeEmployee(item).status,
   ]);
-  const items =
+  const byStatus =
     employeeStatusFilter === "Todos"
       ? filteredByText
       : filteredByText.filter((employee) => normalizeEmployee(employee).status === employeeStatusFilter);
+  const items = sortItems("employees", applyOperationalFilters("employees", byStatus));
+  const { pageItems, totalPages } = paginateItems("employees", items);
   return `
     ${sectionHead("Funcionarios terceirizados", "Controle integracao, documentos, exames, treinamento e aprovacao fiscal.", "Novo funcionario", "employee")}
     ${renderEmployeeEditor(editingEmployee)}
-    ${toolbar("Buscar por funcionario, CPF, funcao, empresa ou status")}
+    ${toolbar("Buscar por nome, CPF, matricula, empresa, contrato, centro de custo ou status")}
     ${renderEmployeeStatusFilters()}
+    ${renderOperationalFilters("employees", baseItems, { quicks: ["Todos", "Ativo", "Bloqueado", "Pendente", "Medicina", "EHS", "Desmobilizado"], exportKey: "funcionarios-ativos" })}
     <section class="panel table-wrap">
       <table>
-        <thead><tr><th>Funcionario</th><th>CPF</th><th>Funcao</th><th>Empresa vinculada</th><th>Validades</th><th>Status documental</th><th>Contratacao</th><th>Acoes</th></tr></thead>
+        <thead><tr>${sortableHeader("employees", "Funcionario", "name")}${sortableHeader("employees", "CPF", "cpf")}${sortableHeader("employees", "Funcao", "sector")}${sortableHeader("employees", "Empresa vinculada", "company")}<th>Validades</th>${sortableHeader("employees", "Status documental", "status")}<th>Contratacao</th><th>Acoes</th></tr></thead>
         <tbody>
-          ${items.length ? items.map(renderEmployeeRow).join("") : emptyRow(8)}
+          ${pageItems.length ? pageItems.map(renderEmployeeRow).join("") : emptyRow(8)}
         </tbody>
       </table>
+      ${renderPagination("employees", items.length, totalPages)}
     </section>
   `;
 }
@@ -1406,33 +1567,46 @@ function employeePatrimonialStatus(employee) {
 }
 
 function renderDocuments() {
-  const items = filtered(visibleDocuments(), [(item) => item.type, (item) => companyName(item.companyId), (item) => employeeName(item.employeeId), (item) => docStatus(item)]);
+  const baseItems = visibleDocuments();
+  const filteredItems = filtered(baseItems, [
+    (item) => item.type,
+    (item) => companyName(item.companyId),
+    (item) => employeeName(item.employeeId),
+    (item) => state.employees.find((employee) => employee.id === item.employeeId)?.cpf,
+    (item) => employeeRegistration(state.employees.find((employee) => employee.id === item.employeeId) || {}),
+    (item) => state.companies.find((company) => company.id === item.companyId)?.contract,
+    (item) => employeeCostCenter(state.employees.find((employee) => employee.id === item.employeeId) || {}, state.companies.find((company) => company.id === item.companyId)),
+    (item) => docStatus(item),
+  ]);
+  const items = sortItems("documents", applyOperationalFilters("documents", filteredItems));
+  const { pageItems, totalPages } = paginateItems("documents", items);
   return `
     ${sectionHead("Controle de documentos", "Registre obrigatorios, vencimentos e aprovacoes.", "Novo documento", "document")}
-    ${toolbar("Buscar por documento, empresa, funcionario ou status")}
+    ${toolbar("Buscar por documento, empresa, funcionario, CPF, matricula, contrato ou status")}
+    ${renderOperationalFilters("documents", baseItems, { quicks: ["Todos", "Pendente", "Vencido", "A vencer", "Medicina", "EHS"], exportKey: "documentos-vencidos" })}
     <section class="panel table-wrap">
       <table>
-        <thead><tr><th>Documento</th><th>Empresa</th><th>Funcionario</th><th>Vencimento</th><th>Status</th><th>Observacoes</th><th>Acoes</th></tr></thead>
+        <thead><tr>${sortableHeader("documents", "Documento", "sector")}${sortableHeader("documents", "Empresa", "company")}<th>Funcionario</th>${sortableHeader("documents", "Vencimento", "dueDate")}${sortableHeader("documents", "Status", "status")}<th>Observacoes</th><th>Acoes</th></tr></thead>
         <tbody>
-          ${items.length ? items.map(renderDocumentRow).join("") : emptyRow(7)}
+          ${pageItems.length ? pageItems.map(renderDocumentRow).join("") : emptyRow(7)}
         </tbody>
       </table>
+      ${renderPagination("documents", items.length, totalPages)}
     </section>
   `;
 }
 
 function renderContracts() {
-  const pageSize = 8;
-  const contracts = filtered(visibleCompanies(), [
+  const baseItems = visibleCompanies();
+  const contracts = sortItems("contracts", applyOperationalFilters("contracts", filtered(baseItems, [
     (item) => item.name,
     (item) => item.contract,
     (item) => contractUnit(item),
     (item) => item.status,
     (item) => item.cnpj,
-  ]).filter((item) => (contractStatusFilter === "Todos" ? true : normalizeCompany(item).status === contractStatusFilter));
-  const totalPages = Math.max(1, Math.ceil(contracts.length / pageSize));
-  contractPage = Math.min(contractPage, totalPages);
-  const pageItems = contracts.slice((contractPage - 1) * pageSize, contractPage * pageSize);
+    (item) => employeeCostCenter({}, item),
+  ]).filter((item) => (contractStatusFilter === "Todos" ? true : normalizeCompany(item).status === contractStatusFilter))));
+  const { pageItems, totalPages } = paginateItems("contracts", contracts);
   const active = visibleCompanies().filter((company) => normalizeCompany(company).status === "Ativa").length;
   const expiring = visibleCompanies().filter((company) => contractDays(company) >= 0 && contractDays(company) <= 60).length;
   const blocked = visibleCompanies().filter((company) => ["Inativa", "Desmobilizada", "Bloqueada", "Bloqueado"].includes(normalizeCompany(company).status)).length;
@@ -1483,10 +1657,12 @@ function renderContracts() {
               ${["Todos", "Ativa", "Pendente", "Inativa", "Desmobilizada"].map((status) => `<option value="${status}" ${contractStatusFilter === status ? "selected" : ""}>${status}</option>`).join("")}
             </select>
           </label>
+          <button class="btn secondary compact" type="button" data-export-future="contratos-vencendo">${icon("reports")} Exportar</button>
         </div>
+        ${renderOperationalFilters("contracts", baseItems, { quicks: ["Todos", "Ativo", "Vencendo", "Pendente", "Bloqueado", "Desmobilizado"], exportKey: "contratos-vencendo" })}
         <div class="table-wrap contract-table-wrap">
           <table class="contract-table">
-            <thead><tr><th>Contrato</th><th>Empresa</th><th>Unidade</th><th>Periodo</th><th>Dias</th><th>Status</th><th>Acoes</th></tr></thead>
+            <thead><tr>${sortableHeader("contracts", "Contrato", "contract")}${sortableHeader("contracts", "Empresa", "company")}${sortableHeader("contracts", "Unidade", "sector")}<th>Periodo</th><th>Dias</th>${sortableHeader("contracts", "Status", "status")}<th>Acoes</th></tr></thead>
             <tbody>
               ${
                 pageItems.length
@@ -1512,13 +1688,7 @@ function renderContracts() {
             </tbody>
           </table>
         </div>
-        <div class="pagination">
-          <span>Pagina ${contractPage} de ${totalPages} - ${contracts.length} registro(s)</span>
-          <div>
-            <button class="btn secondary compact" type="button" data-contract-page="${contractPage - 1}" ${contractPage <= 1 ? "disabled" : ""}>Anterior</button>
-            <button class="btn secondary compact" type="button" data-contract-page="${contractPage + 1}" ${contractPage >= totalPages ? "disabled" : ""}>Proxima</button>
-          </div>
-        </div>
+        ${renderPagination("contracts", contracts.length, totalPages)}
       </section>
     </div>
   `;
@@ -1664,7 +1834,10 @@ function detailCard(label, value) {
 }
 
 function renderApprovals() {
-  const items = visibleDocuments().filter((doc) => ["Pendente", "Reprovado", "A vencer", "Vencido"].includes(docStatus(doc)));
+  const baseItems = visibleDocuments().filter((doc) => ["Pendente", "Reprovado", "A vencer", "Vencido"].includes(docStatus(doc)));
+  const filteredItems = filtered(baseItems, [(doc) => doc.type, (doc) => companyName(doc.companyId), (doc) => employeeName(doc.employeeId), (doc) => docStatus(doc)]);
+  const items = sortItems("approvals", applyOperationalFilters("approvals", filteredItems));
+  const { pageItems, totalPages } = paginateItems("approvals", items);
   return `
     <section class="panel">
       <div class="modal-head">
@@ -1674,10 +1847,14 @@ function renderApprovals() {
         </div>
         <span class="mini-pill">${items.length} item(ns)</span>
       </div>
+      <div class="modal-body">
+        ${toolbar("Buscar por documento, empresa, funcionario ou status")}
+        ${renderOperationalFilters("approvals", baseItems, { quicks: ["Todos", "Pendente", "Vencido", "A vencer", "Medicina", "EHS"], exportKey: "pendencias-por-setor" })}
+      </div>
       <div class="modal-body item-list">
         ${
-          items.length
-            ? items
+          pageItems.length
+            ? pageItems
                 .map(
                   (doc) => `
                     <div class="item-card approval-card">
@@ -1688,7 +1865,7 @@ function renderApprovals() {
                         </div>
                         ${statusBadge(docStatus(doc))}
                       </div>
-                      <div class="actions wrap">${documentRowActions(doc)}</div>
+                      <div class="actions wrap"><button class="btn secondary compact" type="button" data-document-detail="${doc.id}">${icon("docs")} Ver detalhes</button>${documentRowActions(doc)}</div>
                     </div>
                   `,
                 )
@@ -1696,6 +1873,7 @@ function renderApprovals() {
             : `<div class="empty">Nenhum documento aguardando aprovacao.</div>`
         }
       </div>
+      ${renderPagination("approvals", items.length, totalPages)}
     </section>
   `;
 }
@@ -1839,21 +2017,44 @@ function renderCompliance() {
 function renderBlocks() {
   const blockedCompanies = visibleCompanies().filter((company) => ["Bloqueada", "Bloqueado", "Inativa", "Desmobilizada"].includes(normalizeCompany(company).status));
   const blockedEmployees = visibleEmployees().filter((employee) => ["Bloqueado", "Inativo"].includes(normalizeEmployee(employee).status));
+  const baseItems = [
+    ...blockedCompanies.map((company) => ({ ...company, blockType: "Empresa", blockName: company.name, blockCompanyId: company.id })),
+    ...blockedEmployees.map((employee) => ({ ...employee, blockType: "Funcionario", blockName: employee.name, blockCompanyId: employee.companyId })),
+  ];
+  const filteredItems = filtered(baseItems, [
+    (item) => item.blockName,
+    (item) => item.cpf,
+    (item) => employeeRegistration(item),
+    (item) => companyName(item.blockCompanyId),
+    (item) => state.companies.find((company) => company.id === item.blockCompanyId)?.contract,
+    (item) => item.role,
+    (item) => item.status,
+  ]);
+  const items = sortItems("blocks", applyOperationalFilters("blocks", filteredItems));
+  const { pageItems, totalPages } = paginateItems("blocks", items);
   return `
-    <div class="grid-two">
-      <section class="panel">
-        <div class="modal-head"><h2>Empresas bloqueadas</h2><span class="mini-pill">${blockedCompanies.length}</span></div>
-        <div class="modal-body item-list">
-          ${blockedCompanies.length ? blockedCompanies.map((company) => `<div class="item-card danger-zone"><div class="item-row"><strong>${company.name}</strong>${statusBadge(company.status)}</div><span class="muted">${company.contract || "Contrato nao informado"}</span></div>`).join("") : `<div class="empty">Nenhuma empresa bloqueada.</div>`}
-        </div>
-      </section>
-      <section class="panel">
-        <div class="modal-head"><h2>Funcionarios bloqueados</h2><span class="mini-pill">${blockedEmployees.length}</span></div>
-        <div class="modal-body item-list">
-          ${blockedEmployees.length ? blockedEmployees.map((employee) => `<div class="item-card danger-zone"><div class="item-row"><strong>${employee.name}</strong>${statusBadge(employee.status)}</div><span class="muted">${companyName(employee.companyId)} - ${employee.role}</span></div>`).join("") : `<div class="empty">Nenhum funcionario bloqueado.</div>`}
-        </div>
-      </section>
-    </div>
+    <section class="panel table-wrap">
+      <div class="modal-head"><h2>Bloqueios operacionais</h2><span class="mini-pill">${items.length} registro(s)</span></div>
+      <div class="modal-body">
+        ${toolbar("Buscar por nome, CPF, matricula, empresa, contrato ou status")}
+        ${renderOperationalFilters("blocks", baseItems, { quicks: ["Todos", "Bloqueado", "Desmobilizado"], exportKey: "bloqueios" })}
+      </div>
+      <table>
+        <thead><tr>${sortableHeader("blocks", "Tipo", "sector")}${sortableHeader("blocks", "Registro", "name")}${sortableHeader("blocks", "Empresa", "company")}<th>Contrato</th>${sortableHeader("blocks", "Status", "status")}<th>Acoes</th></tr></thead>
+        <tbody>
+          ${
+            pageItems.length
+              ? pageItems.map((item) => {
+                  const isEmployee = item.blockType === "Funcionario";
+                  const company = state.companies.find((entry) => entry.id === item.blockCompanyId);
+                  return `<tr><td>${item.blockType}</td><td><strong>${item.blockName}</strong><br><span class="muted">${isEmployee ? item.role : item.cnpj}</span></td><td>${company?.name || item.blockName}</td><td>${company?.contract || item.contract || "Nao informado"}</td><td>${statusBadge(item.status)}</td><td>${isEmployee ? `<button class="btn secondary compact" type="button" data-employee-record="${item.id}">${icon("users")} Ver detalhes</button>` : `<button class="btn secondary compact" type="button" data-contract-detail="${item.id}">${icon("docs")} Ver detalhes</button>`}</td></tr>`;
+                }).join("")
+              : emptyRow(6)
+          }
+        </tbody>
+      </table>
+      ${renderPagination("blocks", items.length, totalPages)}
+    </section>
   `;
 }
 
@@ -2225,14 +2426,18 @@ function bindViewEvents() {
       const cursor = event.target.selectionStart || 0;
       const placeholder = event.target.getAttribute("placeholder");
       searchTerm = event.target.value;
+      resetTablePage(currentView);
       if (currentView === "contracts") contractPage = 1;
-      renderApp();
-      requestAnimationFrame(() => {
-        const nextInput = Array.from(document.querySelectorAll(".search-control")).find((item) => item.getAttribute("placeholder") === placeholder) || document.querySelector(".search-control");
-        if (!nextInput) return;
-        nextInput.focus();
-        nextInput.setSelectionRange(cursor, cursor);
-      });
+      clearTimeout(searchRenderTimer);
+      searchRenderTimer = setTimeout(() => {
+        renderApp();
+        requestAnimationFrame(() => {
+          const nextInput = Array.from(document.querySelectorAll(".search-control")).find((item) => item.getAttribute("placeholder") === placeholder) || document.querySelector(".search-control");
+          if (!nextInput) return;
+          nextInput.focus();
+          nextInput.setSelectionRange(cursor, cursor);
+        });
+      }, 120);
     });
   });
 
@@ -2255,6 +2460,7 @@ function bindViewEvents() {
   document.querySelector("#contractStatusFilter")?.addEventListener("change", (event) => {
     contractStatusFilter = event.target.value;
     contractPage = 1;
+    resetTablePage("contracts");
     renderApp();
   });
 
@@ -2263,6 +2469,55 @@ function bindViewEvents() {
       const page = Number(button.dataset.contractPage);
       if (!Number.isFinite(page) || page < 1) return;
       contractPage = page;
+      renderApp();
+    });
+  });
+
+  document.querySelectorAll("[data-page-view]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const view = button.dataset.pageView;
+      tableConfig(view).page += Number(button.dataset.pageStep || 0);
+      renderApp();
+    });
+  });
+
+  document.querySelectorAll("[data-page-size]").forEach((select) => {
+    select.addEventListener("change", () => {
+      const view = select.dataset.pageSize;
+      tableConfig(view).pageSize = Number(select.value);
+      resetTablePage(view);
+      renderApp();
+    });
+  });
+
+  document.querySelectorAll("[data-sort-view]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const config = tableConfig(button.dataset.sortView);
+      if (config.sort === button.dataset.sortKey) {
+        config.dir = config.dir === "asc" ? "desc" : "asc";
+      } else {
+        config.sort = button.dataset.sortKey;
+        config.dir = "asc";
+      }
+      resetTablePage(button.dataset.sortView);
+      renderApp();
+    });
+  });
+
+  document.querySelectorAll("[data-quick-view]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const view = button.dataset.quickView;
+      tableConfig(view).quick = button.dataset.quickFilter;
+      resetTablePage(view);
+      renderApp();
+    });
+  });
+
+  document.querySelectorAll("[data-filter-view]").forEach((select) => {
+    select.addEventListener("change", () => {
+      const config = tableConfig(select.dataset.filterView);
+      config[select.dataset.filterField] = select.value;
+      resetTablePage(select.dataset.filterView);
       renderApp();
     });
   });
@@ -2296,6 +2551,10 @@ function bindViewEvents() {
       searchTerm = card.dataset.targetSearch || "";
       if (target === "employees" && card.dataset.targetFilter) employeeStatusFilter = card.dataset.targetFilter;
       if (target === "contracts" && card.dataset.targetFilter) contractStatusFilter = card.dataset.targetFilter;
+      if (tableState[target]) {
+        tableState[target].quick = card.dataset.targetQuick || tableState[target].quick || "Todos";
+        resetTablePage(target);
+      }
       if (target === "contracts") contractPage = 1;
       render();
     };
@@ -2311,6 +2570,12 @@ function bindViewEvents() {
   document.querySelectorAll("[data-export-report]").forEach((button) => {
     button.addEventListener("click", () => {
       alert("Estrutura preparada para exportacao futura em Excel editavel. Esta etapa ainda nao altera dados nem envia informacoes.");
+    });
+  });
+
+  document.querySelectorAll("[data-export-future]").forEach((button) => {
+    button.addEventListener("click", () => {
+      alert(`Exportacao futura para Excel preparada: ${button.dataset.exportFuture}.`);
     });
   });
 

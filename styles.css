@@ -1078,6 +1078,11 @@ textarea {
   margin-bottom: 14px;
 }
 
+.advanced-filters {
+  align-items: end;
+  padding-bottom: 4px;
+}
+
 .search {
   min-width: min(100%, 340px);
 }
@@ -1110,6 +1115,24 @@ th {
   font-size: 0.76rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+.table-sort {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  letter-spacing: inherit;
+  padding: 0;
+  text-align: left;
+  text-transform: inherit;
+}
+
+.table-sort.active,
+.table-sort:hover {
+  color: #d6a15f;
 }
 
 tbody tr {
@@ -1172,6 +1195,10 @@ tr:last-child td {
   flex-wrap: wrap;
   gap: 8px;
   margin: 0 0 14px;
+}
+
+.operational-filters {
+  align-items: center;
 }
 
 .status-filter button {
