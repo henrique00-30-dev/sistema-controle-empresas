@@ -1520,8 +1520,15 @@ function statusClass(status) {
 function bindViewEvents() {
   document.querySelectorAll(".search-control").forEach((input) => {
     input.addEventListener("input", (event) => {
+      const cursor = event.target.selectionStart || 0;
       searchTerm = event.target.value;
       renderApp();
+      requestAnimationFrame(() => {
+        const nextInput = document.querySelector(".search-control");
+        if (!nextInput) return;
+        nextInput.focus();
+        nextInput.setSelectionRange(cursor, cursor);
+      });
     });
   });
 
