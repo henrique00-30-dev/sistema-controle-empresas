@@ -5,6 +5,9 @@ const ONLINE_STORAGE_NOTE =
 const PROFILE_LABELS = {
   admin: "Administrador",
   fiscal: "Fiscal",
+  medicina: "Medicina",
+  ehs: "EHS",
+  patrimonial: "Patrimonial",
   supplier: "Fornecedor",
   visitor: "Visitante",
 };
@@ -12,9 +15,15 @@ const PROFILE_LABELS = {
 const DB_PROFILE_TO_APP_ROLE = {
   administrador: "admin",
   fiscal: "fiscal",
+  medicina: "medicina",
+  ehs: "ehs",
+  patrimonial: "patrimonial",
   fornecedor: "supplier",
   visitante: "visitor",
   admin: "admin",
+  medicine: "medicina",
+  medical: "medicina",
+  property: "patrimonial",
   supplier: "supplier",
   visitor: "visitor",
 };
@@ -22,6 +31,9 @@ const DB_PROFILE_TO_APP_ROLE = {
 const APP_ROLE_TO_DB_PROFILE = {
   admin: "administrador",
   fiscal: "fiscal",
+  medicina: "medicina",
+  ehs: "ehs",
+  patrimonial: "patrimonial",
   supplier: "fornecedor",
   visitor: "visitante",
 };
@@ -36,16 +48,56 @@ const ROLE_PERMISSIONS = {
     updateHiringStatus: true,
     addObservations: true,
     reports: true,
+    approvalSectors: ["Fiscal", "Medicina", "EHS", "Patrimonial"],
+    employeeTabs: ["personal", "docs", "medicine", "ehs", "patrimonial", "integration", "history", "demobilization"],
   },
   fiscal: {
-    view: ["dashboard", "companies", "contracts", "employees", "documents", "workflow", "thirdparty", "compliance", "approvals", "blocks", "reports", "integrations", "settings"],
+    view: ["dashboard", "companies", "contracts", "employees", "documents", "workflow", "approvals", "blocks", "reports", "settings"],
     create: [],
-    edit: ["document", "employeeStatus"],
+    edit: ["document"],
     delete: [],
     approveDocuments: true,
-    updateHiringStatus: true,
+    updateHiringStatus: false,
     addObservations: true,
     reports: true,
+    approvalSectors: ["Fiscal"],
+    employeeTabs: ["personal", "docs", "history"],
+  },
+  medicina: {
+    view: ["dashboard", "employees", "documents", "approvals", "settings"],
+    create: [],
+    edit: ["document"],
+    delete: [],
+    approveDocuments: true,
+    updateHiringStatus: false,
+    addObservations: true,
+    reports: false,
+    approvalSectors: ["Medicina"],
+    employeeTabs: ["personal", "medicine", "history"],
+  },
+  ehs: {
+    view: ["dashboard", "employees", "documents", "workflow", "approvals", "settings"],
+    create: [],
+    edit: ["document"],
+    delete: [],
+    approveDocuments: true,
+    updateHiringStatus: false,
+    addObservations: true,
+    reports: false,
+    approvalSectors: ["EHS"],
+    employeeTabs: ["personal", "ehs", "integration", "history"],
+  },
+  patrimonial: {
+    view: ["dashboard", "employees", "documents", "approvals", "blocks", "settings"],
+    create: [],
+    edit: ["document"],
+    delete: [],
+    approveDocuments: true,
+    updateHiringStatus: false,
+    addObservations: true,
+    reports: false,
+    approvalSectors: ["Patrimonial"],
+    employeeTabs: ["personal", "patrimonial", "history"],
   },
   supplier: {
     view: ["dashboard", "companies", "contracts", "employees", "documents", "workflow", "thirdparty", "compliance", "blocks", "integrations", "settings"],
@@ -56,9 +108,11 @@ const ROLE_PERMISSIONS = {
     updateHiringStatus: false,
     addObservations: true,
     reports: false,
+    approvalSectors: [],
+    employeeTabs: ["personal", "docs", "medicine", "ehs", "patrimonial", "integration", "history", "demobilization"],
   },
   visitor: {
-    view: ["dashboard", "companies", "contracts", "employees", "documents", "workflow", "thirdparty", "compliance", "blocks", "settings"],
+    view: ["dashboard", "companies", "contracts", "employees", "documents", "workflow", "thirdparty", "compliance", "settings"],
     create: [],
     edit: [],
     delete: [],
@@ -66,6 +120,8 @@ const ROLE_PERMISSIONS = {
     updateHiringStatus: false,
     addObservations: false,
     reports: false,
+    approvalSectors: [],
+    employeeTabs: ["personal", "docs", "medicine", "ehs", "patrimonial", "integration", "history"],
   },
 };
 
@@ -265,6 +321,15 @@ function migrateState(data) {
       active: true,
     });
   }
+  [
+    ["medicina", "Medicina Ocupacional", "medicina@sistema.com", "medicina123"],
+    ["ehs", "Analista EHS", "ehs@sistema.com", "ehs123"],
+    ["patrimonial", "Seguranca Patrimonial", "patrimonial@sistema.com", "patrimonial123"],
+  ].forEach(([role, name, email, password]) => {
+    if (!data.users.some((user) => user.role === role)) {
+      data.users.push({ id: crypto.randomUUID(), name, email, password, role, active: true });
+    }
+  });
 
   data.users = data.users.map((user) =>
     user.role === "supplier" && !user.companyId ? { ...user, companyId: data.companies[0]?.id || null } : user,
@@ -407,9 +472,12 @@ async function hydrateSupabaseSession(authUser) {
 }
 
 async function fetchProfile(userId) {
+  const usuario = await supabaseClient.from("usuarios").select("*").eq("id", userId).single();
+  if (!usuario.error) return mapUserFromDb(usuario.data);
+  console.warn("Perfil em usuarios indisponivel; usando profiles como fallback.", usuario.error);
   const { data, error } = await supabaseClient.from("profiles").select("*").eq("id", userId).single();
   if (error) throw error;
-  return mapProfileFromDb(data);
+  return mapUserFromDb(data);
 }
 
 async function loadRemoteData() {
@@ -417,7 +485,7 @@ async function loadRemoteData() {
     supabaseClient.from("companies").select("*").order("name"),
     supabaseClient.from("employees").select("*").order("name"),
     supabaseClient.from("documents").select("*").order("due_date"),
-    can("users.view") ? supabaseClient.from("profiles").select("*").order("nome") : Promise.resolve({ data: state.users, error: null }),
+    fetchUsersForAccessControl(),
   ]);
 
   for (const result of [companies, employees, documents, profiles]) {
@@ -427,8 +495,16 @@ async function loadRemoteData() {
   state.companies = companies.data.map(mapCompanyFromDb);
   state.employees = employees.data.map(mapEmployeeFromDb);
   state.documents = documents.data.map(mapDocumentFromDb);
-  state.users = profiles.data.map(mapProfileFromDb);
+  state.users = profiles.data.map(mapUserFromDb);
   state.historico = await loadRemoteHistory();
+}
+
+async function fetchUsersForAccessControl() {
+  if (!can("users.view")) return { data: state.users, error: null };
+  const usuarios = await supabaseClient.from("usuarios").select("*").order("nome");
+  if (!usuarios.error) return usuarios;
+  console.warn("Tabela usuarios indisponivel; usando profiles como fallback.", usuarios.error);
+  return supabaseClient.from("profiles").select("*").order("nome");
 }
 
 async function loadRemoteHistory() {
@@ -449,13 +525,13 @@ async function syncCollection(collection, item) {
     companies: "companies",
     employees: "employees",
     documents: "documents",
-    users: "profiles",
+    users: "usuarios",
   }[collection];
   const mapper = {
     companies: mapCompanyToDb,
     employees: mapEmployeeToDb,
     documents: mapDocumentToDb,
-    users: mapProfileToDb,
+    users: mapUserToDb,
   }[collection];
   const payload = mapper(item);
   const context = {
@@ -468,6 +544,11 @@ async function syncCollection(collection, item) {
     const { error } = await supabaseClient.from(table).upsert(payload);
     if (error) throw error;
   } catch (error) {
+    if (collection === "users" && table === "usuarios") {
+      const fallbackPayload = mapProfileToDb(item);
+      const fallback = await supabaseClient.from("profiles").upsert(fallbackPayload);
+      if (!fallback.error) return;
+    }
     throw wrapPersistenceError(error, context);
   }
 }
@@ -515,9 +596,13 @@ async function deleteRemote(collection, id) {
     companies: "companies",
     employees: "employees",
     documents: "documents",
-    users: "profiles",
+    users: "usuarios",
   }[collection];
   const { error } = await supabaseClient.from(table).delete().eq("id", id);
+  if (error && collection === "users" && table === "usuarios") {
+    const fallback = await supabaseClient.from("profiles").delete().eq("id", id);
+    if (!fallback.error) return;
+  }
   if (error) throw error;
 }
 
@@ -597,6 +682,9 @@ function renderLogin() {
           ${isOnlineMode() ? "Use um usuario criado no ambiente online." : "Modo demonstracao local"}<br />
           Admin: admin@sistema.com / admin123<br />
           Fiscal: fiscal@sistema.com / fiscal123<br />
+          Medicina: medicina@sistema.com / medicina123<br />
+          EHS: ehs@sistema.com / ehs123<br />
+          Patrimonial: patrimonial@sistema.com / patrimonial123<br />
           Fornecedor: fornecedor@sistema.com / fornecedor123<br />
           Visitante: visitante@sistema.com / visitante123
         </div>
@@ -755,7 +843,7 @@ function renderApp() {
               <input class="search-control" placeholder="Pesquisa" value="${escapeAttr(searchTerm)}" />
             </div>
             <button class="btn icon" id="themeToggle" type="button" title="Alternar tema">${darkMode ? icon("sun") : icon("moon")}</button>
-            <span class="role-pill">${roleName(user.role)}</span>
+            <span class="role-pill">${escapeHtml(user.name || user.email || "Usuario")} - ${roleName(user.role)}</span>
             <button class="btn secondary" id="logoutBtn">${icon("logout")} Sair</button>
           </div>
         </header>
@@ -810,7 +898,7 @@ function viewTitle() {
     compliance: "Conformidade",
     approvals: "Aprovacoes",
     blocks: "Bloqueios",
-    users: "Usuarios administrativos",
+    users: "Usuarios e perfis",
     reports: "Relatorios",
     integrations: "Integracoes",
     settings: "Configuracoes",
@@ -988,13 +1076,15 @@ function can(permission, item = null) {
 
   if (action === "users" && subject === "view") return canView("users");
   if (action === "reports") return permissions.reports;
-  if (action === "approveDocuments") return permissions.approveDocuments;
+  if (action === "approveDocuments") return permissions.approveDocuments && canApproveDocumentSector(item);
   if (action === "updateHiringStatus") return permissions.updateHiringStatus;
   if (action === "addObservations") return permissions.addObservations;
 
   if (["create", "edit", "delete"].includes(action)) {
+    if (subject === "document" && action === "edit" && permissions.approvalSectors?.length && role !== "admin") {
+      return canApproveDocumentSector(item);
+    }
     if (permissions[action].includes(subject)) return true;
-    if (subject === "employee" && action === "edit" && permissions.updateHiringStatus) return true;
     if (subject === "company" && permissions[action].includes("companyOwn")) return item?.id === user?.companyId;
     if (subject === "employee" && permissions[action].includes("employeeOwn")) return item?.companyId === user?.companyId;
     if (subject === "document" && permissions[action].includes("documentOwn")) return item?.companyId === user?.companyId;
@@ -1003,9 +1093,20 @@ function can(permission, item = null) {
   return false;
 }
 
+function canApproveDocumentSector(doc) {
+  const permissions = ROLE_PERMISSIONS[currentUser()?.role || "visitor"];
+  if (!permissions.approvalSectors?.length) return false;
+  if (!doc) return permissions.approvalSectors.length > 0;
+  return permissions.approvalSectors.includes(documentOperationalSector(doc));
+}
+
+function allowedEmployeeTabs() {
+  return ROLE_PERMISSIONS[currentUser()?.role || "visitor"].employeeTabs || [];
+}
+
 function visibleCompanies() {
   const user = currentUser();
-  if (user?.role === "supplier") return state.companies.filter((company) => company.id === user.companyId);
+  if (["supplier", "fiscal"].includes(user?.role) && user.companyId) return state.companies.filter((company) => company.id === user.companyId);
   return state.companies;
 }
 
@@ -1016,7 +1117,10 @@ function visibleEmployees() {
 
 function visibleDocuments() {
   const allowedCompanies = new Set(visibleCompanies().map((company) => company.id));
-  return state.documents.filter((doc) => allowedCompanies.has(doc.companyId));
+  const docs = state.documents.filter((doc) => allowedCompanies.has(doc.companyId));
+  const sectors = ROLE_PERMISSIONS[currentUser()?.role || "visitor"].approvalSectors || [];
+  if (["medicina", "ehs", "patrimonial"].includes(currentUser()?.role)) return docs.filter((doc) => sectors.includes(documentOperationalSector(doc)));
+  return docs;
 }
 
 function operationalMetrics(companies = visibleCompanies(), employees = visibleEmployees(), documents = visibleDocuments()) {
@@ -1436,6 +1540,8 @@ function openEmployeeRecord(id) {
   if (!employee) return;
   const item = normalizeEmployee(employee);
   const company = state.companies.find((entry) => entry.id === item.companyId);
+  const tabs = employeeRecordTabs();
+  const defaultTab = tabs[0]?.[0] || "personal";
   const modal = document.createElement("div");
   modal.className = "modal-backdrop employee-record-backdrop";
   modal.innerHTML = `
@@ -1461,20 +1567,11 @@ function openEmployeeRecord(id) {
         ${renderEmployeeWorkflow(item)}
       </div>
       <div class="contract-tabs employee-tabs" role="tablist">
-        ${[
-          ["personal", "Dados Pessoais"],
-          ["docs", "Documentos Pessoais"],
-          ["medicine", "Medicina Ocupacional"],
-          ["ehs", "Seguranca do Trabalho/EHS"],
-          ["patrimonial", "Seguranca Patrimonial"],
-          ["integration", "Integracao"],
-          ["history", "Historico"],
-          ["demobilization", "Desmobilizacao"],
-        ]
+        ${tabs
           .map(([tab, label], index) => `<button class="${index === 0 ? "active" : ""}" type="button" data-employee-tab="${tab}">${label}</button>`)
           .join("")}
       </div>
-      <div class="modal-body employee-tab-content">${renderEmployeeRecordTab(item, "personal")}</div>
+      <div class="modal-body employee-tab-content">${renderEmployeeRecordTab(item, defaultTab)}</div>
     </section>
   `;
   document.body.appendChild(modal);
@@ -1489,6 +1586,21 @@ function openEmployeeRecord(id) {
       modal.querySelector(".employee-tab-content").innerHTML = renderEmployeeRecordTab(item, button.dataset.employeeTab);
     });
   });
+}
+
+function employeeRecordTabs() {
+  const allTabs = [
+    ["personal", "Dados Pessoais"],
+    ["docs", "Documentos Pessoais"],
+    ["medicine", "Medicina Ocupacional"],
+    ["ehs", "Seguranca do Trabalho/EHS"],
+    ["patrimonial", "Seguranca Patrimonial"],
+    ["integration", "Integracao"],
+    ["history", "Historico"],
+    ["demobilization", "Desmobilizacao"],
+  ];
+  const allowed = new Set(allowedEmployeeTabs());
+  return allTabs.filter(([tab]) => allowed.has(tab));
 }
 
 function renderEmployeeRecordTab(employee, tab) {
@@ -1856,8 +1968,8 @@ function hasPendingApprovalException(employee) {
 function documentOperationalSector(doc = {}) {
   const text = `${doc.type || ""} ${documentVisibleNotes(doc) || ""}`.toLowerCase();
   if (/aso|exame|medic/.test(text)) return "Medicina";
-  if (/nr-|treinamento|epi|segur|ehs/.test(text)) return "EHS";
-  if (/patrimonial|cracha|liberacao|portaria/.test(text)) return "Patrimonial";
+  if (/nr-|treinamento|integracao|epi|segur|ehs/.test(text)) return "EHS";
+  if (/patrimonial|cracha|acesso|liberacao|portaria/.test(text)) return "Patrimonial";
   return "Fiscal";
 }
 
@@ -2774,7 +2886,7 @@ function renderDocumentAuditTrail(doc) {
 function renderUsers() {
   const items = filtered(state.users, [(item) => item.name, (item) => item.email, (item) => roleName(item.role)]);
   return `
-    ${sectionHead("Usuarios", "Gerencie acesso administrativo e fiscais de fornecedor.", "Novo usuario", "user")}
+    ${sectionHead("Usuarios", "Gerencie perfis por setor, fornecedor e visitantes.", "Novo usuario", "user")}
     ${toolbar("Buscar por nome, e-mail ou perfil")}
     <section class="panel table-wrap">
       <table>
@@ -3568,12 +3680,15 @@ function userForm(id) {
       inputField("email", "E-mail", item.email, "type='email' required"),
       inputField("password", "Senha", item.password || "", "required"),
       selectField("role", "Perfil", item.role || "fiscal", [
-        { value: "admin", label: "Administrativo" },
-        { value: "fiscal", label: "Fiscal de fornecedor" },
+        { value: "admin", label: "Administrador" },
+        { value: "fiscal", label: "Fiscal" },
+        { value: "medicina", label: "Medicina" },
+        { value: "ehs", label: "EHS" },
+        { value: "patrimonial", label: "Patrimonial" },
         { value: "supplier", label: "Fornecedor" },
         { value: "visitor", label: "Visitante" },
       ]),
-      selectField("companyId", "Empresa do fornecedor", item.companyId || "", [{ value: "", label: "Nao vinculado" }].concat(state.companies.map((company) => ({ value: company.id, label: company.name })))),
+      selectField("companyId", "Empresa vinculada opcional", item.companyId || "", [{ value: "", label: "Nao vinculado" }].concat(state.companies.map((company) => ({ value: company.id, label: company.name })))),
       selectField("active", "Status", item.active === false ? "false" : "true", [
         { value: "true", label: "Ativo" },
         { value: "false", label: "Inativo" },
@@ -3587,6 +3702,7 @@ function userForm(id) {
         role: form.get("role"),
         companyId: form.get("companyId") || null,
         active: form.get("active") === "true",
+        createdAt: item.createdAt || new Date().toISOString(),
       });
       syncCollection("users", saved).catch((error) => alert(`Nao foi possivel salvar online: ${error.message}`));
     },
@@ -3903,14 +4019,19 @@ function normalizeEmployee(employee) {
 }
 
 function mapProfileFromDb(profile) {
+  return mapUserFromDb(profile);
+}
+
+function mapUserFromDb(profile) {
   const dbPerfil = profile.perfil || profile.role || "visitante";
   return {
     id: profile.id,
     name: profile.nome || profile.name || profile.email || "Usuario",
     email: profile.email || "",
     role: DB_PROFILE_TO_APP_ROLE[dbPerfil] || "visitor",
-    active: profile.active !== false,
-    companyId: profile.company_id || null,
+    active: profile.ativo ?? profile.active ?? true,
+    companyId: profile.empresa_id || profile.company_id || null,
+    createdAt: profile.created_at || profile.createdAt || null,
   };
 }
 
@@ -3922,6 +4043,18 @@ function mapProfileToDb(user) {
     perfil: APP_ROLE_TO_DB_PROFILE[user.role] || "visitante",
     active: user.active !== false,
     company_id: user.companyId || null,
+  };
+}
+
+function mapUserToDb(user) {
+  return {
+    id: user.id,
+    nome: user.name,
+    email: user.email,
+    perfil: APP_ROLE_TO_DB_PROFILE[user.role] || "visitante",
+    empresa_id: user.companyId || null,
+    ativo: user.active !== false,
+    created_at: user.createdAt || new Date().toISOString(),
   };
 }
 
