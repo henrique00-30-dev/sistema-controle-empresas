@@ -37,6 +37,7 @@ const APP_ROLE_TO_DB_PROFILE = {
   supplier: "fornecedor",
   visitor: "visitante",
 };
+const DB_PROFILE_VALUES = Object.freeze(["administrador", "fiscal", "medicina", "ehs", "patrimonial", "fornecedor", "visitante"]);
 
 const ROLE_PERMISSIONS = {
   admin: {
@@ -427,6 +428,37 @@ function wrapPersistenceError(error, context) {
   return new PersistenceError(`Falha em ${context.table}: ${hint}`, { ...context, hint }, error);
 }
 
+function wrapUserPersistenceError(error, context) {
+  if (error instanceof PersistenceError) return error;
+  const code = error?.code || error?.statusCode || error?.status;
+  const rawMessage = String(error?.message || "");
+  const isDuplicate = code === "23505" || /duplicate key|unique/i.test(rawMessage);
+  const isEnum = code === "22P02" || /perfil_usuario|invalid input value for enum|enum/i.test(rawMessage);
+  const isFk = code === "23503" || /foreign key/i.test(rawMessage);
+  const isRequired = code === "23502" || /null value|not-null/i.test(rawMessage);
+  const hint = isDuplicate
+    ? "E-mail ja cadastrado. Use outro e-mail ou edite o usuario existente."
+    : isEnum
+      ? `Perfil invalido para o enum perfil_usuario. Valores aceitos: ${DB_PROFILE_VALUES.join(", ")}.`
+      : isFk
+        ? "ID do usuario nao existe em auth.users ou empresa_id nao existe. Crie primeiro o usuario no Auth do Supabase e depois vincule o perfil."
+        : isRequired
+          ? "Campo obrigatorio ausente em public.usuarios. Confira nome, email, perfil e ativo."
+          : "Falha retornada pelo Supabase ao salvar usuario. Veja o console.error detalhado.";
+  return new PersistenceError(`Falha em public.usuarios: ${hint}`, { ...context, hint }, error);
+}
+
+function logUserPersistenceError(payload, error) {
+  console.error("[Usuarios Supabase] Falha ao salvar em public.usuarios", {
+    payload_enviado_public_usuarios: payload,
+    code: error?.code || null,
+    message: error?.message || null,
+    details: error?.details || null,
+    hint: error?.hint || null,
+    error,
+  });
+}
+
 async function ensureOnlineSession(table) {
   if (!isOnlineMode()) return null;
   const {
@@ -522,6 +554,10 @@ async function loadRemoteHistory() {
 
 async function syncCollection(collection, item) {
   if (!isOnlineMode()) return;
+  if (collection === "users") {
+    await syncUserRecord(item);
+    return;
+  }
   const table = {
     companies: "companies",
     employees: "employees",
@@ -545,12 +581,25 @@ async function syncCollection(collection, item) {
     const { error } = await supabaseClient.from(table).upsert(payload);
     if (error) throw error;
   } catch (error) {
-    if (collection === "users" && table === "usuarios") {
-      const fallbackPayload = mapProfileToDb(item);
-      const fallback = await supabaseClient.from("profiles").upsert(fallbackPayload);
-      if (!fallback.error) return;
-    }
     throw wrapPersistenceError(error, context);
+  }
+}
+
+async function syncUserRecord(user) {
+  const payload = mapUserToDb(user);
+  validateUserPayload(payload);
+  const context = {
+    table: "public.usuarios",
+    operation: "upsert",
+    payload,
+  };
+  try {
+    await ensureOnlineSession(context.table);
+    const { error } = await supabaseClient.from("usuarios").upsert(payload);
+    if (error) throw error;
+  } catch (error) {
+    logUserPersistenceError(payload, error);
+    throw wrapUserPersistenceError(error, context);
   }
 }
 
@@ -3765,16 +3814,25 @@ function userForm(id) {
       ]),
     ],
     save(form) {
+      const email = String(form.get("email") || "").trim().toLowerCase();
+      const duplicate = state.users.some((user) => user.id !== id && String(user.email || "").trim().toLowerCase() === email);
+      if (duplicate) {
+        alert("E-mail ja cadastrado. Edite o usuario existente ou informe outro e-mail.");
+        return;
+      }
       const saved = upsert("users", id, {
-        name: form.get("name"),
-        email: form.get("email"),
-        password: form.get("password"),
+        name: String(form.get("name") || "").trim(),
+        email,
+        password: optionalNull(form.get("password")),
         role: form.get("role"),
-        companyId: form.get("companyId") || null,
+        companyId: optionalNull(form.get("companyId")),
         active: form.get("active") === "true",
         createdAt: item.createdAt || new Date().toISOString(),
       });
-      syncCollection("users", saved).catch((error) => alert(`Nao foi possivel salvar online: ${error.message}`));
+      syncCollection("users", saved).catch((error) => {
+        logPersistenceError(error, { table: "public.usuarios", operation: "salvar usuario", payload: mapUserToDb(saved) });
+        alert(persistenceMessage(error));
+      });
     },
   };
 }
@@ -4194,24 +4252,45 @@ function mapUserFromDb(profile) {
 function mapProfileToDb(user) {
   return {
     id: user.id,
-    nome: user.name,
-    email: user.email,
+    nome: optionalNull(user.name),
+    email: optionalNull(user.email),
     perfil: APP_ROLE_TO_DB_PROFILE[user.role] || "visitante",
     active: user.active !== false,
-    company_id: user.companyId || null,
+    company_id: optionalNull(user.companyId),
   };
 }
 
 function mapUserToDb(user) {
+  const perfil = APP_ROLE_TO_DB_PROFILE[user.role] || user.role || "visitante";
   return {
     id: user.id,
-    nome: user.name,
-    email: user.email,
-    perfil: APP_ROLE_TO_DB_PROFILE[user.role] || "visitante",
-    empresa_id: user.companyId || null,
+    nome: optionalNull(user.name),
+    email: optionalNull(user.email),
+    perfil,
+    empresa_id: optionalNull(user.companyId),
     ativo: user.active !== false,
     created_at: user.createdAt || new Date().toISOString(),
   };
+}
+
+function validateUserPayload(payload) {
+  if (!DB_PROFILE_VALUES.includes(payload.perfil)) {
+    throw new PersistenceError(`Perfil invalido. Valores aceitos pelo enum perfil_usuario: ${DB_PROFILE_VALUES.join(", ")}.`, {
+      table: "public.usuarios",
+      operation: "validacao",
+      payload,
+      hint: "perfil fora do enum perfil_usuario",
+    });
+  }
+  if (!payload.nome || !payload.email) {
+    throw new PersistenceError("Nome e e-mail sao obrigatorios para salvar usuario.", {
+      table: "public.usuarios",
+      operation: "validacao",
+      payload,
+      hint: "nome/email obrigatorios",
+    });
+  }
+  payload.empresa_id = optionalNull(payload.empresa_id);
 }
 
 function mapCompanyFromDb(company) {
@@ -4440,6 +4519,11 @@ function today() {
 
 function onlyDigits(value = "") {
   return String(value || "").replace(/\D/g, "");
+}
+
+function optionalNull(value = "") {
+  const text = String(value ?? "").trim();
+  return text ? text : null;
 }
 
 function formatCpf(value = "") {
