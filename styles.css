@@ -743,6 +743,42 @@ textarea {
   box-shadow: var(--shadow-soft);
 }
 
+.clickable-kpi {
+  cursor: pointer;
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.clickable-kpi:hover,
+.clickable-kpi:focus-visible {
+  transform: translateY(-4px);
+  border-color: rgba(214, 161, 95, 0.46);
+  box-shadow: 0 22px 46px rgba(0, 0, 0, 0.34);
+  outline: none;
+}
+
+.clickable-kpi::after {
+  content: "Abrir";
+  position: absolute;
+  right: 18px;
+  bottom: 16px;
+  padding: 5px 9px;
+  border: 1px solid rgba(245, 241, 234, 0.16);
+  border-radius: 999px;
+  color: #f5f1ea;
+  background: rgba(255, 255, 255, 0.07);
+  font-size: 0.7rem;
+  font-weight: 900;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.clickable-kpi:hover::after,
+.clickable-kpi:focus-visible::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 .kpi-card::before {
   content: "";
   position: absolute;
@@ -1155,6 +1191,31 @@ tr:last-child td {
 
 .report-panel {
   margin-bottom: 16px;
+}
+
+.report-stack {
+  display: grid;
+  gap: 16px;
+}
+
+.report-table-panel {
+  overflow: hidden;
+}
+
+.report-export-table {
+  border-top: 1px solid var(--line);
+}
+
+.report-export-table table {
+  min-width: 760px;
+}
+
+.report-export-table th {
+  white-space: nowrap;
+}
+
+.report-export-table td {
+  vertical-align: top;
 }
 
 .report-grid,

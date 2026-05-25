@@ -742,26 +742,43 @@ function visibleDocuments() {
   return state.documents.filter((doc) => allowedCompanies.has(doc.companyId));
 }
 
+function operationalMetrics(companies = visibleCompanies(), employees = visibleEmployees(), documents = visibleDocuments()) {
+  const normalizedCompanies = companies.map((company) => ({ ...normalizeCompany(company), raw: company }));
+  const normalizedEmployees = employees.map((employee) => ({ ...normalizeEmployee(employee), raw: employee }));
+  return {
+    activeContracts: normalizedCompanies.filter((company) => company.status === "Ativa").map((company) => company.raw),
+    expiringContracts: normalizedCompanies.filter((company) => contractDays(company.raw) >= 0 && contractDays(company.raw) <= 60).map((company) => company.raw),
+    blockedContracts: normalizedCompanies.filter((company) => ["Bloqueada", "Bloqueado", "Inativa", "Desmobilizada"].includes(company.status)).map((company) => company.raw),
+    activeEmployees: normalizedEmployees.filter((employee) => ["Aprovado", "Ativo"].includes(employee.status)).map((employee) => employee.raw),
+    blockedEmployees: normalizedEmployees.filter((employee) => ["Bloqueado"].includes(employee.status)).map((employee) => employee.raw),
+    inactiveEmployees: normalizedEmployees.filter((employee) => ["Inativo", "Desmobilizado", "Desmobilizada"].includes(employee.status)).map((employee) => employee.raw),
+    medicinePendencies: normalizedEmployees
+      .filter((employee) => employee.status === "Aguardando exames" || ["Vencido", "A vencer"].includes(employee.docStatus) || employeeMedicineStatus(employee.raw) === "Pendente")
+      .map((employee) => employee.raw),
+    ehsPendencies: normalizedEmployees
+      .filter((employee) => ["Em treinamento", "Documentos pendente"].includes(employee.status) || employeeEhsStatus(employee.raw) === "Pendente")
+      .map((employee) => employee.raw),
+    patrimonialPendencies: normalizedEmployees.filter((employee) => employee.status === "Aguardando aprovacao do fiscal" || employeePatrimonialStatus(employee.raw) === "Pendente").map((employee) => employee.raw),
+    expiredDocs: documents.filter((doc) => docStatus(doc) === "Vencido"),
+    expiringDocs: documents.filter((doc) => docStatus(doc) === "A vencer"),
+  };
+}
+
 function renderDashboard() {
   const companies = visibleCompanies();
   const employees = visibleEmployees();
   const documents = visibleDocuments();
-  const totals = {
-    activeEmployees: employees.filter((employee) => ["Aprovado", "Ativo"].includes(normalizeEmployee(employee).status)).length,
-    blockedEmployees: employees.filter((employee) => ["Bloqueado", "Inativo"].includes(normalizeEmployee(employee).status)).length,
-    medicine: employees.filter((employee) => normalizeEmployee(employee).status === "Aguardando exames" || ["Vencido", "A vencer"].includes(normalizeEmployee(employee).docStatus)).length,
-    ehs: employees.filter((employee) => ["Em treinamento", "Documentos pendente"].includes(normalizeEmployee(employee).status)).length,
-    contracts: companies.filter((company) => contractDays(company) >= 0 && contractDays(company) <= 60).length,
-    blockedCompanies: companies.filter((company) => ["Bloqueada", "Bloqueado", "Inativa", "Desmobilizada"].includes(normalizeCompany(company).status)).length,
-  };
+  const metrics = operationalMetrics(companies, employees, documents);
   const criticalDocs = visibleDocuments().filter((doc) => ["Vencido", "A vencer", "Pendente"].includes(docStatus(doc))).slice(0, 6);
   const dashboardCards = [
-    ["Funcionarios ativos", totals.activeEmployees, "Liberados para atividade", "users", "success"],
-    ["Bloqueados", totals.blockedEmployees, "Restricao operacional", "block", "danger"],
-    ["Pendentes medicina", totals.medicine, "ASO e exames", "shield", "warning"],
-    ["Pendentes EHS", totals.ehs, "Treinamentos e seguranca", "factory", "info"],
-    ["Contratos vencendo", totals.contracts, "Proximos 60 dias", "contracts", "special"],
-    ["Empresas bloqueadas", totals.blockedCompanies, "Fornecedores restritos", "company", "danger"],
+    ["Contratos ativos", metrics.activeContracts.length, "Contratos em operacao", "contracts", "success", "contracts", "", "Ativa"],
+    ["Contratos vencendo", metrics.expiringContracts.length, "Proximos 60 dias", "contracts", "warning", "contracts", "", "Todos"],
+    ["Funcionarios ativos", metrics.activeEmployees.length, "Liberados para atividade", "users", "success", "employees", "Aprovado", "Todos"],
+    ["Funcionarios bloqueados", metrics.blockedEmployees.length, "Restricao operacional", "block", "danger", "employees", "Bloqueado", "Bloqueado"],
+    ["Pendencias Medicina", metrics.medicinePendencies.length, "ASO, exames e vencimentos", "shield", "warning", "employees", "Aguardando exames", "Todos"],
+    ["Pendencias EHS", metrics.ehsPendencies.length, "Treinamentos e seguranca", "factory", "info", "employees", "Em treinamento", "Todos"],
+    ["Pendencias Patrimonial", metrics.patrimonialPendencies.length, "Liberacao final", "approve", "special", "employees", "Aguardando aprovacao do fiscal", "Todos"],
+    ["Documentos vencidos", metrics.expiredDocs.length, "Itens fora da validade", "docs", "danger", "documents", "Vencido", "Todos"],
   ];
   const operationalRows = employees.slice(0, 6).map((employee) => {
     const item = normalizeEmployee(employee);
@@ -800,8 +817,8 @@ function renderDashboard() {
       <div><span>Documentos</span><strong>Workflow ativo</strong></div>
     </section>
     <div class="kpi-grid">
-      ${dashboardCards.map(([label, value, helper, iconName, tone]) => `
-        <article class="kpi-card ${tone}">
+      ${dashboardCards.map(([label, value, helper, iconName, tone, view, query, filter]) => `
+        <article class="kpi-card clickable-kpi ${tone}" role="button" tabindex="0" data-dashboard-card data-target-view="${view}" data-target-search="${escapeAttr(query)}" data-target-filter="${escapeAttr(filter)}" title="Abrir ${label}">
           <div class="kpi-icon">${icon(iconName)}</div>
           <div>
             <span>${label}</span>
@@ -826,6 +843,12 @@ function renderDashboard() {
               return `<div class="power-row"><div><strong>${status}</strong><span>${count}</span></div><i style="--bar:${width}%"></i></div>`;
             })
             .join("") || `<div class="empty">Sem funcionarios cadastrados.</div>`}
+        </div>
+      </section>
+      <section class="bi-card">
+        <div class="bi-head"><div><span class="eyebrow">Contratos</span><h2>Vencimentos proximos</h2></div><span class="mini-pill">${metrics.expiringContracts.length}</span></div>
+        <div class="item-list dense-list">
+          ${metrics.expiringContracts.slice(0, 5).map((company) => `<div class="item-card"><div class="item-row"><strong>${company.contract || company.name}</strong>${statusBadge(normalizeCompany(company).status)}</div><span class="muted">${company.name} - fim em ${formatDate(normalizeCompany(company).endDate)}</span></div>`).join("") || `<div class="empty">Nenhum contrato vencendo nos proximos 60 dias.</div>`}
         </div>
       </section>
       <section class="bi-card gauge-card">
@@ -1812,38 +1835,89 @@ function renderReports() {
   const companies = visibleCompanies();
   const employees = visibleEmployees();
   const documents = visibleDocuments();
-  const byHiring = hiringStatuses
-    .map((status) => ({ status, count: employees.filter((employee) => normalizeEmployee(employee).status === status).length }))
-    .filter((item) => item.count > 0);
-  const docPendencies = documents.filter((doc) => ["Vencido", "A vencer", "Pendente", "Reprovado"].includes(docStatus(doc)));
+  const metrics = operationalMetrics(companies, employees, documents);
+  const sectorPendencies = [
+    { setor: "Medicina Ocupacional", pendencias: metrics.medicinePendencies.length, responsavel: "ASO e exames", status: "Pendente" },
+    { setor: "Seguranca do Trabalho/EHS", pendencias: metrics.ehsPendencies.length, responsavel: "Treinamentos e requisitos EHS", status: "Pendente" },
+    { setor: "Seguranca Patrimonial", pendencias: metrics.patrimonialPendencies.length, responsavel: "Liberacao final", status: "Pendente" },
+  ];
+  const blockRows = [
+    ...metrics.blockedEmployees.map((employee) => ({
+      tipo: "Funcionario",
+      registro: normalizeEmployee(employee).name,
+      empresa: companyName(normalizeEmployee(employee).companyId),
+      motivo: normalizeEmployee(employee).notes || "Restricao operacional",
+      status: normalizeEmployee(employee).status,
+    })),
+    ...metrics.blockedContracts.map((company) => ({
+      tipo: "Contrato/Empresa",
+      registro: normalizeCompany(company).contract || normalizeCompany(company).name,
+      empresa: normalizeCompany(company).name,
+      motivo: "Status contratual restritivo",
+      status: normalizeCompany(company).status,
+    })),
+  ];
 
   return `
     <section class="panel report-panel">
       <div class="modal-head">
-        <h2>Relatorio operacional</h2>
-        ${can("reports.generate") ? `<button class="btn secondary" type="button" onclick="window.print()">Gerar relatorio</button>` : ""}
+        <div>
+          <span class="eyebrow">Relatorios operacionais</span>
+          <h2>Central de indicadores e auditoria</h2>
+        </div>
+        <div class="actions wrap">
+          <span class="mini-pill">Preparado para Excel editavel</span>
+          ${can("reports.generate") ? `<button class="btn secondary" type="button" onclick="window.print()">${icon("reports")} Gerar relatorio</button>` : ""}
+        </div>
       </div>
       <div class="modal-body report-grid">
-        <div class="stat-card"><span>Empresas visiveis</span><strong>${companies.length}</strong></div>
-        <div class="stat-card"><span>Funcionarios visiveis</span><strong>${employees.length}</strong></div>
-        <div class="stat-card"><span>Documentos monitorados</span><strong>${documents.length}</strong></div>
-        <div class="stat-card"><span>Pendencias</span><strong>${docPendencies.length}</strong></div>
+        <div class="stat-card danger"><span>Documentos vencidos</span><strong>${metrics.expiredDocs.length}</strong><small>Fora da validade</small></div>
+        <div class="stat-card warning"><span>Documentos a vencer</span><strong>${metrics.expiringDocs.length}</strong><small>Janela de alerta</small></div>
+        <div class="stat-card success"><span>Funcionarios ativos</span><strong>${metrics.activeEmployees.length}</strong><small>Aptos/liberados</small></div>
+        <div class="stat-card danger"><span>Bloqueios</span><strong>${blockRows.length}</strong><small>Restricoes em aberto</small></div>
       </div>
     </section>
-    <div class="grid-two">
-      <section class="panel">
-        <div class="modal-head"><h2>Status de contratacao</h2></div>
-        <div class="modal-body item-list">
-          ${byHiring.length ? byHiring.map((item) => `<div class="item-card"><div class="item-row"><strong>${item.status}</strong>${statusBadge(item.status)}</div><span class="muted">${item.count} funcionario(s)</span></div>`).join("") : `<div class="empty">Sem funcionarios cadastrados.</div>`}
-        </div>
-      </section>
-      <section class="panel">
-        <div class="modal-head"><h2>Pendencias documentais</h2></div>
-        <div class="modal-body item-list">
-          ${docPendencies.length ? docPendencies.map(renderDocCard).join("") : `<div class="empty">Nenhuma pendencia documental.</div>`}
-        </div>
-      </section>
+    <div class="report-stack">
+      ${renderReportTable("Documentos vencidos", "Controle de documentos fora do prazo.", "documentos-vencidos", ["Documento", "Empresa", "Funcionario", "Vencimento", "Status"], metrics.expiredDocs.map((doc) => [doc.type, companyName(doc.companyId), doc.employeeId ? employeeName(doc.employeeId) : "Empresa", formatDate(doc.dueDate), statusBadge(docStatus(doc))]))}
+      ${renderReportTable("Documentos a vencer", "Itens proximos do vencimento.", "documentos-a-vencer", ["Documento", "Empresa", "Funcionario", "Vencimento", "Status"], metrics.expiringDocs.map((doc) => [doc.type, companyName(doc.companyId), doc.employeeId ? employeeName(doc.employeeId) : "Empresa", formatDate(doc.dueDate), statusBadge(docStatus(doc))]))}
+      ${renderReportTable("Funcionarios ativos", "Trabalhadores liberados para operacao.", "funcionarios-ativos", ["Nome", "CPF", "Empresa", "Funcao", "Status"], metrics.activeEmployees.map((employee) => {
+        const item = normalizeEmployee(employee);
+        return [item.name, item.cpf || "Nao informado", companyName(item.companyId), item.role || "Nao informado", statusBadge(item.status)];
+      }))}
+      ${renderReportTable("Funcionarios inativos/desmobilizados", "Historico de trabalhadores sem atividade atual.", "funcionarios-inativos", ["Nome", "CPF", "Empresa", "Funcao", "Status"], metrics.inactiveEmployees.map((employee) => {
+        const item = normalizeEmployee(employee);
+        return [item.name, item.cpf || "Nao informado", companyName(item.companyId), item.role || "Nao informado", statusBadge(item.status)];
+      }))}
+      ${renderReportTable("Pendencias por setor", "Visao consolidada para Medicina, EHS e Patrimonial.", "pendencias-por-setor", ["Setor", "Pendencias", "Responsavel operacional", "Status"], sectorPendencies.map((item) => [item.setor, item.pendencias, item.responsavel, statusBadge(item.status)]))}
+      ${renderReportTable("Contratos vencendo", "Contratos com fim previsto nos proximos 60 dias.", "contratos-vencendo", ["Contrato", "Empresa", "Unidade", "Fim", "Status"], metrics.expiringContracts.map((company) => {
+        const item = normalizeCompany(company);
+        return [item.contract || "Nao informado", item.name, contractUnit(item), formatDate(item.endDate), statusBadge(item.status)];
+      }))}
+      ${renderReportTable("Bloqueios", "Restricoes de funcionarios e contratos.", "bloqueios", ["Tipo", "Registro", "Empresa", "Motivo", "Status"], blockRows.map((item) => [item.tipo, item.registro, item.empresa, item.motivo, statusBadge(item.status)]))}
     </div>
+  `;
+}
+
+function renderReportTable(title, subtitle, exportKey, columns, rows) {
+  return `
+    <section class="panel report-table-panel" data-export-ready="${exportKey}">
+      <div class="modal-head">
+        <div>
+          <h2>${title}</h2>
+          <span class="muted">${subtitle}</span>
+        </div>
+        <div class="actions wrap">
+          <span class="mini-pill">${rows.length} registro(s)</span>
+          <button class="btn secondary compact" type="button" data-export-report="${exportKey}" title="Estrutura preparada para exportacao futura">${icon("reports")} Excel futuro</button>
+        </div>
+      </div>
+      <div class="table-wrap report-export-table">
+        <table>
+          <thead><tr>${columns.map((column) => `<th data-export-column="${escapeAttr(column)}">${column}</th>`).join("")}</tr></thead>
+          <tbody>${rows.length ? rows.map((row) => `<tr>${row.map((cell) => `<td>${cell}</td>`).join("")}</tr>`).join("") : emptyRow(columns.length)}</tbody>
+        </table>
+      </div>
+    </section>
   `;
 }
 
@@ -2015,6 +2089,32 @@ function bindViewEvents() {
     item.addEventListener("click", (event) => {
       event.stopPropagation();
       openEmployeeRecord(item.dataset.employeeRecord);
+    });
+  });
+
+  document.querySelectorAll("[data-dashboard-card]").forEach((card) => {
+    const openTarget = () => {
+      const target = card.dataset.targetView;
+      if (!target || !canView(target)) return;
+      currentView = target;
+      searchTerm = card.dataset.targetSearch || "";
+      if (target === "employees" && card.dataset.targetFilter) employeeStatusFilter = card.dataset.targetFilter;
+      if (target === "contracts" && card.dataset.targetFilter) contractStatusFilter = card.dataset.targetFilter;
+      if (target === "contracts") contractPage = 1;
+      render();
+    };
+    card.addEventListener("click", openTarget);
+    card.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        openTarget();
+      }
+    });
+  });
+
+  document.querySelectorAll("[data-export-report]").forEach((button) => {
+    button.addEventListener("click", () => {
+      alert("Estrutura preparada para exportacao futura em Excel editavel. Esta etapa ainda nao altera dados nem envia informacoes.");
     });
   });
 
