@@ -587,13 +587,13 @@ async function syncCollection(collection, item) {
 
 async function syncUserRecord(user) {
   const payload = mapUserToDb(user);
-  validateUserPayload(payload);
   const context = {
     table: "public.usuarios",
     operation: "upsert",
     payload,
   };
   try {
+    validateUserPayload(payload);
     await ensureOnlineSession(context.table);
     const { error } = await supabaseClient.from("usuarios").upsert(payload);
     if (error) throw error;
@@ -3826,6 +3826,8 @@ function userForm(id) {
         password: optionalNull(form.get("password")),
         role: form.get("role"),
         companyId: optionalNull(form.get("companyId")),
+        setor: item.setor || null,
+        matricula: item.matricula || null,
         active: form.get("active") === "true",
         createdAt: item.createdAt || new Date().toISOString(),
       });
@@ -4238,37 +4240,43 @@ function mapProfileFromDb(profile) {
 
 function mapUserFromDb(profile) {
   const dbPerfil = profile.perfil || profile.role || "visitante";
+  const roleKey = String(dbPerfil).trim().toLowerCase();
   return {
     id: profile.id,
     name: profile.nome || profile.name || profile.email || "Usuario",
     email: profile.email || "",
-    role: DB_PROFILE_TO_APP_ROLE[dbPerfil] || "visitor",
+    role: DB_PROFILE_TO_APP_ROLE[dbPerfil] || DB_PROFILE_TO_APP_ROLE[roleKey] || "visitor",
     active: profile.ativo ?? profile.active ?? true,
     companyId: profile.empresa_id || profile.company_id || null,
+    setor: profile.setor || null,
+    matricula: profile.matricula || null,
     createdAt: profile.created_at || profile.createdAt || null,
   };
 }
 
 function mapProfileToDb(user) {
+  const perfil = normalizePerfilUsuario(user.role);
   return {
     id: user.id,
-    nome: optionalNull(user.name),
-    email: optionalNull(user.email),
-    perfil: APP_ROLE_TO_DB_PROFILE[user.role] || "visitante",
+    nome: optionalText(user.name),
+    email: optionalText(user.email),
+    perfil,
     active: user.active !== false,
     company_id: optionalNull(user.companyId),
   };
 }
 
 function mapUserToDb(user) {
-  const perfil = APP_ROLE_TO_DB_PROFILE[user.role] || user.role || "visitante";
+  const perfil = normalizePerfilUsuario(user.role || user.perfil);
   return {
     id: user.id,
-    nome: optionalNull(user.name),
-    email: optionalNull(user.email),
+    nome: optionalText(user.name),
+    email: optionalText(user.email),
     perfil,
     empresa_id: optionalNull(user.companyId),
-    ativo: user.active !== false,
+    setor: optionalText(user.setor) || defaultSetorForPerfil(perfil),
+    matricula: optionalText(user.matricula),
+    ativo: Boolean(user.active !== false),
     created_at: user.createdAt || new Date().toISOString(),
   };
 }
@@ -4282,6 +4290,13 @@ function validateUserPayload(payload) {
       hint: "perfil fora do enum perfil_usuario",
     });
   }
+  payload.perfil = normalizePerfilUsuario(payload.perfil);
+  payload.empresa_id = optionalNull(payload.empresa_id);
+  payload.setor = optionalText(payload.setor);
+  payload.matricula = optionalText(payload.matricula);
+  payload.nome = optionalText(payload.nome);
+  payload.email = optionalText(payload.email);
+  payload.ativo = Boolean(payload.ativo);
   if (!payload.nome || !payload.email) {
     throw new PersistenceError("Nome e e-mail sao obrigatorios para salvar usuario.", {
       table: "public.usuarios",
@@ -4290,7 +4305,52 @@ function validateUserPayload(payload) {
       hint: "nome/email obrigatorios",
     });
   }
-  payload.empresa_id = optionalNull(payload.empresa_id);
+  if (profileRequiresMatricula(payload.perfil) && !payload.matricula) {
+    throw new PersistenceError("Matricula obrigatoria para este perfil.", {
+      table: "public.usuarios",
+      operation: "validacao",
+      payload,
+      hint: "matricula obrigatoria pelo perfil",
+    });
+  }
+}
+
+function normalizePerfilUsuario(value = "visitante") {
+  const raw = String(value || "visitante").trim();
+  const mapped = APP_ROLE_TO_DB_PROFILE[raw] || APP_ROLE_TO_DB_PROFILE[raw.toLowerCase()];
+  if (mapped) return mapped;
+  const normalized = raw
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  const aliases = {
+    administrador: "administrador",
+    admin: "administrador",
+    fiscal: "fiscal",
+    medicina: "medicina",
+    ehs: "ehs",
+    patrimonial: "patrimonial",
+    fornecedor: "fornecedor",
+    supplier: "fornecedor",
+    visitante: "visitante",
+    visitor: "visitante",
+  };
+  return aliases[normalized] || "visitante";
+}
+
+function defaultSetorForPerfil(perfil) {
+  return {
+    administrador: "Administrativo",
+    fiscal: "Fiscal",
+    medicina: "Medicina",
+    ehs: "EHS",
+    patrimonial: "Patrimonial",
+    fornecedor: "Fornecedor",
+  }[perfil] || null;
+}
+
+function profileRequiresMatricula(perfil) {
+  return false;
 }
 
 function mapCompanyFromDb(company) {
@@ -4522,6 +4582,11 @@ function onlyDigits(value = "") {
 }
 
 function optionalNull(value = "") {
+  const text = String(value ?? "").trim();
+  return text ? text : null;
+}
+
+function optionalText(value = "") {
   const text = String(value ?? "").trim();
   return text ? text : null;
 }
