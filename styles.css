@@ -1205,6 +1205,7 @@ tr:last-child td {
 .status.ok { background: rgba(95, 143, 102, 0.16); color: #a7cfae; }
 .status.warn { background: rgba(214, 161, 95, 0.18); color: #e7bd7f; }
 .status.bad { background: rgba(143, 38, 56, 0.2); color: #e88d9b; }
+.status.blocked { background: rgba(143, 38, 56, 0.24); color: #ff9ca9; }
 .status.conditional { background: rgba(126, 87, 194, 0.18); color: #d6c2ff; }
 .status.info { background: rgba(122, 74, 43, 0.2); color: #d6a15f; }
 .status.analysis { background: rgba(100, 116, 139, 0.15); color: var(--muted); }

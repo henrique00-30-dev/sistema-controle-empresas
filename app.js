@@ -1783,7 +1783,7 @@ function renderEmployeeWorkflow(employee) {
         <div class="employee-flow-step ${workflowStatusClass(step.status)}">
           <span class="employee-flow-icon">${icon(step.icon)}<small>${index + 1}</small></span>
           <strong>${step.label}</strong>
-          ${statusBadge(step.status)}
+          ${workflowStatusBadge(step.status)}
           <em>${step.detail}</em>
         </div>
       `,
@@ -1845,12 +1845,23 @@ function employeeWorkflowSteps(employee) {
   const rejectedStatus = steps.some((step) => step.status === "Reprovado");
   const pendingStatus = steps.some((step) => ["Pendente", "Aprovado com pendencia"].includes(step.status));
   steps.push({
-    label: "Liberacao final",
+    label: "Liberação final",
     icon: "approve",
     status: blockingStatus ? "Bloqueado" : rejectedStatus ? "Reprovado" : pendingStatus ? (exception ? "Aprovado com pendencia" : "Pendente") : "Aprovado",
     detail: "Consolidacao fiscal para inicio ou manutencao",
   });
   return steps;
+}
+
+function workflowStatusBadge(status) {
+  const labels = {
+    Pendente: "Pendente",
+    Aprovado: "Aprovado",
+    Reprovado: "Reprovado",
+    Bloqueado: "Bloqueado",
+    "Aprovado com pendencia": "Aprovado com pendência",
+  };
+  return `<span class="status ${workflowStatusClass(status)}">${labels[status] || status}</span>`;
 }
 
 function resolveWorkflowStepStatus(employee, docs, { pending = false, approved = false, exception = false } = {}) {
