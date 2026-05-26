@@ -2224,6 +2224,25 @@ tr:last-child td {
   line-height: 1.35;
 }
 
+.workflow-step-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.workflow-step-actions .btn {
+  min-height: 30px;
+  padding: 6px 8px;
+  font-size: 0.7rem;
+  border-radius: 10px;
+}
+
+.workflow-step-actions .btn svg {
+  width: 14px;
+  height: 14px;
+}
+
 .employee-flow-step.ok {
   border-color: rgba(95, 143, 102, 0.38);
 }

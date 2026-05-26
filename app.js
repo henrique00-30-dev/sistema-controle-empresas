@@ -1639,6 +1639,15 @@ function openEmployeeRecord(id) {
   document.body.appendChild(modal);
   modal.querySelectorAll("[data-close]").forEach((button) => button.addEventListener("click", () => modal.remove()));
   modal.addEventListener("click", (event) => {
+    const workflowAction = event.target.closest("[data-workflow-action]");
+    if (workflowAction) {
+      updateEmployeeWorkflowStep(
+        workflowAction.dataset.employeeId,
+        workflowAction.dataset.workflowStep,
+        workflowAction.dataset.workflowAction,
+      );
+      return;
+    }
     if (event.target === modal) modal.remove();
   });
   modal.querySelectorAll("[data-employee-tab]").forEach((button) => {
@@ -1785,6 +1794,7 @@ function renderEmployeeWorkflow(employee) {
           <strong>${step.label}</strong>
           ${workflowStatusBadge(step.status)}
           <em>${step.detail}</em>
+          ${renderWorkflowStepActions(employee, step)}
         </div>
       `,
     )
@@ -1793,6 +1803,7 @@ function renderEmployeeWorkflow(employee) {
 
 function employeeWorkflowSteps(employee) {
   const item = normalizeEmployee(employee);
+  const workflow = item.workflowActions || {};
   const docs = state.documents.filter((doc) => doc.employeeId === item.id);
   const exception = hasPendingApprovalException(item);
   const fiscalDocs = docs.filter((doc) => documentOperationalSector(doc) === "Fiscal");
@@ -1801,9 +1812,11 @@ function employeeWorkflowSteps(employee) {
   const patrimonialDocs = docs.filter((doc) => documentOperationalSector(doc) === "Patrimonial");
   const steps = [
     {
+      id: "fiscal",
+      sector: "Fiscal",
       label: "Fiscal / Documentos pessoais",
       icon: "docs",
-      status: resolveWorkflowStepStatus(item, fiscalDocs, {
+      status: workflow.fiscal?.status || resolveWorkflowStepStatus(item, fiscalDocs, {
         pending: item.status === "Documentos pendente" || item.docStatus === "Pendente",
         approved: item.docStatus === "Regular" || fiscalDocs.some((doc) => docStatus(doc) === "Aprovado"),
         exception,
@@ -1811,9 +1824,11 @@ function employeeWorkflowSteps(employee) {
       detail: "Cadastro, CPF, vinculo e documentos pessoais",
     },
     {
+      id: "medicina",
+      sector: "Medicina",
       label: "Medicina",
       icon: "shield",
-      status: resolveWorkflowStepStatus(item, medicineDocs, {
+      status: workflow.medicina?.status || resolveWorkflowStepStatus(item, medicineDocs, {
         pending: item.status === "Aguardando exames" || employeeMedicineStatus(item, docs) === "Pendente",
         approved: employeeMedicineStatus(item, docs) === "Aprovado",
         exception,
@@ -1821,9 +1836,11 @@ function employeeWorkflowSteps(employee) {
       detail: "ASO, exames e validade ocupacional",
     },
     {
+      id: "ehs",
+      sector: "EHS",
       label: "EHS",
       icon: "factory",
-      status: resolveWorkflowStepStatus(item, ehsDocs, {
+      status: workflow.ehs?.status || resolveWorkflowStepStatus(item, ehsDocs, {
         pending: item.status === "Em treinamento" || employeeEhsStatus(item, docs) === "Pendente",
         approved: employeeEhsStatus(item, docs) === "Aprovado",
         exception,
@@ -1831,9 +1848,11 @@ function employeeWorkflowSteps(employee) {
       detail: "Treinamentos, NR, EPI e seguranca",
     },
     {
+      id: "patrimonial",
+      sector: "Patrimonial",
       label: "Patrimonial",
       icon: "block",
-      status: resolveWorkflowStepStatus(item, patrimonialDocs, {
+      status: workflow.patrimonial?.status || resolveWorkflowStepStatus(item, patrimonialDocs, {
         pending: item.status === "Aguardando aprovacao do fiscal" || employeePatrimonialStatus(item) === "Pendente",
         approved: employeePatrimonialStatus(item) === "Aprovado",
         exception,
@@ -1845,12 +1864,156 @@ function employeeWorkflowSteps(employee) {
   const rejectedStatus = steps.some((step) => step.status === "Reprovado");
   const pendingStatus = steps.some((step) => ["Pendente", "Aprovado com pendencia"].includes(step.status));
   steps.push({
-    label: "Liberação final",
+    id: "liberacao",
+    sector: "Fiscal",
+    label: "Liberacao final",
     icon: "approve",
-    status: blockingStatus ? "Bloqueado" : rejectedStatus ? "Reprovado" : pendingStatus ? (exception ? "Aprovado com pendencia" : "Pendente") : "Aprovado",
+    status: workflow.liberacao?.status || (blockingStatus ? "Bloqueado" : rejectedStatus ? "Reprovado" : pendingStatus ? (exception ? "Aprovado com pendencia" : "Pendente") : "Aprovado"),
     detail: "Consolidacao fiscal para inicio ou manutencao",
   });
   return steps;
+}
+
+function renderWorkflowStepActions(employee, step) {
+  if (!canActOnWorkflowStep(step)) return "";
+  return `
+    <div class="workflow-step-actions">
+      <button class="btn success compact" type="button" data-employee-id="${employee.id}" data-workflow-step="${step.id}" data-workflow-action="approve">${icon("approve")} Aprovar</button>
+      <button class="btn danger compact" type="button" data-employee-id="${employee.id}" data-workflow-step="${step.id}" data-workflow-action="reject">${icon("block")} Reprovar</button>
+      <button class="btn special compact" type="button" data-employee-id="${employee.id}" data-workflow-step="${step.id}" data-workflow-action="approve_pending">${icon("clock")} Aprovar com pend&ecirc;ncia</button>
+    </div>
+  `;
+}
+
+function canActOnWorkflowStep(step) {
+  const role = currentUser()?.role || "visitor";
+  if (role === "admin") return true;
+  if (role === "fiscal") return ["fiscal", "liberacao"].includes(step.id);
+  if (role === "medicina") return step.id === "medicina";
+  if (role === "ehs") return step.id === "ehs";
+  if (role === "patrimonial") return step.id === "patrimonial";
+  return false;
+}
+
+function updateEmployeeWorkflowStep(employeeId, stepId, action) {
+  const employee = state.employees.find((item) => item.id === employeeId);
+  if (!employee) return;
+  const item = normalizeEmployee(employee);
+  const step = employeeWorkflowSteps(item).find((entry) => entry.id === stepId);
+  if (!step || !canActOnWorkflowStep(step)) {
+    alert("Seu perfil nao possui permissao para atuar nesta etapa.");
+    return;
+  }
+
+  const workflowAction = collectWorkflowActionData(action, step, item);
+  if (!workflowAction) return;
+
+  const previousStatus = step.status || "";
+  const workflowActions = { ...(item.workflowActions || {}) };
+  workflowActions[stepId] = workflowAction;
+  employee.workflowActions = workflowActions;
+
+  const timestamp = new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(new Date());
+  const noteLine = `[${timestamp}] ${workflowAction.updatedBy}: ${step.label} - ${workflowAction.status}. ${workflowAction.observation}`;
+  const currentNotes = employeeVisibleNotes(employee);
+  employee.notes = currentNotes ? `${currentNotes}\n${noteLine}` : noteLine;
+
+  const history = createHistoryEvent({
+    entityType: "funcionario",
+    entityId: employee.id,
+    action: `Workflow ${step.label}`,
+    previousStatus,
+    nextStatus: workflowAction.status,
+    observation: workflowAction.observation,
+  });
+  state.historico = upsertById(state.historico, history);
+
+  syncCollection("employees", employee).catch((error) => {
+    console.error("Falha ao salvar acao do workflow do funcionario", {
+      table: "employees",
+      employeeId,
+      stepId,
+      action,
+      payload: mapEmployeeToDb(employee),
+      error,
+    });
+    alert(`Nao foi possivel salvar online: ${error.message}`);
+  });
+  syncHistoryEvent(history);
+  saveState();
+  document.querySelectorAll(".employee-record-backdrop").forEach((modal) => modal.remove());
+  renderApp();
+  openEmployeeRecord(employeeId);
+}
+
+function collectWorkflowActionData(action, step, employee) {
+  const actor = currentUser()?.name || currentUser()?.email || "Usuario do sistema";
+  const base = {
+    action,
+    sector: step.sector,
+    label: step.label,
+    updatedAt: new Date().toISOString(),
+    updatedBy: actor,
+  };
+
+  if (action === "approve") {
+    return {
+      ...base,
+      status: "Aprovado",
+      observation: "Aprovado sem pendencias.",
+    };
+  }
+
+  if (action === "reject") {
+    const reason = prompt(`Informe o motivo obrigatorio para reprovar ${step.label} de ${employee.name}:`);
+    if (!reason || !reason.trim()) {
+      alert("Motivo obrigatorio. A reprovacao nao foi salva.");
+      return null;
+    }
+    return {
+      ...base,
+      status: "Reprovado",
+      motivo: reason.trim(),
+      observation: `Reprovado. Motivo: ${reason.trim()}`,
+    };
+  }
+
+  if (action === "approve_pending") {
+    const managerName = prompt("Informe o nome do gestor responsavel:");
+    if (!managerName || !managerName.trim()) {
+      alert("Gestor responsavel obrigatorio. A aprovacao com pendencia nao foi salva.");
+      return null;
+    }
+    const managerRegistration = prompt("Informe a matricula do gestor responsavel:");
+    if (!managerRegistration || !managerRegistration.trim()) {
+      alert("Matricula do gestor obrigatoria. A aprovacao com pendencia nao foi salva.");
+      return null;
+    }
+    const reason = prompt("Informe o motivo da aprovacao com pendencia:");
+    if (!reason || !reason.trim()) {
+      alert("Motivo obrigatorio. A aprovacao com pendencia nao foi salva.");
+      return null;
+    }
+    const deadline = prompt("Informe o prazo de regularizacao (ex.: 2026-06-30):");
+    if (!deadline || !deadline.trim()) {
+      alert("Prazo de regularizacao obrigatorio. A aprovacao com pendencia nao foi salva.");
+      return null;
+    }
+    return {
+      ...base,
+      status: "Aprovado com pendencia",
+      gestorResponsavel: managerName.trim(),
+      matriculaGestor: managerRegistration.trim(),
+      motivo: reason.trim(),
+      prazoRegularizacao: deadline.trim(),
+      observation: `Aprovado com pendencia. Gestor: ${managerName.trim()} (${managerRegistration.trim()}). Motivo: ${reason.trim()}. Prazo: ${deadline.trim()}`,
+    };
+  }
+
+  return null;
 }
 
 function workflowStatusBadge(status) {
@@ -1859,7 +2022,7 @@ function workflowStatusBadge(status) {
     Aprovado: "Aprovado",
     Reprovado: "Reprovado",
     Bloqueado: "Bloqueado",
-    "Aprovado com pendencia": "Aprovado com pendência",
+    "Aprovado com pendencia": "Aprovado com pend&ecirc;ncia",
   };
   return `<span class="status ${workflowStatusClass(status)}">${labels[status] || status}</span>`;
 }
@@ -4197,6 +4360,7 @@ function normalizeEmployee(employee) {
     docStatus: employee.docStatus || "Pendente",
     address: employee.address || "",
     notes: employeeVisibleNotes(employee),
+    workflowActions: employee.workflowActions || meta.workflowActions || {},
     status: employee.status || "Em analise",
   };
 }
@@ -4219,8 +4383,10 @@ function employeeVisibleNotes(employee = {}) {
 }
 
 function serializeEmployeeNotes(employee) {
+  const existingMeta = employeeMeta(employee);
   const item = normalizeEmployee({ ...employee, notes: employeeVisibleNotes(employee) });
   const meta = {
+    ...existingMeta,
     registration: item.registration || "",
     birthDate: item.birthDate || "",
     motherName: item.motherName || "",
@@ -4233,6 +4399,7 @@ function serializeEmployeeNotes(employee) {
     street: item.street || "",
     number: item.number || "",
     complement: item.complement || "",
+    workflowActions: item.workflowActions || existingMeta.workflowActions || {},
   };
   return `${employeeVisibleNotes(employee)}${EMPLOYEE_META_MARKER}${JSON.stringify(meta)}`;
 }
