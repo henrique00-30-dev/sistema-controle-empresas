@@ -882,10 +882,9 @@ function renderApp() {
       </aside>
       <div class="main">
         <header class="topbar">
-          <div>
-            <span class="breadcrumb">Gestao Operacional / ${viewTitle()}</span>
+          <div class="topbar-title">
             <h1>${viewTitle()}</h1>
-            <span class="muted">${isOnlineMode() ? "Armazenamento online ativo" : "Modo local com armazenamento preparado"}</span>
+            <span class="muted">${currentView === "dashboard" ? "Monitoramento de terceiros e contratos" : "Monitoramento operacional"}</span>
           </div>
           <div class="top-actions">
             <div class="global-search">
@@ -938,7 +937,7 @@ function roleName(role) {
 
 function viewTitle() {
   return {
-    dashboard: "Painel de conformidade",
+    dashboard: "Dashboard Operacional",
     companies: "Empresas terceirizadas",
     contracts: "Contratos",
     employees: "Funcionarios",
@@ -1226,12 +1225,12 @@ function renderDashboard() {
   return `
     <section class="hero-panel dashboard-hero">
       <div>
-        <span class="eyebrow">Gestao operacional de terceiros</span>
-        <h2>Painel executivo de contratos, documentos e conformidade</h2>
+        <span class="eyebrow">Monitoramento operacional</span>
+        <h2>Dashboard Operacional</h2>
         <div class="hero-command-row">
-          <span>Armazenamento ${isOnlineMode() ? "online" : "local"}</span>
           <span>${companies.length} fornecedores</span>
           <span>${documents.length} documentos rastreados</span>
+          <span>${employees.length} funcionarios monitorados</span>
         </div>
       </div>
       <div class="hero-status">
@@ -1248,12 +1247,6 @@ function renderDashboard() {
           <strong>${currentSystemTime()}</strong>
         </div>
       </div>
-    </section>
-    <section class="enterprise-strip">
-      <div><span>Planta</span><strong>Operacao segura</strong></div>
-      <div><span>Auditoria</span><strong>Rastreavel</strong></div>
-      <div><span>Contratos</span><strong>Monitorados</strong></div>
-      <div><span>Documentos</span><strong>Workflow ativo</strong></div>
     </section>
     <div class="kpi-grid">
       ${dashboardCards.map(([label, value, helper, iconName, tone, view, query, filter, quick]) => `
