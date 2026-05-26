@@ -666,6 +666,15 @@ function upsertById(items, item) {
     : [...items, item];
 }
 
+function uniqueById(items) {
+  const seen = new Set();
+  return items.filter((item) => {
+    if (!item?.id || seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
+}
+
 function icon(name) {
   const icons = {
     dashboard: "M4 13h6V4H4v9Zm10 7h6V4h-6v16ZM4 20h6v-5H4v5Zm10 0h6v-5h-6v5Z",
@@ -1030,7 +1039,8 @@ function matchesQuickFilter(view, item, quick) {
   const employee = item.cpf || item.role ? item : item.employeeId ? state.employees.find((entry) => entry.id === item.employeeId) : null;
   const status = item.dueDate ? docStatus(item) : employee ? normalizeEmployee(employee).status : normalizeCompany(company).status;
   if (quick === "Ativo") return ["Ativa", "Ativo", "Aprovado", "Liberado", "Ativo com pendencia"].includes(status);
-  if (quick === "Bloqueado") return ["Bloqueado", "Inativo"].includes(status);
+  if (quick === "Bloqueado") return ["Bloqueado", "Bloqueada", "Inativo"].includes(status);
+  if (quick === "Critico") return ["Bloqueado", "Bloqueada", "Pendente"].includes(status);
   if (quick === "Pendente") return ["Pendente", "A vencer", "Reprovado", "Documentos pendente", "Aguardando exames", "Em treinamento", "Aguardando aprovacao do fiscal", "Ativo com pendencia"].includes(status);
   if (quick === "Vencido") return status === "Vencido";
   if (quick === "Desmobilizado") return ["Desmobilizada", "Desmobilizado", "Inativa", "Inativo"].includes(status);
@@ -1183,6 +1193,9 @@ function visibleDocuments() {
 function operationalMetrics(companies = visibleCompanies(), employees = visibleEmployees(), documents = visibleDocuments()) {
   const normalizedCompanies = companies.map((company) => ({ ...normalizeCompany(company), raw: company }));
   const normalizedEmployees = employees.map((employee) => ({ ...normalizeEmployee(employee), raw: employee }));
+  const pendingEmployeeStatuses = ["Pendente", "Documentos pendente", "Aguardando exames", "Em treinamento", "Aguardando aprovacao do fiscal", "Ativo com pendencia", "Em analise"];
+  const criticalCompanyStatuses = ["Bloqueada", "Bloqueado", "Pendente"];
+  const pendingApprovalStatuses = ["Pendente", "Reprovado", "A vencer"];
   return {
     activeCompanies: normalizedCompanies.filter((company) => company.status === "Ativa").map((company) => company.raw),
     activeContracts: normalizedCompanies.filter((company) => ["Ativa", "Pendente"].includes(company.status)).map((company) => company.raw),
@@ -1190,6 +1203,7 @@ function operationalMetrics(companies = visibleCompanies(), employees = visibleE
     blockedContracts: normalizedCompanies.filter((company) => ["Bloqueada", "Bloqueado", "Inativa", "Desmobilizada"].includes(company.status)).map((company) => company.raw),
     activeEmployees: normalizedEmployees.filter((employee) => ["Aprovado", "Ativo", "Liberado", "Ativo com pendencia"].includes(employee.status)).map((employee) => employee.raw),
     blockedEmployees: normalizedEmployees.filter((employee) => ["Bloqueado"].includes(employee.status)).map((employee) => employee.raw),
+    pendingEmployees: normalizedEmployees.filter((employee) => pendingEmployeeStatuses.includes(employee.status)).map((employee) => employee.raw),
     inactiveEmployees: normalizedEmployees.filter((employee) => ["Inativo", "Desmobilizado", "Desmobilizada"].includes(employee.status)).map((employee) => employee.raw),
     medicinePendencies: normalizedEmployees
       .filter((employee) => employee.status === "Aguardando exames" || ["Vencido", "A vencer"].includes(employee.docStatus) || employeeMedicineStatus(employee.raw) === "Pendente")
@@ -1200,6 +1214,10 @@ function operationalMetrics(companies = visibleCompanies(), employees = visibleE
     patrimonialPendencies: normalizedEmployees.filter((employee) => employee.status === "Aguardando aprovacao do fiscal" || employeePatrimonialStatus(employee.raw) === "Pendente").map((employee) => employee.raw),
     expiredDocs: documents.filter((doc) => docStatus(doc) === "Vencido"),
     expiringDocs: documents.filter((doc) => docStatus(doc) === "A vencer"),
+    pendingApprovals: documents.filter((doc) => pendingApprovalStatuses.includes(docStatus(doc))),
+    criticalCompanies: normalizedCompanies
+      .filter((company) => criticalCompanyStatuses.includes(company.status) || documents.some((doc) => doc.companyId === company.id && ["Vencido", "Reprovado"].includes(docStatus(doc))) || employees.some((employee) => employee.companyId === company.id && normalizeEmployee(employee).status === "Bloqueado"))
+      .map((company) => company.raw),
   };
 }
 
@@ -1211,23 +1229,16 @@ function renderDashboard() {
   const criticalDocs = visibleDocuments().filter((doc) => ["Vencido", "A vencer", "Pendente"].includes(docStatus(doc))).slice(0, 6);
   const totalPendencies = new Set(
     [
+      ...metrics.pendingEmployees,
       ...metrics.medicinePendencies,
       ...metrics.ehsPendencies,
       ...metrics.patrimonialPendencies,
       ...documents.filter((doc) => ["Pendente", "Reprovado"].includes(docStatus(doc))),
     ].map((item) => item.id),
   ).size;
-  const totalBlocked = metrics.blockedEmployees.length + metrics.blockedContracts.length;
-  const totalExpiring = metrics.expiringContracts.length + metrics.expiringDocs.length;
-  const dashboardCards = [
-    ["Empresas Ativas", metrics.activeCompanies.length, "Fornecedores em operacao", "company", "success", "companies", "Ativa", "Ativa", "Ativo"],
-    ["Contratos Ativos", metrics.activeContracts.length, "Contratos em andamento", "contracts", "success", "contracts", "", "Ativa", "Ativo"],
-    ["Funcionários Liberados", metrics.activeEmployees.length, "Aptos para atividade", "users", "success", "employees", "Aprovado", "Todos", "Ativo"],
-    ["Pendências", totalPendencies, "Itens aguardando acao", "approve", "warning", "approvals", "Pendente", "Todos", "Pendente"],
-    ["Bloqueados", totalBlocked, "Restricoes ativas", "block", "danger", "blocks", "Bloqueado", "Bloqueado", "Bloqueado"],
-    ["Vencendo", totalExpiring, "Contratos/documentos em alerta", "docs", "warning", "approvals", "A vencer", "Todos", "A vencer"],
-  ];
-  const operationalRows = employees.slice(0, 6).map((employee) => {
+  const dashboardCards = buildDashboardCards(metrics, totalPendencies);
+  const priorityEmployees = uniqueById([...metrics.blockedEmployees, ...metrics.pendingEmployees, ...metrics.activeEmployees, ...employees]).slice(0, 6);
+  const operationalRows = priorityEmployees.map((employee) => {
     const item = normalizeEmployee(employee);
     return `
       <tr>
@@ -1252,8 +1263,8 @@ function renderDashboard() {
       </div>
     </section>
     <div class="kpi-grid">
-      ${dashboardCards.map(([label, value, helper, iconName, tone, view, query, filter, quick]) => `
-        <article class="kpi-card clickable-kpi ${tone}" role="button" tabindex="0" data-dashboard-card data-target-view="${view}" data-target-search="${escapeAttr(query)}" data-target-filter="${escapeAttr(filter)}" data-target-quick="${escapeAttr(quick)}" title="Abrir ${label}">
+      ${dashboardCards.map(({ label, value, helper, iconName, tone, view, query, filter, quick }) => `
+        <article class="kpi-card clickable-kpi ${tone} ${value > 0 && ["danger", "warning", "special"].includes(tone) ? "has-alert" : ""}" role="button" tabindex="0" data-dashboard-card data-target-view="${view}" data-target-search="${escapeAttr(query)}" data-target-filter="${escapeAttr(filter)}" data-target-quick="${escapeAttr(quick)}" title="Abrir ${label}">
           <div class="kpi-icon">${icon(iconName)}</div>
           <div>
             <span>${label}</span>
@@ -1310,6 +1321,19 @@ function renderDashboard() {
   `;
 }
 
+function buildDashboardCards(metrics, totalPendencies) {
+  return [
+    { label: "Funcionarios Liberados", value: metrics.activeEmployees.length, helper: "Aptos para atividade", iconName: "users", tone: "success", view: "employees", query: "", filter: "Todos", quick: "Ativo" },
+    { label: "Bloqueados", value: metrics.blockedEmployees.length, helper: "Restricoes de funcionarios", iconName: "block", tone: "danger", view: "employees", query: "", filter: "Bloqueado", quick: "Bloqueado" },
+    { label: "Pendentes", value: totalPendencies, helper: "Itens aguardando acao", iconName: "clock", tone: "warning", view: "employees", query: "", filter: "Todos", quick: "Pendente" },
+    { label: "Documentos Vencidos", value: metrics.expiredDocs.length, helper: "Fora da validade", iconName: "docs", tone: "danger", view: "documents", query: "", filter: "Todos", quick: "Vencido" },
+    { label: "Documentos a Vencer", value: metrics.expiringDocs.length, helper: "Janela de alerta", iconName: "clock", tone: "warning", view: "documents", query: "", filter: "Todos", quick: "A vencer" },
+    { label: "Contratos Vencendo", value: metrics.expiringContracts.length, helper: "Proximos 60 dias", iconName: "contracts", tone: "warning", view: "contracts", query: "", filter: "Todos", quick: "Vencendo" },
+    { label: "Empresas Criticas", value: metrics.criticalCompanies.length, helper: "Bloqueadas ou pendentes", iconName: "company", tone: "danger", view: "companies", query: "", filter: "Todos", quick: "Critico" },
+    { label: "Aprovacoes Pendentes", value: metrics.pendingApprovals.length, helper: "Documentos para decisao", iconName: "approve", tone: "special", view: "approvals", query: "", filter: "Todos", quick: "Pendente" },
+  ];
+}
+
 function renderRiskLine(risk) {
   const count = visibleCompanies().filter((company) => company.risk === risk).length;
   return `
@@ -1360,7 +1384,7 @@ function renderCompanies() {
     ${sectionHead("Empresas terceirizadas", "Cadastre fornecedores e acompanhe contrato, responsaveis e situacao.", "Nova empresa", "company")}
     ${renderCompanyEditor(editingCompany)}
     ${toolbar("Buscar por empresa, CNPJ, fiscal, responsavel ou contrato")}
-    ${renderOperationalFilters("companies", baseItems, { quicks: ["Todos", "Ativo", "Pendente", "Bloqueado", "Desmobilizado"], exportKey: "empresas" })}
+    ${renderOperationalFilters("companies", baseItems, { quicks: ["Todos", "Ativo", "Pendente", "Bloqueado", "Critico", "Desmobilizado"], exportKey: "empresas" })}
     <section class="panel table-wrap">
       <table>
         <thead><tr>${sortableHeader("companies", "Empresa", "name")}<th>CNPJ</th><th>Fiscal</th><th>Responsavel</th>${sortableHeader("companies", "Contrato", "contract")}<th>Periodo</th>${sortableHeader("companies", "Status", "status")}<th>Acoes</th></tr></thead>

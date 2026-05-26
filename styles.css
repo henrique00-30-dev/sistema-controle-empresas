@@ -742,16 +742,16 @@ textarea {
 
 .kpi-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(150px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(4, minmax(170px, 1fr));
+  gap: 14px;
   margin-bottom: 18px;
 }
 
 .kpi-card {
   position: relative;
   overflow: hidden;
-  min-height: 172px;
-  padding: 20px;
+  min-height: 142px;
+  padding: 17px;
   border: 1px solid rgba(214, 161, 95, 0.22);
   border-radius: 24px;
   background:
@@ -810,24 +810,32 @@ textarea {
 .kpi-card.info { --tone: rgba(122, 74, 43, 0.52); }
 .kpi-card.special { --tone: rgba(94, 26, 39, 0.6); }
 
+.kpi-card.has-alert {
+  border-color: color-mix(in srgb, var(--tone) 68%, rgba(245, 241, 234, 0.18));
+}
+
+.kpi-card.has-alert .kpi-icon {
+  box-shadow: 0 0 0 4px rgba(245, 241, 234, 0.04), 0 0 26px var(--tone);
+}
+
 .kpi-card > * {
   position: relative;
 }
 
 .kpi-icon {
-  width: 54px;
-  height: 54px;
+  width: 46px;
+  height: 46px;
   display: grid;
   place-items: center;
   border-radius: 16px;
   color: #f5f1ea;
   background: rgba(255, 255, 255, 0.08);
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 
 .kpi-icon svg {
-  width: 30px;
-  height: 30px;
+  width: 25px;
+  height: 25px;
 }
 
 .kpi-card span {
@@ -839,7 +847,7 @@ textarea {
 .kpi-card strong {
   display: block;
   margin-top: 6px;
-  font-size: 2.75rem;
+  font-size: 2.45rem;
   line-height: 1;
 }
 
