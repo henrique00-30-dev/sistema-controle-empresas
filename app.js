@@ -1180,6 +1180,7 @@ function operationalMetrics(companies = visibleCompanies(), employees = visibleE
   const normalizedCompanies = companies.map((company) => ({ ...normalizeCompany(company), raw: company }));
   const normalizedEmployees = employees.map((employee) => ({ ...normalizeEmployee(employee), raw: employee }));
   return {
+    activeCompanies: normalizedCompanies.filter((company) => company.status === "Ativa").map((company) => company.raw),
     activeContracts: normalizedCompanies.filter((company) => company.status === "Ativa").map((company) => company.raw),
     expiringContracts: normalizedCompanies.filter((company) => contractDays(company.raw) >= 0 && contractDays(company.raw) <= 60).map((company) => company.raw),
     blockedContracts: normalizedCompanies.filter((company) => ["Bloqueada", "Bloqueado", "Inativa", "Desmobilizada"].includes(company.status)).map((company) => company.raw),
@@ -1204,15 +1205,23 @@ function renderDashboard() {
   const documents = visibleDocuments();
   const metrics = operationalMetrics(companies, employees, documents);
   const criticalDocs = visibleDocuments().filter((doc) => ["Vencido", "A vencer", "Pendente"].includes(docStatus(doc))).slice(0, 6);
+  const totalPendencies = new Set(
+    [
+      ...metrics.medicinePendencies,
+      ...metrics.ehsPendencies,
+      ...metrics.patrimonialPendencies,
+      ...documents.filter((doc) => ["Pendente", "Reprovado"].includes(docStatus(doc))),
+    ].map((item) => item.id),
+  ).size;
+  const totalBlocked = metrics.blockedEmployees.length + metrics.blockedContracts.length;
+  const totalExpiring = metrics.expiringContracts.length + metrics.expiringDocs.length;
   const dashboardCards = [
-    ["Contratos ativos", metrics.activeContracts.length, "Contratos em operacao", "contracts", "success", "contracts", "", "Ativa", "Ativo"],
-    ["Contratos vencendo", metrics.expiringContracts.length, "Proximos 60 dias", "contracts", "warning", "contracts", "", "Todos", "Vencendo"],
-    ["Funcionarios ativos", metrics.activeEmployees.length, "Liberados para atividade", "users", "success", "employees", "Aprovado", "Todos", "Ativo"],
-    ["Funcionarios bloqueados", metrics.blockedEmployees.length, "Restricao operacional", "block", "danger", "employees", "Bloqueado", "Bloqueado", "Bloqueado"],
-    ["Pendencias Medicina", metrics.medicinePendencies.length, "ASO, exames e vencimentos", "shield", "warning", "employees", "Aguardando exames", "Todos", "Medicina"],
-    ["Pendencias EHS", metrics.ehsPendencies.length, "Treinamentos e seguranca", "factory", "info", "employees", "Em treinamento", "Todos", "EHS"],
-    ["Pendencias Patrimonial", metrics.patrimonialPendencies.length, "Liberacao final", "approve", "special", "employees", "Aguardando aprovacao do fiscal", "Todos", "Pendente"],
-    ["Documentos vencidos", metrics.expiredDocs.length, "Itens fora da validade", "docs", "danger", "documents", "Vencido", "Todos", "Vencido"],
+    ["Empresas Ativas", metrics.activeCompanies.length, "Fornecedores em operacao", "company", "success", "companies", "Ativa", "Ativa", "Ativo"],
+    ["Contratos Ativos", metrics.activeContracts.length, "Contratos em andamento", "contracts", "success", "contracts", "", "Ativa", "Ativo"],
+    ["Funcionários Liberados", metrics.activeEmployees.length, "Aptos para atividade", "users", "success", "employees", "Aprovado", "Todos", "Ativo"],
+    ["Pendências", totalPendencies, "Itens aguardando acao", "approve", "warning", "approvals", "Pendente", "Todos", "Pendente"],
+    ["Bloqueados", totalBlocked, "Restricoes ativas", "block", "danger", "blocks", "Bloqueado", "Bloqueado", "Bloqueado"],
+    ["Vencendo", totalExpiring, "Contratos/documentos em alerta", "docs", "warning", "approvals", "A vencer", "Todos", "A vencer"],
   ];
   const operationalRows = employees.slice(0, 6).map((employee) => {
     const item = normalizeEmployee(employee);
