@@ -453,13 +453,16 @@ function wrapUserPersistenceError(error, context) {
 }
 
 function logUserPersistenceError(payload, error) {
+  const originalError = error?.originalError || error;
   console.error("[Usuarios Supabase] Falha ao salvar em public.usuarios", {
+    payload,
+    payload_enviado: payload,
     payload_enviado_public_usuarios: payload,
-    code: error?.code || null,
-    message: error?.message || null,
-    details: error?.details || null,
-    hint: error?.hint || null,
-    error,
+    code: originalError?.code || null,
+    message: originalError?.message || error?.message || null,
+    details: originalError?.details || null,
+    hint: originalError?.hint || error?.context?.hint || null,
+    error: originalError,
   });
 }
 
@@ -590,17 +593,22 @@ async function syncCollection(collection, item) {
 }
 
 async function syncUserRecord(user) {
-  const payload = mapUserToDb(user);
+  const isNewUser = !user.id || user.isNew === true;
+  const payload = mapUserToDb(user, { includeId: false });
   const context = {
     table: "public.usuarios",
-    operation: "upsert",
+    operation: isNewUser ? "insert" : "update",
     payload,
   };
   try {
     validateUserPayload(payload);
     await ensureOnlineSession(context.table);
-    const { error } = await supabaseClient.from("usuarios").upsert(payload);
+    const query = isNewUser
+      ? supabaseClient.from("usuarios").insert(payload)
+      : supabaseClient.from("usuarios").update(payload).eq("id", user.id);
+    const { error } = await query;
     if (error) throw error;
+    return mapUserFromDb({ ...payload, id: user.id || crypto.randomUUID() });
   } catch (error) {
     logUserPersistenceError(payload, error);
     throw wrapUserPersistenceError(error, context);
@@ -3788,7 +3796,8 @@ function openForm(type, id = null) {
       modal.remove();
       render();
     } catch (error) {
-      logPersistenceError(error, { table: type === "document" ? "public.documents/storage.objects" : type, operation: "salvar formulario" });
+      const table = type === "document" ? "public.documents/storage.objects" : type === "user" ? "public.usuarios" : type;
+      logPersistenceError(error, { table, operation: "salvar formulario" });
       alert(`Nao foi possivel salvar.\n\n${persistenceMessage(error)}`);
       submit.disabled = false;
     }
@@ -4106,28 +4115,39 @@ function userForm(id) {
         { value: "false", label: "Inativo" },
       ]),
     ],
-    save(form) {
+    async save(form) {
       const email = String(form.get("email") || "").trim().toLowerCase();
       const duplicate = state.users.some((user) => user.id !== id && String(user.email || "").trim().toLowerCase() === email);
       if (duplicate) {
         alert("E-mail ja cadastrado. Edite o usuario existente ou informe outro e-mail.");
         return;
       }
-      const saved = upsert("users", id, {
+      const payload = {
+        id: id || null,
         name: String(form.get("name") || "").trim(),
         email,
         password: optionalNull(form.get("password")),
         role: form.get("role"),
         companyId: optionalNull(form.get("companyId")),
-        setor: item.setor || null,
-        matricula: item.matricula || null,
+        setor: optionalNull(item.setor),
+        matricula: optionalNull(item.matricula),
         active: form.get("active") === "true",
         createdAt: item.createdAt || new Date().toISOString(),
-      });
-      syncCollection("users", saved).catch((error) => {
-        logPersistenceError(error, { table: "public.usuarios", operation: "salvar usuario", payload: mapUserToDb(saved) });
-        alert(persistenceMessage(error));
-      });
+        isNew: !id,
+      };
+      if (isOnlineMode()) {
+        try {
+          const saved = await syncUserRecord(payload);
+          upsert("users", saved.id, { ...payload, ...saved, isNew: false });
+          alert(id ? "Usuario atualizado com sucesso." : "Usuario criado com sucesso.");
+        } catch (error) {
+          const message = id ? "Erro ao atualizar usuario" : "Erro ao criar usuario";
+          throw new PersistenceError(`${message}: ${persistenceMessage(error)}`, error?.context || { table: "public.usuarios", operation: "salvar usuario", payload: mapUserToDb(payload, { includeId: Boolean(id) }) }, error);
+        }
+        return;
+      }
+      upsert("users", id, payload);
+      alert(id ? "Usuario atualizado com sucesso." : "Usuario criado com sucesso.");
     },
   };
 }
@@ -4564,19 +4584,19 @@ function mapProfileToDb(user) {
   };
 }
 
-function mapUserToDb(user) {
+function mapUserToDb(user, { includeId = true } = {}) {
   const perfil = normalizePerfilUsuario(user.role || user.perfil);
-  return {
-    id: user.id,
+  const payload = {
     nome: optionalText(user.name),
     email: optionalText(user.email),
     perfil,
     empresa_id: optionalNull(user.companyId),
-    setor: optionalText(user.setor) || defaultSetorForPerfil(perfil),
+    setor: optionalText(user.setor),
     matricula: optionalText(user.matricula),
     ativo: Boolean(user.active !== false),
-    created_at: user.createdAt || new Date().toISOString(),
   };
+  if (includeId && user.id) payload.id = user.id;
+  return payload;
 }
 
 function validateUserPayload(payload) {
