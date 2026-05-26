@@ -892,7 +892,11 @@ function renderApp() {
               <input class="search-control" placeholder="Pesquisa" value="${escapeAttr(searchTerm)}" />
             </div>
             <button class="btn icon" id="themeToggle" type="button" title="Alternar tema">${darkMode ? icon("sun") : icon("moon")}</button>
-            <span class="role-pill">${escapeHtml(user.name || user.email || "Usuario")} - ${roleName(user.role)}</span>
+            <div class="user-status-compact" aria-label="Usuario logado">
+              <strong>${escapeHtml(user.name || user.email || "Usuario")}</strong>
+              <span>${roleName(user.role)} • Online</span>
+              <small>Atualizado às ${currentSystemTime()}</small>
+            </div>
             <button class="btn secondary" id="logoutBtn">${icon("logout")} Sair</button>
           </div>
         </header>
@@ -1231,20 +1235,6 @@ function renderDashboard() {
           <span>${companies.length} fornecedores</span>
           <span>${documents.length} documentos rastreados</span>
           <span>${employees.length} funcionarios monitorados</span>
-        </div>
-      </div>
-      <div class="hero-status">
-        <div>
-          <span>Usuario</span>
-          <strong>${currentUser().name || currentUser().email || "Usuario"}</strong>
-        </div>
-        <div>
-          <span>Status</span>
-          <strong>Ativo</strong>
-        </div>
-        <div>
-          <span>Ultima atualizacao</span>
-          <strong>${currentSystemTime()}</strong>
         </div>
       </div>
     </section>
