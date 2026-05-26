@@ -219,12 +219,16 @@ const documentTypes = [
 
 const hiringStatuses = [
   "Em analise",
+  "Pendente",
   "Documentos pendente",
   "Aguardando exames",
   "Em treinamento",
   "Aguardando aprovacao do fiscal",
   "Aprovado",
+  "Liberado",
+  "Ativo com pendencia",
   "Bloqueado",
+  "Desmobilizado",
   "Inativo",
 ];
 
@@ -1025,9 +1029,9 @@ function matchesQuickFilter(view, item, quick) {
   const company = item.companyId ? state.companies.find((entry) => entry.id === item.companyId) : item;
   const employee = item.cpf || item.role ? item : item.employeeId ? state.employees.find((entry) => entry.id === item.employeeId) : null;
   const status = item.dueDate ? docStatus(item) : employee ? normalizeEmployee(employee).status : normalizeCompany(company).status;
-  if (quick === "Ativo") return ["Ativa", "Ativo", "Aprovado"].includes(status);
+  if (quick === "Ativo") return ["Ativa", "Ativo", "Aprovado", "Liberado", "Ativo com pendencia"].includes(status);
   if (quick === "Bloqueado") return ["Bloqueado", "Inativo"].includes(status);
-  if (quick === "Pendente") return ["Pendente", "A vencer", "Reprovado", "Documentos pendente", "Aguardando exames", "Em treinamento", "Aguardando aprovacao do fiscal"].includes(status);
+  if (quick === "Pendente") return ["Pendente", "A vencer", "Reprovado", "Documentos pendente", "Aguardando exames", "Em treinamento", "Aguardando aprovacao do fiscal", "Ativo com pendencia"].includes(status);
   if (quick === "Vencido") return status === "Vencido";
   if (quick === "Desmobilizado") return ["Desmobilizada", "Desmobilizado", "Inativa", "Inativo"].includes(status);
   if (quick === "Vencendo") return contractDays(company) >= 0 && contractDays(company) <= 60;
@@ -1181,10 +1185,10 @@ function operationalMetrics(companies = visibleCompanies(), employees = visibleE
   const normalizedEmployees = employees.map((employee) => ({ ...normalizeEmployee(employee), raw: employee }));
   return {
     activeCompanies: normalizedCompanies.filter((company) => company.status === "Ativa").map((company) => company.raw),
-    activeContracts: normalizedCompanies.filter((company) => company.status === "Ativa").map((company) => company.raw),
+    activeContracts: normalizedCompanies.filter((company) => ["Ativa", "Pendente"].includes(company.status)).map((company) => company.raw),
     expiringContracts: normalizedCompanies.filter((company) => contractDays(company.raw) >= 0 && contractDays(company.raw) <= 60).map((company) => company.raw),
     blockedContracts: normalizedCompanies.filter((company) => ["Bloqueada", "Bloqueado", "Inativa", "Desmobilizada"].includes(company.status)).map((company) => company.raw),
-    activeEmployees: normalizedEmployees.filter((employee) => ["Aprovado", "Ativo"].includes(employee.status)).map((employee) => employee.raw),
+    activeEmployees: normalizedEmployees.filter((employee) => ["Aprovado", "Ativo", "Liberado", "Ativo com pendencia"].includes(employee.status)).map((employee) => employee.raw),
     blockedEmployees: normalizedEmployees.filter((employee) => ["Bloqueado"].includes(employee.status)).map((employee) => employee.raw),
     inactiveEmployees: normalizedEmployees.filter((employee) => ["Inativo", "Desmobilizado", "Desmobilizada"].includes(employee.status)).map((employee) => employee.raw),
     medicinePendencies: normalizedEmployees
@@ -1393,7 +1397,7 @@ function renderCompanyEditor(company = null) {
         ${inputField("email", "E-mail", item.email, "type='email' required")}
         ${inputField("startDate", "Data de inicio do contrato", item.startDate, "type='date' required")}
         ${inputField("endDate", "Data de fim do contrato", item.endDate, "type='date' required")}
-        ${selectField("status", "Status da empresa", item.status || "Ativa", ["Ativa", "Pendente", "Inativa", "Desmobilizada"].map(option))}
+        ${selectField("status", "Status da empresa", item.status || "Ativa", ["Ativa", "Pendente", "Bloqueada", "Inativa", "Desmobilizada"].map(option))}
         ${inputField("contract", "Numero do contrato", item.contract)}
         <div class="form-actions wide">
           <button class="btn primary" type="submit">${icon("save")} Salvar</button>
@@ -1943,6 +1947,7 @@ function updateEmployeeWorkflowStep(employeeId, stepId, action) {
     alert(`Nao foi possivel salvar online: ${error.message}`);
   });
   syncHistoryEvent(history);
+  persistAutomaticStatusChanges(applyAutomaticStatusRules({ source: "Acao do workflow do funcionario" }));
   saveState();
   document.querySelectorAll(".employee-record-backdrop").forEach((modal) => modal.remove());
   renderApp();
@@ -2066,7 +2071,8 @@ function employeeCostCenter(employee, company) {
 
 function employeeActiveState(employee) {
   if (employee.status === "Bloqueado") return "Bloqueado";
-  if (employee.status === "Inativo") return "Inativo";
+  if (["Inativo", "Desmobilizado", "Desmobilizada"].includes(employee.status)) return "Inativo";
+  if (employee.status === "Ativo com pendencia") return "Ativo com pendencia";
   return "Ativo";
 }
 
@@ -2093,6 +2099,9 @@ function applyAutomaticStatusRules({ syncRemote = false, source = "Motor automat
   if (!state?.companies || !state?.employees || !state?.documents) return [];
   state.historico ||= [];
   const changes = [];
+  const inactiveCompanyStatuses = ["Inativa", "Desmobilizada", "Encerrado"];
+  const inactiveEmployeeStatuses = ["Inativo", "Desmobilizado", "Desmobilizada"];
+  const employeePendingStatuses = ["Pendente", "Documentos pendente", "Aguardando exames", "Em treinamento", "Aguardando aprovacao do fiscal", "Ativo com pendencia"];
 
   const registerStatusChange = (collection, entityType, item, nextStatus, observation) => {
     const previousStatus = item.status || "";
@@ -2112,15 +2121,29 @@ function applyAutomaticStatusRules({ syncRemote = false, source = "Motor automat
 
   state.employees.forEach((employee) => {
     const item = normalizeEmployee(employee);
-    if (["Inativo", "Desmobilizado", "Desmobilizada"].includes(item.status)) return;
+    if (inactiveEmployeeStatuses.includes(item.status)) return;
     const docs = state.documents.filter((doc) => doc.employeeId === item.id);
     const expiredDocs = docs.filter((doc) => docStatus(doc) === "Vencido" || doc.status === "Reprovado");
-    const pendingDocs = docs.filter((doc) => ["Pendente", "A vencer", "Reprovado", "Vencido"].includes(docStatus(doc)));
-    const hasPendingApproval = ["Aprovado", "Ativo"].includes(item.status) && pendingDocs.length && !hasPendingApprovalException(item);
+    const pendingDocs = docs.filter((doc) => ["Pendente", "A vencer"].includes(docStatus(doc)));
+    const workflowBase = item.status === "Bloqueado" && !expiredDocs.length ? { ...item, status: "Em analise" } : item;
+    const workflowSteps = employeeWorkflowSteps(workflowBase);
+    const workflowStatuses = workflowSteps.map((step) => step.status);
+    const hasWorkflowRejection = workflowStatuses.includes("Reprovado");
+    const hasWorkflowBlock = workflowStatuses.includes("Bloqueado");
+    const hasWorkflowPendingApproval = workflowStatuses.includes("Aprovado com pendencia");
+    const hasWorkflowPending = workflowStatuses.includes("Pendente");
+    const allWorkflowApproved = workflowSteps.length > 0 && workflowStatuses.every((status) => status === "Aprovado");
+    const hasPendingApproval = ["Aprovado", "Ativo", "Liberado"].includes(item.status) && pendingDocs.length && !hasPendingApprovalException(item);
 
-    if (expiredDocs.length) {
-      registerStatusChange("employees", "funcionario", employee, "Bloqueado", `documento vencido ou reprovado (${expiredDocs[0].type})`);
+    if (expiredDocs.length || hasWorkflowRejection || hasWorkflowBlock) {
+      const reason = expiredDocs.length ? `documento vencido ou reprovado (${expiredDocs[0].type})` : "etapa do workflow reprovada ou bloqueada";
+      registerStatusChange("employees", "funcionario", employee, "Bloqueado", reason);
       employee.docStatus = "Vencido";
+      return;
+    }
+    if (hasWorkflowPendingApproval || hasPendingApprovalException(item)) {
+      registerStatusChange("employees", "funcionario", employee, "Ativo com pendencia", "aprovacao com pendencia formalizada com responsavel, motivo e prazo");
+      employee.docStatus = pendingDocs.length ? "A vencer" : "Regular";
       return;
     }
     if (hasPendingApproval || pendingDocs.length) {
@@ -2132,9 +2155,19 @@ function applyAutomaticStatusRules({ syncRemote = false, source = "Motor automat
             ? "Em treinamento"
             : sector === "Patrimonial"
               ? "Aguardando aprovacao do fiscal"
-              : "Documentos pendente";
+              : "Pendente";
       registerStatusChange("employees", "funcionario", employee, nextStatus, `pendencia documental no setor ${sector}`);
       employee.docStatus = pendingDocs.some((doc) => docStatus(doc) === "A vencer") ? "A vencer" : "Pendente";
+      return;
+    }
+    if (hasWorkflowPending) {
+      registerStatusChange("employees", "funcionario", employee, "Pendente", "etapas do workflow ainda pendentes");
+      employee.docStatus = docs.length && docs.every((doc) => docStatus(doc) === "Aprovado") ? "Regular" : employee.docStatus || "Pendente";
+      return;
+    }
+    if (allWorkflowApproved && (!docs.length || docs.every((doc) => docStatus(doc) === "Aprovado"))) {
+      registerStatusChange("employees", "funcionario", employee, "Liberado", "todas as etapas do workflow e documentos aprovados");
+      employee.docStatus = "Regular";
       return;
     }
     if (item.docStatus !== "Regular" && docs.length && docs.every((doc) => docStatus(doc) === "Aprovado")) {
@@ -2147,19 +2180,28 @@ function applyAutomaticStatusRules({ syncRemote = false, source = "Motor automat
     const days = contractDays(item);
     const docs = state.documents.filter((doc) => doc.companyId === item.id);
     const employees = state.employees.filter((employee) => employee.companyId === item.id);
+    const hasActiveContract = Boolean(item.contract) && Number.isFinite(days) && days >= 0 && !inactiveCompanyStatuses.includes(item.status);
     const hasCriticalPendency = docs.some((doc) => ["Vencido", "Reprovado"].includes(docStatus(doc))) || employees.some((employee) => normalizeEmployee(employee).status === "Bloqueado");
-    const hasPendency = docs.some((doc) => ["Pendente", "A vencer"].includes(docStatus(doc))) || employees.some((employee) => ["Documentos pendente", "Aguardando exames", "Em treinamento", "Aguardando aprovacao do fiscal"].includes(normalizeEmployee(employee).status));
+    const hasPendency = docs.some((doc) => ["Pendente", "A vencer"].includes(docStatus(doc))) || employees.some((employee) => employeePendingStatuses.includes(normalizeEmployee(employee).status));
 
-    if (Number.isFinite(days) && days < 0 && !["Inativa", "Desmobilizada"].includes(item.status)) {
+    if (Number.isFinite(days) && days < 0 && !inactiveCompanyStatuses.includes(item.status)) {
       registerStatusChange("companies", "contrato", company, "Inativa", "contrato vencido");
       return;
     }
-    if (hasCriticalPendency && !["Inativa", "Desmobilizada", "Bloqueada"].includes(item.status)) {
+    if (!hasActiveContract && !hasCriticalPendency && !hasPendency && !inactiveCompanyStatuses.includes(item.status)) {
+      registerStatusChange("companies", "empresa", company, "Inativa", "empresa sem contrato ativo");
+      return;
+    }
+    if (hasCriticalPendency && ![...inactiveCompanyStatuses, "Bloqueada"].includes(item.status)) {
       registerStatusChange("companies", "empresa", company, "Bloqueada", "pendencia critica em contrato, documento ou funcionario");
       return;
     }
-    if (hasPendency && item.status === "Ativa") {
+    if (hasPendency && ["Ativa", "Bloqueada"].includes(item.status)) {
       registerStatusChange("companies", "empresa", company, "Pendente", "pendencias documentais por setor");
+      return;
+    }
+    if (!hasCriticalPendency && !hasPendency && hasActiveContract && ["Pendente", "Bloqueada"].includes(item.status)) {
+      registerStatusChange("companies", "empresa", company, "Ativa", "pendencias regularizadas e contrato ativo");
     }
   });
 
@@ -2555,8 +2597,20 @@ function closeCompanyContract(id) {
   const company = state.companies.find((item) => item.id === id);
   if (!company || !can("edit.company", company)) return false;
   if (!confirm(`Deseja encerrar o contrato da empresa ${company.name}?`)) return false;
-  company.status = "Desmobilizada";
+  const previousStatus = company.status || "";
+  company.status = "Inativa";
+  const history = createHistoryEvent({
+    entityType: "contrato",
+    entityId: company.id,
+    action: "Encerramento de contrato",
+    previousStatus,
+    nextStatus: company.status,
+    observation: `Contrato ${company.contract || company.name} encerrado pela tela de detalhes da empresa.`,
+  });
+  state.historico = upsertById(state.historico, history);
   syncCollection("companies", company).catch((error) => alert(`Nao foi possivel atualizar online: ${error.message}`));
+  syncHistoryEvent(history);
+  persistAutomaticStatusChanges(applyAutomaticStatusRules({ source: "Contrato encerrado" }));
   saveState();
   renderApp();
   return true;
@@ -3322,11 +3376,13 @@ function statusBadge(status) {
     Regular: "ok",
     Ativa: "ok",
     Ativo: "ok",
+    Liberado: "ok",
     Integrado: "ok",
     Conectado: "ok",
     Estatico: "ok",
     "A vencer": "warn",
     Pendente: "warn",
+    "Ativo com pendencia": "conditional",
     "Em analise": "analysis",
     "Documentos pendente": "pending-docs",
     "Aguardando exames": "exams",
@@ -3335,6 +3391,7 @@ function statusBadge(status) {
     Vencido: "bad",
     Inativa: "bad",
     Inativo: "bad",
+    Encerrado: "bad",
     Desmobilizado: "bad",
     Desmobilizada: "bad",
     Reprovado: "bad",
@@ -3353,13 +3410,16 @@ function statusClass(status) {
     Regular: "ok",
     Ativa: "ok",
     Ativo: "ok",
+    Liberado: "ok",
     Pendente: "warn",
+    "Ativo com pendencia": "conditional",
     "A vencer": "warn",
     Reprovado: "bad",
     Vencido: "bad",
     Bloqueado: "bad",
     Bloqueada: "bad",
     Inativo: "bad",
+    Encerrado: "bad",
     Desmobilizado: "bad",
     Desmobilizada: "bad",
     "Em analise": "info",
@@ -4122,7 +4182,7 @@ function updateEmployeeOperationalStatus(id, action) {
   }
 
   const actions = {
-    demobilize: { label: "desmobilizar", status: "Inativo", historyStatus: "Desmobilizado" },
+    demobilize: { label: "desmobilizar", status: "Desmobilizado", historyStatus: "Desmobilizado" },
     inactivate: { label: "inativar", status: "Inativo", historyStatus: "Inativado" },
     block: { label: "bloquear", status: "Bloqueado", historyStatus: "Bloqueado" },
   };
@@ -4277,6 +4337,7 @@ function demobilizeCompany(id) {
   state.historico = upsertById(state.historico, history);
   syncCollection("companies", company).catch((error) => alert(`Nao foi possivel atualizar online: ${error.message}`));
   syncHistoryEvent(history);
+  persistAutomaticStatusChanges(applyAutomaticStatusRules({ source: "Contrato desmobilizado" }));
   saveState();
   render();
 }
