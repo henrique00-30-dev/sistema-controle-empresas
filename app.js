@@ -1045,6 +1045,8 @@ function matchesQuickFilter(view, item, quick) {
   if (quick === "Vencido") return status === "Vencido";
   if (quick === "Desmobilizado") return ["Desmobilizada", "Desmobilizado", "Inativa", "Inativo"].includes(status);
   if (quick === "Vencendo") return contractDays(company) >= 0 && contractDays(company) <= 60;
+  if (quick === "ASO vencido") return employee ? isPastDate(normalizeEmployee(employee).asoValidity) : false;
+  if (quick === "Treinamento vencido") return employee ? isPastDate(normalizeEmployee(employee).trainingValidity) : false;
   if (quick === "Medicina") return employee ? employeeMedicineStatus(normalizeEmployee(employee)) === "Pendente" || normalizeEmployee(employee).status === "Aguardando exames" : /aso|exame|medic/i.test(item.type || "");
   if (quick === "EHS") return employee ? employeeEhsStatus(normalizeEmployee(employee)) === "Pendente" || normalizeEmployee(employee).status === "Em treinamento" : /nr-|treinamento|epi|segur/i.test(item.type || "");
   return status === quick;
@@ -1205,6 +1207,8 @@ function operationalMetrics(companies = visibleCompanies(), employees = visibleE
     blockedEmployees: normalizedEmployees.filter((employee) => ["Bloqueado"].includes(employee.status)).map((employee) => employee.raw),
     pendingEmployees: normalizedEmployees.filter((employee) => pendingEmployeeStatuses.includes(employee.status)).map((employee) => employee.raw),
     inactiveEmployees: normalizedEmployees.filter((employee) => ["Inativo", "Desmobilizado", "Desmobilizada"].includes(employee.status)).map((employee) => employee.raw),
+    expiredAso: normalizedEmployees.filter((employee) => isPastDate(employee.asoValidity)).map((employee) => employee.raw),
+    expiredTrainings: normalizedEmployees.filter((employee) => isPastDate(employee.trainingValidity)).map((employee) => employee.raw),
     medicinePendencies: normalizedEmployees
       .filter((employee) => employee.status === "Aguardando exames" || ["Vencido", "A vencer"].includes(employee.docStatus) || employeeMedicineStatus(employee.raw) === "Pendente")
       .map((employee) => employee.raw),
@@ -1237,6 +1241,7 @@ function renderDashboard() {
     ].map((item) => item.id),
   ).size;
   const dashboardCards = buildDashboardCards(metrics, totalPendencies);
+  const operationalAlerts = buildOperationalAlerts(metrics);
   const priorityEmployees = uniqueById([...metrics.blockedEmployees, ...metrics.pendingEmployees, ...metrics.activeEmployees, ...employees]).slice(0, 6);
   const operationalRows = priorityEmployees.map((employee) => {
     const item = normalizeEmployee(employee);
@@ -1274,6 +1279,15 @@ function renderDashboard() {
         </article>
       `).join("")}
     </div>
+    <section class="bi-card operational-alerts">
+      <div class="bi-head">
+        <div><span class="eyebrow">Alertas automaticos</span><h2>Prioridades operacionais</h2></div>
+        <span class="mini-pill">${operationalAlerts.filter((alert) => alert.value > 0).length} alerta(s)</span>
+      </div>
+      <div class="alert-grid">
+        ${operationalAlerts.map(renderOperationalAlert).join("")}
+      </div>
+    </section>
     <div class="dashboard-grid">
       <section class="bi-card wide">
         <div class="bi-head">
@@ -1332,6 +1346,35 @@ function buildDashboardCards(metrics, totalPendencies) {
     { label: "Empresas Criticas", value: metrics.criticalCompanies.length, helper: "Bloqueadas ou pendentes", iconName: "company", tone: "danger", view: "companies", query: "", filter: "Todos", quick: "Critico" },
     { label: "Aprovacoes Pendentes", value: metrics.pendingApprovals.length, helper: "Documentos para decisao", iconName: "approve", tone: "special", view: "approvals", query: "", filter: "Todos", quick: "Pendente" },
   ];
+}
+
+function buildOperationalAlerts(metrics) {
+  return [
+    { label: "Documentos vencidos", value: metrics.expiredDocs.length, priority: "critica", helper: "Regularizar imediatamente", iconName: "docs", view: "documents", quick: "Vencido" },
+    { label: "Documentos vencendo", value: metrics.expiringDocs.length, priority: "media", helper: "Dentro da janela de 30 dias", iconName: "clock", view: "documents", quick: "A vencer" },
+    { label: "ASO vencido", value: metrics.expiredAso.length, priority: "critica", helper: "Bloqueio medico potencial", iconName: "shield", view: "employees", quick: "ASO vencido" },
+    { label: "Treinamentos vencidos", value: metrics.expiredTrainings.length, priority: "critica", helper: "Pendencia EHS operacional", iconName: "factory", view: "employees", quick: "Treinamento vencido" },
+    { label: "Contratos proximos do vencimento", value: metrics.expiringContracts.length, priority: "media", helper: "Fim previsto em ate 60 dias", iconName: "contracts", view: "contracts", quick: "Vencendo" },
+    { label: "Funcionarios bloqueados", value: metrics.blockedEmployees.length, priority: "critica", helper: "Restricao ativa de acesso", iconName: "block", view: "employees", filter: "Bloqueado", quick: "Bloqueado" },
+    { label: "Pendencias Medicina", value: metrics.medicinePendencies.length, priority: "media", helper: "ASO, exames e liberacao medica", iconName: "shield", view: "employees", quick: "Medicina" },
+    { label: "Pendencias EHS", value: metrics.ehsPendencies.length, priority: "media", helper: "Treinamentos e requisitos de seguranca", iconName: "factory", view: "employees", quick: "EHS" },
+    { label: "Pendencias Patrimonial", value: metrics.patrimonialPendencies.length, priority: "baixa", helper: "Crachas, acesso e liberacao final", iconName: "block", view: "employees", quick: "Pendente" },
+  ];
+}
+
+function renderOperationalAlert(alert) {
+  const tone = { critica: "danger", media: "warning", baixa: "info" }[alert.priority] || "info";
+  return `
+    <article class="operational-alert ${tone} ${alert.value > 0 ? "active" : ""}" role="button" tabindex="0" data-dashboard-card data-target-view="${alert.view}" data-target-search="" data-target-filter="${escapeAttr(alert.filter || "Todos")}" data-target-quick="${escapeAttr(alert.quick || "Todos")}" title="Abrir ${alert.label}">
+      <div class="alert-icon">${icon(alert.iconName)}</div>
+      <div>
+        <span>${alert.label}</span>
+        <strong>${alert.value}</strong>
+        <small>${alert.helper}</small>
+      </div>
+      <em>${alert.priority}</em>
+    </article>
+  `;
 }
 
 function renderRiskLine(risk) {
@@ -4802,6 +4845,13 @@ function contractDays(company) {
   const due = new Date(company.endDate);
   if (Number.isNaN(due.getTime())) return Number.NaN;
   return Math.ceil((due - new Date(today())) / 86400000);
+}
+
+function isPastDate(value) {
+  if (!value) return false;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  return date < new Date(today());
 }
 
 function contractUnit(company) {

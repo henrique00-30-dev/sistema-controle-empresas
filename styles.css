@@ -879,6 +879,96 @@ textarea {
   grid-column: span 1;
 }
 
+.operational-alerts {
+  margin-bottom: 18px;
+}
+
+.alert-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(190px, 1fr));
+  gap: 12px;
+}
+
+.operational-alert {
+  position: relative;
+  display: grid;
+  grid-template-columns: 42px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 96px;
+  padding: 14px;
+  border: 1px solid rgba(245, 241, 234, 0.12);
+  border-radius: 18px;
+  background: rgba(245, 241, 234, 0.035);
+  cursor: pointer;
+  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+
+.operational-alert:hover,
+.operational-alert:focus-visible {
+  transform: translateY(-2px);
+  border-color: rgba(214, 161, 95, 0.42);
+  background: rgba(245, 241, 234, 0.06);
+  outline: none;
+}
+
+.operational-alert.danger { --alert: rgba(143, 38, 56, 0.7); }
+.operational-alert.warning { --alert: rgba(214, 161, 95, 0.68); }
+.operational-alert.info { --alert: rgba(91, 141, 239, 0.58); }
+
+.operational-alert.active {
+  box-shadow: inset 4px 0 0 var(--alert), 0 16px 28px rgba(0, 0, 0, 0.18);
+}
+
+.alert-icon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  color: #f5f1ea;
+  background: var(--alert, rgba(245, 241, 234, 0.1));
+}
+
+.alert-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.operational-alert span {
+  display: block;
+  color: #f5f1ea;
+  font-size: 0.82rem;
+  font-weight: 950;
+}
+
+.operational-alert strong {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 1.8rem;
+  line-height: 1;
+}
+
+.operational-alert small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.operational-alert em {
+  align-self: flex-start;
+  padding: 4px 7px;
+  border-radius: 999px;
+  color: #f5f1ea;
+  background: var(--alert, rgba(245, 241, 234, 0.1));
+  font-size: 0.64rem;
+  font-style: normal;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
 .bi-head {
   display: flex;
   align-items: flex-start;
@@ -2396,6 +2486,7 @@ tr:last-child td {
   .stats-grid,
   .stats-grid.six,
   .kpi-grid,
+  .alert-grid,
   .dashboard-grid,
   .detail-grid,
   .enterprise-strip,
@@ -2437,6 +2528,7 @@ tr:last-child td {
   .stats-grid,
   .stats-grid.six,
   .kpi-grid,
+  .alert-grid,
   .dashboard-grid,
   .contract-summary-grid,
   .detail-grid,
