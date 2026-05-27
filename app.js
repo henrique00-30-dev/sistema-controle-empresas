@@ -20,6 +20,7 @@ const DB_PROFILE_TO_APP_ROLE = {
   patrimonial: "patrimonial",
   fornecedor: "supplier",
   visitante: "visitor",
+  super_admin: "admin",
   admin: "admin",
   medicine: "medicina",
   medical: "medicina",
@@ -36,8 +37,9 @@ const APP_ROLE_TO_DB_PROFILE = {
   patrimonial: "patrimonial",
   supplier: "fornecedor",
   visitor: "visitante",
+  super_admin: "super_admin",
 };
-const DB_PROFILE_VALUES = Object.freeze(["administrador", "fiscal", "medicina", "ehs", "patrimonial", "fornecedor", "visitante"]);
+const DB_PROFILE_VALUES = Object.freeze(["administrador", "fiscal", "medicina", "ehs", "patrimonial", "fornecedor", "visitante", "super_admin"]);
 
 const ROLE_PERMISSIONS = {
   admin: {
@@ -4585,7 +4587,7 @@ function mapProfileToDb(user) {
 }
 
 function mapUserToDb(user, { includeId = true } = {}) {
-  const perfil = normalizePerfilUsuario(user.role || user.perfil);
+  const perfil = normalizePerfilUsuario(user.role || user.perfil).toLowerCase();
   const payload = {
     nome: optionalText(user.name),
     email: optionalText(user.email),
@@ -4600,6 +4602,7 @@ function mapUserToDb(user, { includeId = true } = {}) {
 }
 
 function validateUserPayload(payload) {
+  payload.perfil = normalizePerfilUsuario(payload.perfil).toLowerCase();
   if (!DB_PROFILE_VALUES.includes(payload.perfil)) {
     throw new PersistenceError(`Perfil invalido. Valores aceitos pelo enum perfil_usuario: ${DB_PROFILE_VALUES.join(", ")}.`, {
       table: "public.usuarios",
@@ -4608,7 +4611,6 @@ function validateUserPayload(payload) {
       hint: "perfil fora do enum perfil_usuario",
     });
   }
-  payload.perfil = normalizePerfilUsuario(payload.perfil);
   payload.empresa_id = optionalNull(payload.empresa_id);
   payload.setor = optionalText(payload.setor);
   payload.matricula = optionalText(payload.matricula);
@@ -4652,6 +4654,8 @@ function normalizePerfilUsuario(value = "visitante") {
     supplier: "fornecedor",
     visitante: "visitante",
     visitor: "visitante",
+    super_admin: "super_admin",
+    superadmin: "super_admin",
   };
   return aliases[normalized] || "visitante";
 }
