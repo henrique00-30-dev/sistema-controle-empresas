@@ -241,10 +241,18 @@ const DOCUMENT_WORKFLOW_SECTORS = ["Fiscal", "Medicina", "EHS", "Patrimonial"];
 
 const app = document.querySelector("#app") || document.querySelector("#root");
 const supabaseConfig = window.SUPABASE_CONFIG || {};
+const supabaseDiagnostics = buildSupabaseDiagnostics(supabaseConfig);
 const supabaseClient =
   supabaseConfig.url && supabaseConfig.anonKey && window.supabase
-    ? window.supabase.createClient(supabaseConfig.url, supabaseConfig.anonKey)
+    ? window.supabase.createClient(supabaseConfig.url, supabaseConfig.anonKey, {
+        auth: {
+          persistSession: true,
+          autoRefreshToken: true,
+          detectSessionInUrl: true,
+        },
+      })
     : null;
+console.info("[Supabase Config] Configuracao carregada pelo frontend", supabaseDiagnostics);
 let state = loadState();
 let currentView = "dashboard";
 let searchTerm = "";
@@ -491,6 +499,28 @@ function logAuthUserError(payload, error, level = "error") {
   });
 }
 
+function buildSupabaseDiagnostics(config = {}) {
+  const url = String(config.url || "").trim();
+  const anonKey = String(config.anonKey || "").trim();
+  let hostname = "";
+  let projectRef = "";
+  try {
+    hostname = url ? new URL(url).hostname : "";
+    projectRef = hostname.endsWith(".supabase.co") ? hostname.split(".")[0] : "";
+  } catch (error) {
+    hostname = "url_invalida";
+  }
+  return {
+    url: url || "nao_configurada",
+    hostname,
+    projectRef,
+    anonKeyPrefix: anonKey ? anonKey.slice(0, 18) : "nao_configurada",
+    anonKeySuffix: anonKey ? anonKey.slice(-8) : "nao_configurada",
+    anonKeyType: anonKey.startsWith("sb_publishable_") ? "publishable" : anonKey.startsWith("eyJ") ? "jwt_anon" : anonKey ? "desconhecida" : "ausente",
+    createClientDisponivel: Boolean(window.supabase?.createClient),
+  };
+}
+
 function logHistoryPersistenceError(payload, error) {
   const originalError = error?.originalError || error;
   console.error("[Historico Supabase] Erro historico", {
@@ -520,6 +550,7 @@ async function ensureOnlineSession(table) {
 
 async function boot() {
   if (!supabaseClient) {
+    console.warn("[Supabase Config] Cliente Supabase nao foi criado. O sistema iniciou em modo local.", supabaseDiagnostics);
     render();
     return;
   }
@@ -528,6 +559,12 @@ async function boot() {
     const {
       data: { session },
     } = await supabaseClient.auth.getSession();
+    console.info("[Login Supabase] Sessao inicial", {
+      supabase: supabaseDiagnostics,
+      sessaoCriada: Boolean(session),
+      email: session?.user?.email || null,
+      userId: session?.user?.id || null,
+    });
     if (session?.user) {
       await hydrateSupabaseSession(session.user);
     }
@@ -556,46 +593,35 @@ async function hydrateSupabaseSession(authUser) {
 
 async function fetchProfile(authUser) {
   const email = String(authUser?.email || "").trim().toLowerCase();
-  console.info("[Login Supabase] Buscando perfil", { auth_user_id: authUser?.id || null, email });
+  console.info("[Login Supabase] Buscando perfil em public.usuarios", { supabase: supabaseDiagnostics, auth_user_id: authUser?.id || null, email });
   const usuario = await fetchProfileFromTable("usuarios", email, authUser?.id);
   if (usuario?.data) return validateAuthenticatedProfile(mapUserFromDb(usuario.data), email, "public.usuarios");
-  if (usuario?.error && !isMissingRestTableError(usuario.error)) {
-    throw wrapUserPersistenceError(usuario.error, { table: "public.usuarios", operation: "select perfil por email", payload: { email } });
+  if (usuario?.error && isMissingRestTableError(usuario.error)) {
+    console.warn("[Login Supabase] public.usuarios nao esta visivel no REST deste projeto. Usando public.profiles como compatibilidade.", {
+      supabase: supabaseDiagnostics,
+      error: usuario.error,
+    });
+    const profileResult = await fetchProfileFromTable("profiles", email, authUser?.id);
+    if (profileResult?.data) return validateAuthenticatedProfile(mapUserFromDb(profileResult.data), email, "public.profiles");
+    if (profileResult?.error) {
+      throw wrapUserPersistenceError(profileResult.error, { table: "public.profiles", operation: "select perfil por email/id", payload: { email, id: authUser?.id || null, supabase: supabaseDiagnostics } });
+    }
   }
-  if (usuario?.error) console.warn("[Login Supabase] public.usuarios indisponivel no REST schema cache. Tentando public.profiles.", usuario.error);
-
-  const profileResult = await fetchProfileFromTable("profiles", email, authUser?.id);
-  if (profileResult?.data) return validateAuthenticatedProfile(mapUserFromDb(profileResult.data), email, "public.profiles");
-  if (profileResult?.error && !isMissingRestTableError(profileResult.error)) {
-    throw wrapUserPersistenceError(profileResult.error, { table: "public.profiles", operation: "select perfil por email/id", payload: { email, id: authUser?.id || null } });
-  }
-  if (profileResult?.error) console.warn("[Login Supabase] public.profiles tambem indisponivel no REST schema cache.", profileResult.error);
-
-  const metadataProfile = profileFromAuthMetadata(authUser);
-  if (metadataProfile) {
-    console.warn("[Login Supabase] Usando perfil de emergencia a partir do Auth metadata/local enquanto public.usuarios nao esta disponivel no REST.");
-    return validateAuthenticatedProfile(metadataProfile, email, "supabase.auth metadata");
-  }
-
-  const localProfile = state.users.find((user) => String(user.email || "").trim().toLowerCase() === email);
-  if (localProfile) {
-    console.warn("[Login Supabase] Usando perfil local autenticado enquanto public.usuarios nao esta disponivel no REST.", { email, role: localProfile.role });
-    return validateAuthenticatedProfile({ ...localProfile, id: authUser?.id || localProfile.id }, email, "perfil local");
-  }
+  if (usuario?.error) throw wrapUserPersistenceError(usuario.error, { table: "public.usuarios", operation: "select perfil por email/id", payload: { email, id: authUser?.id || null, supabase: supabaseDiagnostics } });
 
   throw new PersistenceError("Usuario autenticado, mas sem perfil cadastrado.", {
-    table: "public.usuarios/public.profiles",
+    table: "public.usuarios",
     operation: "select perfil por email",
-    payload: { email, id: authUser?.id || null },
-    hint: "A API REST nao encontrou public.usuarios no schema cache. Recarregue o schema cache do Supabase ou mantenha um perfil em public.profiles.",
+    payload: { email, id: authUser?.id || null, supabase: supabaseDiagnostics },
+    hint: "O Auth aceitou o login, mas nao existe perfil ativo em public.usuarios neste projeto. Se public.usuarios nao estiver exposta no REST, crie tambem o perfil em public.profiles ou ajuste a URL/chave para o projeto correto.",
   });
 }
 
 async function fetchProfileFromTable(table, email, userId) {
-  console.info(`[Login Supabase] Consultando public.${table}`, { email, id: userId || null });
+  console.info(`[Login Supabase] Consultando public.${table}`, { supabase: supabaseDiagnostics, email, id: userId || null });
   let result = await supabaseClient.from(table).select("*").eq("email", email).maybeSingle();
   console.info(`[Login Supabase] Resultado public.${table} por email`, { data: result.data, error: result.error });
-  if (!result.error || isMissingRestTableError(result.error) || !userId) return result;
+  if (result.data || result.error || !userId) return result;
   result = await supabaseClient.from(table).select("*").eq("id", userId).maybeSingle();
   console.info(`[Login Supabase] Resultado public.${table} por id`, { data: result.data, error: result.error });
   return result;
@@ -1114,28 +1140,40 @@ function renderLogin() {
       const email = String(form.get("email") || "").trim().toLowerCase();
       const password = String(form.get("password") || "");
       try {
-        console.info("[Login Supabase] Tentando login", { email });
+        console.info("[Login Supabase] Tentando login", { supabase: supabaseDiagnostics, email });
         const { data, error } = await supabaseClient.auth.signInWithPassword({
           email,
           password,
         });
         console.info("[Login Supabase] Resposta Auth", {
+          supabase: supabaseDiagnostics,
+          emailEnviado: email,
+          sessaoCriada: Boolean(data?.session),
           user: data?.user || null,
           error,
         });
         if (error) {
           console.error("[Login Supabase] Erro Auth", {
+            supabase_url_usada: supabaseDiagnostics.url,
+            supabase_project_ref: supabaseDiagnostics.projectRef,
+            supabase_anon_key_prefix: supabaseDiagnostics.anonKeyPrefix,
+            supabase_anon_key_suffix: supabaseDiagnostics.anonKeySuffix,
             email,
             code: error.code || error.status || error.statusCode || null,
             message: error.message || null,
             details: error.details || null,
             hint: error.hint || null,
+            sessaoCriada: Boolean(data?.session),
             error,
           });
-          throw new PersistenceError(`Erro Auth: ${error.message || "falha ao autenticar."}`, { table: "supabase.auth", operation: "signInWithPassword", payload: { email } }, error);
+          throw new PersistenceError(`Erro Auth: ${error.message || "falha ao autenticar."}`, { table: "supabase.auth", operation: "signInWithPassword", payload: { email, supabase: supabaseDiagnostics } }, error);
+        }
+        if (!data?.user) {
+          throw new PersistenceError("Auth nao retornou usuario autenticado.", { table: "supabase.auth", operation: "signInWithPassword", payload: { email, supabase: supabaseDiagnostics } });
         }
         const profile = await hydrateSupabaseSession(data.user);
         console.info("[Login Supabase] Login concluido", {
+          supabase: supabaseDiagnostics,
           email: profile.email,
           perfil: profile.role,
           nome: profile.name,
