@@ -165,6 +165,40 @@ const defaultData = {
   ],
   employees: [],
   documents: [],
+  fiscais: [
+    {
+      id: crypto.randomUUID(),
+      nome: "Patricia Nunes",
+      email: "patricia.nunes@empresa.com",
+      matricula: "FISC-001",
+      telefone: "(11) 90000-1001",
+      setor: "Fiscalizacao",
+      status: "sem_acesso",
+      usuarioEmail: null,
+      usuarioId: null,
+      dataFim: null,
+      motivoInativacao: "",
+      substitutoId: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+    {
+      id: crypto.randomUUID(),
+      nome: "Eduardo Rocha",
+      email: "eduardo.rocha@empresa.com",
+      matricula: "FISC-002",
+      telefone: "(11) 90000-1002",
+      setor: "Contratos",
+      status: "sem_acesso",
+      usuarioEmail: null,
+      usuarioId: null,
+      dataFim: null,
+      motivoInativacao: "",
+      substitutoId: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+  ],
   historico: [],
 };
 
@@ -201,6 +235,7 @@ const hiringStatuses = [
 ];
 
 const documentStatuses = ["Regular", "Pendente", "A vencer", "Vencido", "Reprovado"];
+const fiscalStatuses = ["sem_acesso", "com_acesso", "inativo"];
 const DOC_META_MARKER = "\n\n[SCT_ENTERPRISE_META]";
 const EMPLOYEE_META_MARKER = "\n\n[SCT_EMPLOYEE_META]";
 const DOCUMENT_WORKFLOW_SECTORS = ["Fiscal", "Medicina", "EHS", "Patrimonial"];
@@ -274,6 +309,7 @@ function loadState() {
     makeDoc(data.companies[0].id, data.employees[1].id, "Treinamento NR-10", "2026-05-18", "Aprovado"),
     makeDoc(data.companies[1].id, data.employees[2].id, "Ficha de EPI", "2026-07-04", "Pendente"),
   ];
+  ensureFiscalBase(data);
   saveState(data);
   return data;
 }
@@ -283,7 +319,9 @@ function migrateState(data) {
   data.companies ||= [];
   data.employees ||= [];
   data.documents ||= [];
+  data.fiscais ||= [];
   data.historico ||= data.history || [];
+  ensureFiscalBase(data);
 
   data.users = data.users.map((user) =>
     user.role === "supplier" && !user.companyId ? { ...user, companyId: data.companies[0]?.id || null } : user,
@@ -309,6 +347,34 @@ function migrateState(data) {
   }));
   saveState(data);
   return data;
+}
+
+function ensureFiscalBase(data = state) {
+  data.fiscais ||= [];
+  const byName = new Map(data.fiscais.map((fiscal) => [String(fiscal.nome || fiscal.name || "").trim().toLowerCase(), fiscal]));
+  data.companies.forEach((company) => {
+    const fiscalName = String(company.fiscal || "").trim();
+    if (!fiscalName || fiscalName === "Nao informado") return;
+    const key = fiscalName.toLowerCase();
+    let fiscal = company.fiscalId ? data.fiscais.find((item) => item.id === company.fiscalId) : byName.get(key);
+    if (!fiscal) {
+      fiscal = normalizeFiscal({
+        id: crypto.randomUUID(),
+        nome: fiscalName,
+        email: "",
+        matricula: "",
+        telefone: "",
+        setor: "Fiscalizacao",
+        status: "sem_acesso",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      data.fiscais.push(fiscal);
+      byName.set(key, fiscal);
+    }
+    company.fiscalId ||= fiscal.id;
+    company.fiscal = fiscal.nome;
+  });
 }
 
 function makeDoc(companyId, employeeId, type, dueDate, status) {
@@ -475,8 +541,8 @@ function validateOfficialSupabaseConfig(config = {}, diagnostics = {}) {
     errors.push(`URL aponta para ${diagnostics.projectRef}, mas o projeto oficial configurado e ${projectRef}.`);
   }
   if (expectedUrl && url !== expectedUrl) errors.push(`URL precisa ser exatamente ${expectedUrl}.`);
-  if (/COLE_AQUI|SUA_ANON_KEY|SEU-PROJETO/i.test(anonKey)) {
-    errors.push("anonKey oficial do projeto ainda nao foi preenchida em supabase-config.js.");
+  if (!anonKey.startsWith("sb_publishable_") && !anonKey.startsWith("eyJ")) {
+    errors.push("anonKey oficial do projeto precisa ser uma chave publica valida do Supabase.");
   }
   if (!window.supabase?.createClient) errors.push("Biblioteca Supabase JS nao carregou.");
   return errors.length
@@ -612,11 +678,12 @@ function validateAuthenticatedProfile(profile, email, source) {
 }
 
 async function loadRemoteData() {
-  const [companies, employees, documents, usuarios] = await Promise.all([
+  const [companies, employees, documents, usuarios, fiscais] = await Promise.all([
     supabaseClient.from("companies").select("*").order("name"),
     supabaseClient.from("employees").select("*").order("name"),
     supabaseClient.from("documents").select("*").order("due_date"),
     fetchUsersForAccessControl(),
+    fetchFiscaisForCompanies(),
   ]);
 
   for (const result of [companies, employees, documents, usuarios]) {
@@ -627,12 +694,23 @@ async function loadRemoteData() {
   state.employees = employees.data.map(mapEmployeeFromDb);
   state.documents = documents.data.map(mapDocumentFromDb);
   state.users = usuarios.data.map(mapUserFromDb);
+  state.fiscais = (fiscais.data || []).map(mapFiscalFromDb);
+  ensureFiscalBase(state);
   state.historico = await loadRemoteHistory();
 }
 
 async function fetchUsersForAccessControl() {
   if (!can("users.view")) return { data: state.users, error: null };
   return supabaseClient.from("usuarios").select("*").order("nome");
+}
+
+async function fetchFiscaisForCompanies() {
+  const result = await supabaseClient.from("fiscais").select("*").order("nome");
+  if (result.error) {
+    console.warn("Tabela public.fiscais indisponivel. Execute supabase-fiscais.sql para ativar a base de fiscais.", result.error);
+    return { data: state.fiscais || [], error: null };
+  }
+  return result;
 }
 
 async function loadRemoteHistory() {
@@ -658,12 +736,14 @@ async function syncCollection(collection, item) {
     employees: "employees",
     documents: "documents",
     users: "usuarios",
+    fiscais: "fiscais",
   }[collection];
   const mapper = {
     companies: mapCompanyToDb,
     employees: mapEmployeeToDb,
     documents: mapDocumentToDb,
     users: mapUserToDb,
+    fiscais: mapFiscalToDb,
   }[collection];
   const payload = mapper(item);
   const context = {
@@ -673,7 +753,13 @@ async function syncCollection(collection, item) {
   };
   try {
     await ensureOnlineSession(context.table);
-    const { error } = await supabaseClient.from(table).upsert(payload);
+    let { error } = await supabaseClient.from(table).upsert(payload);
+    if (error && collection === "companies" && /fiscal_id|fiscais_adicionais|schema cache|column/i.test(String(error.message || ""))) {
+      console.warn("Colunas de fiscais em public.companies ainda nao estao disponiveis. Salvando empresa sem vinculo fiscal estruturado.", { payload, error });
+      const legacyPayload = withoutKeys(payload, ["fiscal_id", "fiscais_adicionais"]);
+      const retry = await supabaseClient.from(table).upsert(legacyPayload);
+      error = retry.error;
+    }
     if (error) throw error;
   } catch (error) {
     throw wrapPersistenceError(error, context);
@@ -949,6 +1035,54 @@ function clearRecoveryUrl() {
   if (window.history?.replaceState) {
     window.history.replaceState({}, document.title, window.location.pathname);
   }
+}
+
+async function createAccessForFiscal(fiscal) {
+  if (!isOnlineMode()) {
+    alert("Acesso ao sistema exige Supabase Auth online configurado.");
+    return;
+  }
+  const item = normalizeFiscal(fiscal);
+  if (!item.email) {
+    alert("Informe o e-mail do fiscal antes de criar acesso.");
+    return;
+  }
+  const password = prompt(`Informe uma senha temporaria para ${item.nome}:`);
+  if (!password || password.length < 6) {
+    alert("Senha obrigatoria com no minimo 6 caracteres.");
+    return;
+  }
+  const savedUser = await syncUserRecord({
+    name: item.nome,
+    email: item.email,
+    password,
+    role: "fiscal",
+    setor: item.setor || "Fiscal",
+    matricula: item.matricula || null,
+    active: true,
+    isNew: true,
+  });
+  const updated = normalizeFiscal({
+    ...item,
+    status: "com_acesso",
+    usuarioEmail: savedUser.email,
+    usuarioId: savedUser.id,
+    updatedAt: new Date().toISOString(),
+  });
+  state.fiscais = upsertById(state.fiscais, updated);
+  const history = createHistoryEvent({
+    entityType: "fiscal",
+    entityId: updated.id,
+    action: "Acesso criado",
+    previousStatus: item.status,
+    nextStatus: "com_acesso",
+    observation: `Acesso criado para ${updated.email} e vinculado ao fiscal ${updated.nome}.`,
+  });
+  state.historico = upsertById(state.historico, history);
+  await syncCollection("fiscais", updated);
+  await syncHistoryEvent(history);
+  saveState();
+  renderApp();
 }
 
 function renderPasswordRecovery() {
@@ -1742,6 +1876,7 @@ function renderCompanies() {
   return `
     ${sectionHead("Empresas terceirizadas", "Cadastre fornecedores e acompanhe contrato, responsaveis e situacao.", "Nova empresa", "company")}
     ${renderCompanyEditor(editingCompany)}
+    ${renderFiscalRegistry()}
     ${toolbar("Buscar por empresa, CNPJ, fiscal, responsavel ou contrato")}
     ${renderOperationalFilters("companies", baseItems, { quicks: ["Todos", "Ativo", "Pendente", "Bloqueado", "Critico", "Desmobilizado"], exportKey: "empresas" })}
     <section class="panel table-wrap">
@@ -1761,6 +1896,9 @@ function renderCompanyEditor(company = null) {
     return "";
   }
   const item = normalizeCompany(company || {});
+  const activeFiscais = state.fiscais.map(normalizeFiscal).filter((fiscal) => fiscal.status !== "inativo");
+  const fiscalOptions = [{ value: "", label: "Selecione um fiscal" }].concat(activeFiscais.map((fiscal) => ({ value: fiscal.id, label: `${fiscal.nome}${fiscal.matricula ? ` - ${fiscal.matricula}` : ""}` })));
+  const additionalFiscalIds = new Set(item.fiscaisAdicionais || []);
   return `
     <section class="panel company-editor">
       <div class="editor-head">
@@ -1774,7 +1912,18 @@ function renderCompanyEditor(company = null) {
         <input type="hidden" name="id" value="${escapeAttr(company?.id || "")}" />
         ${inputField("name", "Nome da empresa", item.name, "required")}
         ${inputField("cnpj", "CNPJ", item.cnpj, "required")}
+        ${selectField("fiscalId", "Fiscal principal", item.fiscalId || "", fiscalOptions)}
         ${inputField("fiscal", "Fiscal do contrato", item.fiscal, "required")}
+        ${formSection("Cadastro rapido de fiscal", [
+          inputField("novoFiscalNome", "Nome do novo fiscal", ""),
+          inputField("novoFiscalEmail", "E-mail do novo fiscal", "", "type='email'"),
+          inputField("novoFiscalMatricula", "Matricula", ""),
+          inputField("novoFiscalTelefone", "Telefone", ""),
+          inputField("novoFiscalSetor", "Setor", "Fiscalizacao"),
+        ])}
+        ${formSection("Fiscais adicionais/substitutos", [
+          `<label class="wide">Selecione fiscais adicionais<select name="fiscaisAdicionais" multiple size="4">${activeFiscais.map((fiscal) => `<option value="${escapeAttr(fiscal.id)}" ${additionalFiscalIds.has(fiscal.id) ? "selected" : ""}>${escapeHtml(fiscal.nome)}${fiscal.status === "com_acesso" ? " - com acesso" : ""}</option>`).join("")}</select></label>`,
+        ])}
         ${inputField("responsible", "Responsavel", item.responsible, "required")}
         ${inputField("phone", "Telefone", item.phone, "required")}
         ${inputField("email", "E-mail", item.email, "type='email' required")}
@@ -1787,6 +1936,53 @@ function renderCompanyEditor(company = null) {
           ${company ? `<button class="btn warning" type="button" data-demobilize="company" data-id="${company.id}">Desmobilizar contrato</button>` : ""}
         </div>
       </form>
+    </section>
+  `;
+}
+
+function renderFiscalRegistry() {
+  const fiscais = (state.fiscais || []).map(normalizeFiscal);
+  return `
+    <section class="panel table-wrap">
+      <div class="modal-head">
+        <div>
+          <h2>Base de fiscais</h2>
+          <span class="muted">Fiscais podem ser responsaveis por empresas mesmo sem usuario/login no sistema.</span>
+        </div>
+      </div>
+      <form id="fiscalQuickForm" class="form-grid company-form">
+        ${inputField("nome", "Nome do fiscal", "", "required")}
+        ${inputField("email", "E-mail", "", "type='email'")}
+        ${inputField("matricula", "Matricula", "")}
+        ${inputField("telefone", "Telefone", "")}
+        ${inputField("setor", "Setor", "Fiscalizacao")}
+        ${selectField("status", "Status", "sem_acesso", fiscalStatuses.map((status) => ({ value: status, label: fiscalStatusLabel(status) })))}
+        <div class="form-actions wide"><button class="btn secondary" type="submit">${icon("plus")} Cadastrar fiscal</button></div>
+      </form>
+      <table>
+        <thead><tr><th>Fiscal</th><th>Contato</th><th>Setor</th><th>Status</th><th>Acesso</th><th>Acoes</th></tr></thead>
+        <tbody>
+          ${
+            fiscais.length
+              ? fiscais.map((fiscal) => `
+                <tr>
+                  <td><strong>${escapeHtml(fiscal.nome)}</strong><br><span class="muted">${escapeHtml(fiscal.matricula || "Sem matricula")}</span></td>
+                  <td>${escapeHtml(fiscal.email || "Sem e-mail")}<br><span class="muted">${escapeHtml(fiscal.telefone || "Sem telefone")}</span></td>
+                  <td>${escapeHtml(fiscal.setor || "Nao informado")}</td>
+                  <td>${statusBadge(fiscalStatusLabel(fiscal.status))}</td>
+                  <td>${escapeHtml(fiscal.usuarioEmail || "Sem acesso")}</td>
+                  <td>
+                    <div class="actions wrap">
+                      ${fiscal.status !== "com_acesso" && fiscal.status !== "inativo" ? `<button class="btn primary compact" type="button" data-fiscal-access="${fiscal.id}">${icon("users")} Criar acesso ao sistema</button>` : ""}
+                      ${fiscal.status !== "inativo" ? `<button class="btn warning compact" type="button" data-fiscal-inactivate="${fiscal.id}">Inativar</button>` : `<span class="mini-pill">Inativo</span>`}
+                    </div>
+                  </td>
+                </tr>
+              `).join("")
+              : emptyRow(6)
+          }
+        </tbody>
+      </table>
     </section>
   `;
 }
@@ -2913,6 +3109,7 @@ function renderCompanyTab(company, tab) {
         ${detailCard("CNPJ", item.cnpj)}
         ${detailCard("Status", statusBadge(item.status))}
         ${detailCard("Fiscal", item.fiscal || "Nao informado")}
+        ${detailCard("Fiscais adicionais", fiscalNames(item.fiscaisAdicionais))}
         ${detailCard("Responsavel", item.responsible || "Nao informado")}
         ${detailCard("Contato", `${item.phone || "Nao informado"} / ${item.email || "Nao informado"}`)}
         ${detailCard("Contrato atual", item.contract || "Nao informado")}
@@ -4023,6 +4220,23 @@ function bindViewEvents() {
     saveCompanyFromForm(new FormData(event.currentTarget));
   });
 
+  document.querySelector("#fiscalQuickForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    saveFiscalFromForm(new FormData(event.currentTarget));
+  });
+
+  document.querySelectorAll("[data-fiscal-access]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const fiscal = state.fiscais.find((item) => item.id === button.dataset.fiscalAccess);
+      if (!fiscal) return;
+      createAccessForFiscal(fiscal).catch((error) => alert(`Nao foi possivel criar acesso.\n\n${persistenceMessage(error)}`));
+    });
+  });
+
+  document.querySelectorAll("[data-fiscal-inactivate]").forEach((button) => {
+    button.addEventListener("click", () => inactivateFiscal(button.dataset.fiscalInactivate));
+  });
+
   document.querySelector("#employeeEditorForm")?.addEventListener("submit", (event) => {
     event.preventDefault();
     saveEmployeeFromForm(new FormData(event.currentTarget));
@@ -4474,11 +4688,19 @@ function upsert(collection, id, data) {
 
 function saveCompanyFromForm(form) {
   const id = form.get("id") || null;
-  const previousStatus = state.companies.find((company) => company.id === id)?.status || "";
+  const previous = state.companies.find((company) => company.id === id);
+  const previousStatus = previous?.status || "";
+  const quickFiscal = createQuickFiscalFromCompanyForm(form);
+  const selectedFiscalId = quickFiscal?.id || optionalNull(form.get("fiscalId"));
+  const selectedFiscal = selectedFiscalId ? state.fiscais.find((fiscal) => fiscal.id === selectedFiscalId) : null;
+  const fiscalName = selectedFiscal?.nome || String(form.get("fiscal") || "").trim();
+  const additionalFiscalIds = form.getAll("fiscaisAdicionais").filter(Boolean).filter((fiscalId) => fiscalId !== selectedFiscalId);
   const saved = upsert("companies", id, {
     name: form.get("name"),
     cnpj: form.get("cnpj"),
-    fiscal: form.get("fiscal"),
+    fiscal: fiscalName,
+    fiscalId: selectedFiscalId,
+    fiscaisAdicionais: additionalFiscalIds,
     responsible: form.get("responsible"),
     contact: form.get("responsible"),
     phone: form.get("phone"),
@@ -4489,12 +4711,119 @@ function saveCompanyFromForm(form) {
     contract: form.get("contract"),
     risk: "Medio",
   });
+  if (quickFiscal) {
+    recordFiscalHistory(quickFiscal, "Fiscal criado", "", quickFiscal.status, `Fiscal ${quickFiscal.nome} criado no cadastro rapido da empresa ${saved.name}.`);
+    syncCollection("fiscais", quickFiscal).catch((error) => console.warn("Nao foi possivel salvar fiscal online.", error));
+  }
+  if ((previous?.fiscalId || previous?.fiscal || "") !== (saved.fiscalId || saved.fiscal || "")) {
+    const history = createHistoryEvent({
+      entityType: "empresa",
+      entityId: saved.id,
+      action: "Troca de fiscal",
+      previousStatus: previous?.fiscal || "",
+      nextStatus: saved.fiscal || "",
+      observation: `Fiscal principal da empresa ${saved.name} alterado.`,
+    });
+    state.historico = upsertById(state.historico, history);
+    syncHistoryEvent(history);
+  }
   recordManualStatusHistory("empresa", saved.id, previousStatus, saved.status, `Empresa ${saved.name} salva pelo formulario.`);
   syncCollection("companies", saved).catch((error) => alert(`Nao foi possivel salvar online: ${error.message}`));
   persistAutomaticStatusChanges(applyAutomaticStatusRules({ source: "Empresa salva" }));
   saveState();
   editingCompanyId = null;
   render();
+}
+
+function createQuickFiscalFromCompanyForm(form) {
+  const nome = String(form.get("novoFiscalNome") || "").trim();
+  if (!nome) return null;
+  const fiscal = normalizeFiscal({
+    id: crypto.randomUUID(),
+    nome,
+    email: optionalText(form.get("novoFiscalEmail")),
+    matricula: optionalText(form.get("novoFiscalMatricula")),
+    telefone: optionalText(form.get("novoFiscalTelefone")),
+    setor: optionalText(form.get("novoFiscalSetor")) || "Fiscalizacao",
+    status: "sem_acesso",
+    usuarioEmail: null,
+    usuarioId: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+  state.fiscais = upsertById(state.fiscais || [], fiscal);
+  return fiscal;
+}
+
+function saveFiscalFromForm(form) {
+  const fiscal = normalizeFiscal({
+    id: crypto.randomUUID(),
+    nome: form.get("nome"),
+    email: form.get("email"),
+    matricula: form.get("matricula"),
+    telefone: form.get("telefone"),
+    setor: form.get("setor"),
+    status: form.get("status") || "sem_acesso",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+  if (!fiscal.nome) {
+    alert("Nome do fiscal e obrigatorio.");
+    return;
+  }
+  state.fiscais = upsertById(state.fiscais || [], fiscal);
+  recordFiscalHistory(fiscal, "Fiscal criado", "", fiscal.status, `Fiscal ${fiscal.nome} cadastrado na base de fiscais.`);
+  syncCollection("fiscais", fiscal).catch((error) => alert(`Nao foi possivel salvar fiscal online: ${error.message}`));
+  saveState();
+  renderApp();
+}
+
+function inactivateFiscal(id) {
+  const fiscal = state.fiscais.find((item) => item.id === id);
+  if (!fiscal) return;
+  const motivo = prompt(`Informe o motivo obrigatorio para inativar ${fiscal.nome}:`);
+  if (!motivo || !motivo.trim()) {
+    alert("Motivo obrigatorio. Fiscal nao foi inativado.");
+    return;
+  }
+  const activeSubstitutes = state.fiscais.filter((item) => item.id !== id && normalizeFiscal(item).status !== "inativo");
+  const substituteText = activeSubstitutes.length
+    ? activeSubstitutes.map((item, index) => `${index + 1}. ${normalizeFiscal(item).nome}`).join("\n")
+    : "Nenhum substituto cadastrado.";
+  const chosen = activeSubstitutes.length ? prompt(`Escolha o numero do substituto:\n${substituteText}`) : "";
+  const substitute = activeSubstitutes[Number(chosen) - 1] || null;
+  const previousStatus = fiscal.status;
+  Object.assign(fiscal, {
+    status: "inativo",
+    dataFim: new Date().toISOString(),
+    motivoInativacao: motivo.trim(),
+    substitutoId: substitute?.id || null,
+    updatedAt: new Date().toISOString(),
+  });
+  state.companies = state.companies.map((company) => {
+    if (company.fiscalId !== fiscal.id) return company;
+    return { ...company, fiscalId: substitute?.id || null, fiscal: substitute?.nome || company.fiscal, fiscaisAdicionais: Array.from(new Set([...(company.fiscaisAdicionais || []), fiscal.id])) };
+  });
+  recordFiscalHistory(fiscal, "Fiscal inativado", previousStatus, "inativo", `Motivo: ${motivo.trim()}${substitute ? `. Substituto: ${substitute.nome}.` : "."}`);
+  if (substitute) recordFiscalHistory(substitute, "Substituicao de fiscal", "", substitute.status, `Fiscal ${substitute.nome} definido como substituto de ${fiscal.nome}.`);
+  syncCollection("fiscais", fiscal).catch((error) => alert(`Nao foi possivel atualizar fiscal online: ${error.message}`));
+  Promise.all(state.companies.filter((company) => company.fiscaisAdicionais?.includes(fiscal.id) || company.fiscalId === substitute?.id).map((company) => syncCollection("companies", company).catch((error) => console.warn("Nao foi possivel atualizar empresa online.", error))));
+  saveState();
+  renderApp();
+}
+
+function recordFiscalHistory(entity, action, previousStatus, nextStatus, observation) {
+  const history = createHistoryEvent({
+    entityType: "fiscal",
+    entityId: entity.id,
+    action,
+    previousStatus,
+    nextStatus,
+    observation,
+  });
+  state.historico = upsertById(state.historico, history);
+  syncHistoryEvent(history);
+  return history;
 }
 
 function saveEmployeeFromForm(form) {
@@ -4783,13 +5112,36 @@ function removeItem(type, id) {
 }
 
 function normalizeCompany(company) {
+  const fiscal = company.fiscalId ? state.fiscais?.find((item) => item.id === company.fiscalId) : null;
   return {
     ...company,
-    fiscal: company.fiscal || "Nao informado",
+    fiscalId: company.fiscalId || company.fiscal_id || null,
+    fiscaisAdicionais: company.fiscaisAdicionais || company.fiscais_adicionais || [],
+    fiscal: fiscal?.nome || company.fiscal || "Nao informado",
     responsible: company.responsible || company.contact || "Nao informado",
     startDate: company.startDate || "",
     endDate: company.endDate || "",
     status: company.status || "Ativa",
+  };
+}
+
+function normalizeFiscal(fiscal = {}) {
+  const now = new Date().toISOString();
+  return {
+    id: fiscal.id || crypto.randomUUID(),
+    nome: String(fiscal.nome || fiscal.name || "").trim(),
+    email: String(fiscal.email || "").trim().toLowerCase(),
+    matricula: String(fiscal.matricula || fiscal.registration || "").trim(),
+    telefone: String(fiscal.telefone || fiscal.phone || "").trim(),
+    setor: String(fiscal.setor || fiscal.sector || "Fiscalizacao").trim(),
+    status: fiscalStatuses.includes(fiscal.status) ? fiscal.status : "sem_acesso",
+    usuarioEmail: fiscal.usuarioEmail || fiscal.usuario_email || null,
+    usuarioId: fiscal.usuarioId || fiscal.usuario_id || null,
+    dataFim: fiscal.dataFim || fiscal.data_fim || null,
+    motivoInativacao: fiscal.motivoInativacao || fiscal.motivo_inativacao || "",
+    substitutoId: fiscal.substitutoId || fiscal.substituto_id || null,
+    createdAt: fiscal.createdAt || fiscal.created_at || now,
+    updatedAt: fiscal.updatedAt || fiscal.updated_at || now,
   };
 }
 
@@ -4988,6 +5340,8 @@ function mapCompanyFromDb(company) {
     name: company.name,
     cnpj: company.cnpj,
     fiscal: company.fiscal,
+    fiscalId: company.fiscal_id,
+    fiscaisAdicionais: company.fiscais_adicionais || [],
     responsible: company.responsible,
     contact: company.responsible,
     phone: company.phone,
@@ -5007,6 +5361,8 @@ function mapCompanyToDb(company) {
     name: item.name,
     cnpj: item.cnpj,
     fiscal: item.fiscal,
+    fiscal_id: item.fiscalId || null,
+    fiscais_adicionais: item.fiscaisAdicionais || [],
     responsible: item.responsible,
     phone: item.phone,
     email: item.email,
@@ -5015,6 +5371,45 @@ function mapCompanyToDb(company) {
     status: item.status,
     contract_number: item.contract || null,
     risk: item.risk || "Medio",
+  };
+}
+
+function mapFiscalFromDb(fiscal) {
+  return normalizeFiscal({
+    id: fiscal.id,
+    nome: fiscal.nome,
+    email: fiscal.email,
+    matricula: fiscal.matricula,
+    telefone: fiscal.telefone,
+    setor: fiscal.setor,
+    status: fiscal.status,
+    usuarioEmail: fiscal.usuario_email,
+    usuarioId: fiscal.usuario_id,
+    dataFim: fiscal.data_fim,
+    motivoInativacao: fiscal.motivo_inativacao,
+    substitutoId: fiscal.substituto_id,
+    createdAt: fiscal.created_at,
+    updatedAt: fiscal.updated_at,
+  });
+}
+
+function mapFiscalToDb(fiscal) {
+  const item = normalizeFiscal(fiscal);
+  return {
+    id: item.id,
+    nome: item.nome,
+    email: item.email || null,
+    matricula: item.matricula || null,
+    telefone: item.telefone || null,
+    setor: item.setor || null,
+    status: item.status,
+    usuario_email: item.usuarioEmail || null,
+    usuario_id: item.usuarioId || null,
+    data_fim: item.dataFim || null,
+    motivo_inativacao: item.motivoInativacao || null,
+    substituto_id: item.substitutoId || null,
+    created_at: item.createdAt || null,
+    updated_at: item.updatedAt || null,
   };
 }
 
@@ -5152,8 +5547,24 @@ function option(value) {
   return { value, label: value };
 }
 
+function fiscalStatusLabel(status) {
+  return {
+    sem_acesso: "Sem acesso",
+    com_acesso: "Com acesso",
+    inativo: "Inativo",
+  }[status] || "Sem acesso";
+}
+
 function companyName(id) {
   return state.companies.find((company) => company.id === id)?.name || "Nao informado";
+}
+
+function fiscalNames(ids = []) {
+  const names = ids
+    .map((id) => state.fiscais.find((fiscal) => fiscal.id === id))
+    .filter(Boolean)
+    .map((fiscal) => normalizeFiscal(fiscal).nome);
+  return names.length ? names.join(", ") : "Nenhum";
 }
 
 function employeeName(id) {

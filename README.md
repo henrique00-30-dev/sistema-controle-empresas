@@ -18,3 +18,7 @@ O `app.js` valida se a URL bate com `projectRef`. Se alguem trocar a URL para ou
 O login usa Supabase Auth. Apos autenticar, o perfil e buscado no mesmo projeto Supabase somente em `public.usuarios`.
 
 Crie usuarios no Supabase Auth e mantenha o mesmo e-mail no cadastro de perfil.
+
+## Base de fiscais
+
+Execute `supabase-fiscais.sql` no SQL Editor do Supabase para criar a tabela `public.fiscais` e os vinculos opcionais com `public.companies`.
