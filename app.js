@@ -456,7 +456,7 @@ function wrapUserPersistenceError(error, context) {
 
 function logUserPersistenceError(payload, error) {
   const originalError = error?.originalError || error;
-  console.error("[Usuarios Supabase] Falha ao salvar em public.usuarios", {
+  console.error("[Usuarios Supabase] Erro public.usuarios", {
     payload,
     payload_enviado: payload,
     payload_enviado_public_usuarios: payload,
@@ -464,6 +464,30 @@ function logUserPersistenceError(payload, error) {
     message: originalError?.message || error?.message || null,
     details: originalError?.details || null,
     hint: originalError?.hint || error?.context?.hint || null,
+    error: originalError,
+  });
+}
+
+function logAuthUserError(payload, error, level = "error") {
+  const originalError = error?.originalError || error;
+  console[level]("[Usuarios Supabase] Erro Auth", {
+    payload_enviado_auth: payload,
+    code: originalError?.code || originalError?.status || originalError?.statusCode || null,
+    message: originalError?.message || null,
+    details: originalError?.details || null,
+    hint: originalError?.hint || null,
+    error: originalError,
+  });
+}
+
+function logHistoryPersistenceError(payload, error) {
+  const originalError = error?.originalError || error;
+  console.error("[Historico Supabase] Erro historico", {
+    payload_enviado_historico: payload,
+    code: originalError?.code || originalError?.status || originalError?.statusCode || null,
+    message: originalError?.message || null,
+    details: originalError?.details || null,
+    hint: originalError?.hint || null,
     error: originalError,
   });
 }
@@ -596,25 +620,106 @@ async function syncCollection(collection, item) {
 
 async function syncUserRecord(user) {
   const isNewUser = !user.id || user.isNew === true;
+  const authResult = isNewUser ? await createAuthUserForUsuario(user) : { ok: true, skipped: true };
   const payload = mapUserToDb(user, { includeId: false });
   const context = {
     table: "public.usuarios",
-    operation: isNewUser ? "insert" : "update",
+    operation: isNewUser ? "insert/update por email" : "update",
     payload,
   };
   try {
     validateUserPayload(payload);
     await ensureOnlineSession(context.table);
-    const query = isNewUser
-      ? supabaseClient.from("usuarios").insert(payload)
-      : supabaseClient.from("usuarios").update(payload).eq("id", user.id);
+    const existing = await findUsuarioByEmail(payload.email);
+    const query = existing?.id
+      ? supabaseClient.from("usuarios").update(payload).eq("id", existing.id)
+      : supabaseClient.from("usuarios").insert(payload);
     const { error } = await query;
     if (error) throw error;
-    return mapUserFromDb({ ...payload, id: user.id || crypto.randomUUID() });
+    const saved = mapUserFromDb({ ...payload, id: existing?.id || user.id || crypto.randomUUID() });
+    await recordUserCreationHistory(saved, authResult, Boolean(existing?.id));
+    return saved;
   } catch (error) {
     logUserPersistenceError(payload, error);
     throw wrapUserPersistenceError(error, context);
   }
+}
+
+async function createAuthUserForUsuario(user) {
+  if (!isOnlineMode()) return { ok: true, skipped: true };
+  const authPayload = {
+    email: optionalText(user.email),
+    password: optionalText(user.password),
+    options: {
+      data: {
+        nome: optionalText(user.name),
+        perfil: normalizePerfilUsuario(user.role || user.perfil).toLowerCase(),
+      },
+    },
+  };
+  if (!authPayload.email || !authPayload.password) return { ok: true, skipped: true, reason: "sem email ou senha" };
+  const previousSession = await supabaseClient.auth.getSession().catch(() => null);
+  const { data, error } = await supabaseClient.auth.signUp(authPayload);
+  const previous = previousSession?.data?.session;
+  const signedUserId = data?.user?.id || null;
+  if (previous?.access_token) {
+    const currentSession = await supabaseClient.auth.getSession().catch(() => null);
+    if (currentSession?.data?.session?.user?.id !== previous.user?.id) {
+      await supabaseClient.auth.setSession({
+        access_token: previous.access_token,
+        refresh_token: previous.refresh_token,
+      }).catch((restoreError) => console.warn("[Usuarios Supabase] Nao foi possivel restaurar sessao anterior apos Auth signUp.", restoreError));
+    }
+  }
+  if (error) {
+    if (isAuthDuplicateError(error)) {
+      logAuthUserError(authPayload, error, "warn");
+      return { ok: true, duplicate: true, error };
+    }
+    logAuthUserError(authPayload, error);
+    throw new PersistenceError(`Erro Auth: ${friendlyAuthError(error)}`, { table: "supabase.auth", operation: "signUp", payload: { email: authPayload.email, perfil: authPayload.options.data.perfil } }, error);
+  }
+  if (data?.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+    const duplicateInfo = new Error("E-mail ja cadastrado no Supabase Auth.");
+    logAuthUserError(authPayload, duplicateInfo, "warn");
+    return { ok: true, duplicate: true, userId: signedUserId };
+  }
+  return { ok: true, userId: signedUserId };
+}
+
+async function findUsuarioByEmail(email) {
+  if (!email) return null;
+  const { data, error } = await supabaseClient.from("usuarios").select("*").eq("email", email).maybeSingle();
+  if (error) {
+    logUserPersistenceError({ email }, error);
+    throw wrapUserPersistenceError(error, { table: "public.usuarios", operation: "select por email", payload: { email } });
+  }
+  return data || null;
+}
+
+async function recordUserCreationHistory(user, authResult, updatedExisting) {
+  const history = createHistoryEvent({
+    entityType: "usuario",
+    entityId: user.id,
+    action: updatedExisting ? "Usuario atualizado" : "Usuario criado",
+    previousStatus: "",
+    nextStatus: user.active ? "Ativo" : "Inativo",
+    observation: authResult?.duplicate
+      ? `Usuario ${user.email} salvo em public.usuarios. O e-mail ja existia no Supabase Auth.`
+      : `Usuario ${user.email} salvo em public.usuarios.`,
+  });
+  state.historico = upsertById(state.historico, history);
+  await syncHistoryEvent(history);
+}
+
+function isAuthDuplicateError(error) {
+  const text = `${error?.message || ""} ${error?.code || ""}`.toLowerCase();
+  return /already registered|already exists|user already|email.*exist|email_exists|duplicate/.test(text);
+}
+
+function friendlyAuthError(error) {
+  if (isAuthDuplicateError(error)) return "e-mail ja existe no Supabase Auth.";
+  return error?.message || "falha ao criar usuario no Supabase Auth.";
 }
 
 async function syncHistoryEvent(event) {
@@ -636,6 +741,7 @@ async function syncHistoryEvent(event) {
     const { error } = await supabaseClient.from("historico").insert(payload);
     if (error) throw error;
   } catch (error) {
+    logHistoryPersistenceError(payload, error);
     console.warn("Nao foi possivel registrar em public.historico. A mudanca foi mantida localmente.", { payload, error });
   }
 }
@@ -4119,8 +4225,8 @@ function userForm(id) {
     ],
     async save(form) {
       const email = String(form.get("email") || "").trim().toLowerCase();
-      const duplicate = state.users.some((user) => user.id !== id && String(user.email || "").trim().toLowerCase() === email);
-      if (duplicate) {
+      const localExisting = state.users.find((user) => user.id !== id && String(user.email || "").trim().toLowerCase() === email);
+      if (localExisting && id) {
         alert("E-mail ja cadastrado. Edite o usuario existente ou informe outro e-mail.");
         return;
       }
@@ -4140,6 +4246,7 @@ function userForm(id) {
       if (isOnlineMode()) {
         try {
           const saved = await syncUserRecord(payload);
+          state.users = state.users.filter((user) => user.id === id || String(user.email || "").trim().toLowerCase() !== saved.email);
           upsert("users", saved.id, { ...payload, ...saved, isNew: false });
           alert(id ? "Usuario atualizado com sucesso." : "Usuario criado com sucesso.");
         } catch (error) {
