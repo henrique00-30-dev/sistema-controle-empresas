@@ -651,9 +651,6 @@ async function fetchProfileFromTable(table, email, userId) {
   console.info(`[Login Supabase] Consultando public.${table}`, { supabase: supabaseDiagnostics, email, id: userId || null });
   let result = await supabaseClient.from(table).select("*").eq("email", email).maybeSingle();
   console.info(`[Login Supabase] Resultado public.${table} por email`, { data: result.data, error: result.error });
-  if (result.data || result.error || !userId) return result;
-  result = await supabaseClient.from(table).select("*").eq("id", userId).maybeSingle();
-  console.info(`[Login Supabase] Resultado public.${table} por id`, { data: result.data, error: result.error });
   return result;
 }
 
@@ -769,8 +766,7 @@ async function syncCollection(collection, item) {
 async function syncUserRecord(user) {
   const isNewUser = !user.id || user.isNew === true;
   const authResult = isNewUser ? await createAuthUserForUsuario(user) : { ok: true, skipped: true };
-  const authUserId = authResult?.userId || null;
-  const payload = mapUserToDb({ ...user, id: user.id || authUserId }, { includeId: Boolean(isNewUser && authUserId) });
+  const payload = mapUserToDb(user, { includeId: Boolean(!isNewUser && user.id) });
   const context = {
     table: "public.usuarios",
     operation: isNewUser ? "insert/update por email" : "update",
@@ -783,10 +779,10 @@ async function syncUserRecord(user) {
     const dbPayload = existing?.id ? withoutKeys(payload, ["id"]) : payload;
     const runMutation = () =>
       existing?.id
-        ? supabaseClient.from("usuarios").update(dbPayload).eq("id", existing.id)
-        : supabaseClient.from("usuarios").insert(dbPayload);
-    let { error } = await runMutation();
-    if (error && isRlsError(error) && authResult?.session?.access_token && payload.id === authResult.userId) {
+        ? supabaseClient.from("usuarios").update(dbPayload).eq("id", existing.id).select("*").maybeSingle()
+        : supabaseClient.from("usuarios").insert(dbPayload).select("*").maybeSingle();
+    let { data, error } = await runMutation();
+    if (error && isRlsError(error) && authResult?.session?.access_token) {
       console.warn("[Usuarios Supabase] RLS ao salvar com a sessao atual. Tentando novamente com a sessao do usuario Auth criado.", {
         payload_enviado_public_usuarios: dbPayload,
         code: error.code || null,
@@ -799,11 +795,20 @@ async function syncUserRecord(user) {
         refresh_token: authResult.session.refresh_token,
       });
       const retry = await runMutation();
+      data = retry.data;
       error = retry.error;
       await restoreSupabaseSession(authResult.previousSession);
     }
     if (error) throw error;
-    const saved = mapUserFromDb({ ...payload, id: existing?.id || payload.id || user.id || crypto.randomUUID() });
+    const savedRow = data || existing || (await findUsuarioByEmail(payload.email));
+    if (authResult?.userId && savedRow?.email) {
+      const { error: authLinkError } = await supabaseClient
+        .from("usuarios")
+        .update({ auth_user_id: authResult.userId })
+        .eq("email", savedRow.email);
+      if (authLinkError) console.warn("[Usuarios Supabase] auth_user_id nao foi vinculado; seguindo por email/public.usuarios.id.", authLinkError);
+    }
+    const saved = mapUserFromDb(savedRow || { ...payload, id: user.id || crypto.randomUUID() });
     await recordUserCreationHistory(saved, authResult, Boolean(existing?.id));
     return saved;
   } catch (error) {
