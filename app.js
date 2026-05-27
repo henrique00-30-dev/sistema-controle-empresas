@@ -502,6 +502,33 @@ function logAuthUserError(payload, error, level = "error") {
   });
 }
 
+function logDbPayload(table, payload) {
+  const rows = Array.isArray(payload) ? payload : [payload];
+  console.log("[DB PAYLOAD]", {
+    tabela: table,
+    payload,
+    colunas: rows[0]
+      ? Object.fromEntries(Object.entries(rows[0]).map(([column, value]) => [column, { tipo: describeValueType(value), valor: value }]))
+      : {},
+  });
+}
+
+function describeValueType(value) {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return `array(${value.map(describeValueType).join(",")})`;
+  if (isUuid(value)) return "uuid";
+  if (isNumericDbId(value)) return "bigint";
+  return typeof value;
+}
+
+function isNumericDbId(value) {
+  return typeof value === "number" || (typeof value === "string" && /^\d+$/.test(value));
+}
+
+function isUuid(value) {
+  return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
 function buildSupabaseDiagnostics(config = {}) {
   const url = String(config.url || "").trim();
   const anonKey = String(config.anonKey || "").trim();
@@ -728,6 +755,9 @@ async function syncCollection(collection, item) {
     await syncUserRecord(item);
     return;
   }
+  if (collection === "fiscais") {
+    return syncFiscalRecord(item);
+  }
   const table = {
     companies: "companies",
     employees: "employees",
@@ -750,14 +780,10 @@ async function syncCollection(collection, item) {
   };
   try {
     await ensureOnlineSession(context.table);
+    logDbPayload(context.table, payload);
     let { error } = await supabaseClient.from(table).upsert(payload);
-    if (error && collection === "companies" && /fiscal_id|fiscais_adicionais|schema cache|column/i.test(String(error.message || ""))) {
-      console.warn("Colunas de fiscais em public.companies ainda nao estao disponiveis. Salvando empresa sem vinculo fiscal estruturado.", { payload, error });
-      const legacyPayload = withoutKeys(payload, ["fiscal_id", "fiscais_adicionais"]);
-      const retry = await supabaseClient.from(table).upsert(legacyPayload);
-      error = retry.error;
-    }
     if (error) throw error;
+    if (collection === "companies") await syncEmpresaFiscais(item);
   } catch (error) {
     throw wrapPersistenceError(error, context);
   }
@@ -1042,6 +1068,76 @@ function clearRecoveryUrl() {
   }
 }
 
+async function syncFiscalRecord(fiscal) {
+  if (!isOnlineMode()) return fiscal;
+  const payload = mapFiscalToDb(fiscal);
+  const context = {
+    table: "public.fiscais",
+    operation: isNumericDbId(fiscal.id) ? "update" : "insert",
+    payload,
+  };
+  try {
+    await ensureOnlineSession(context.table);
+    logDbPayload(context.table, payload);
+    const mutation = isNumericDbId(fiscal.id)
+      ? supabaseClient.from("fiscais").update(withoutKeys(payload, ["id"])).eq("id", Number(fiscal.id)).select("*").maybeSingle()
+      : supabaseClient.from("fiscais").insert(withoutKeys(payload, ["id"])).select("*").maybeSingle();
+    const { data, error } = await mutation;
+    if (error) throw error;
+    const saved = mapFiscalFromDb(data || payload);
+    replaceFiscalId(fiscal.id, saved.id);
+    state.fiscais = upsertById(state.fiscais, saved);
+    return saved;
+  } catch (error) {
+    console.error("[Fiscais Supabase] Erro ao sincronizar fiscal", { payload, error });
+    throw wrapPersistenceError(error, context);
+  }
+}
+
+async function syncEmpresaFiscais(company) {
+  const empresaId = company.id;
+  const fiscalIds = Array.from(new Set([company.fiscalId, ...(company.fiscaisAdicionais || [])].filter(Boolean)));
+  const payloadInfo = { empresa_id: empresaId, fiscal_ids: fiscalIds };
+  logDbPayload("public.empresa_fiscais", payloadInfo);
+  if (!isNumericDbId(empresaId) || fiscalIds.some((id) => !isNumericDbId(id))) {
+    console.warn("[empresa_fiscais] Vinculo nao enviado: empresa_id e fiscal_id precisam ser bigint operacionais.", {
+      payload: payloadInfo,
+      tipos: {
+        empresa_id: describeValueType(empresaId),
+        fiscal_ids: fiscalIds.map(describeValueType),
+      },
+    });
+    return;
+  }
+  const now = new Date().toISOString();
+  const { error: closeError } = await supabaseClient
+    .from("empresa_fiscais")
+    .update({ ativo: false, data_fim: now })
+    .eq("empresa_id", Number(empresaId))
+    .eq("ativo", true);
+  if (closeError) throw closeError;
+  if (!fiscalIds.length) return;
+  const rows = fiscalIds.map((fiscalId) => ({
+    empresa_id: Number(empresaId),
+    fiscal_id: Number(fiscalId),
+    ativo: true,
+    data_inicio: now,
+    data_fim: null,
+  }));
+  logDbPayload("public.empresa_fiscais", rows);
+  const { error } = await supabaseClient.from("empresa_fiscais").insert(rows);
+  if (error) throw error;
+}
+
+function replaceFiscalId(previousId, nextId) {
+  if (!previousId || !nextId || String(previousId) === String(nextId)) return;
+  state.companies = state.companies.map((company) => ({
+    ...company,
+    fiscalId: String(company.fiscalId) === String(previousId) ? nextId : company.fiscalId,
+    fiscaisAdicionais: (company.fiscaisAdicionais || []).map((id) => (String(id) === String(previousId) ? nextId : id)),
+  }));
+}
+
 async function createAccessForFiscal(fiscal) {
   if (!isOnlineMode()) {
     alert("Acesso ao sistema exige Supabase Auth online configurado.");
@@ -1071,7 +1167,8 @@ async function createAccessForFiscal(fiscal) {
     ...item,
     status: "com_acesso",
     usuarioEmail: savedUser.email,
-    usuarioId: savedUser.id,
+    usuarioId: isNumericDbId(savedUser.id) ? savedUser.id : item.usuarioId,
+    authUserId: savedUser.authUserId || item.authUserId || null,
     updatedAt: new Date().toISOString(),
   });
   state.fiscais = upsertById(state.fiscais, updated);
@@ -4718,7 +4815,13 @@ function saveCompanyFromForm(form) {
   });
   if (quickFiscal) {
     recordFiscalHistory(quickFiscal, "Fiscal criado", "", quickFiscal.status, `Fiscal ${quickFiscal.nome} criado no cadastro rapido da empresa ${saved.name}.`);
-    syncCollection("fiscais", quickFiscal).catch((error) => console.warn("Nao foi possivel salvar fiscal online.", error));
+    syncFiscalRecord(quickFiscal)
+      .then((onlineFiscal) => {
+        saved.fiscalId = onlineFiscal.id;
+        saved.fiscal = onlineFiscal.nome;
+        syncEmpresaFiscais(saved).catch((error) => console.warn("Nao foi possivel salvar vinculo empresa_fiscais.", error));
+      })
+      .catch((error) => console.warn("Nao foi possivel salvar fiscal online.", error));
   }
   if ((previous?.fiscalId || previous?.fiscal || "") !== (saved.fiscalId || saved.fiscal || "")) {
     const history = createHistoryEvent({
@@ -4760,7 +4863,7 @@ function createQuickFiscalFromCompanyForm(form) {
   return fiscal;
 }
 
-function saveFiscalFromForm(form) {
+async function saveFiscalFromForm(form) {
   const fiscal = normalizeFiscal({
     id: crypto.randomUUID(),
     nome: form.get("nome"),
@@ -4778,7 +4881,12 @@ function saveFiscalFromForm(form) {
   }
   state.fiscais = upsertById(state.fiscais || [], fiscal);
   recordFiscalHistory(fiscal, "Fiscal criado", "", fiscal.status, `Fiscal ${fiscal.nome} cadastrado na base de fiscais.`);
-  syncCollection("fiscais", fiscal).catch((error) => alert(`Nao foi possivel salvar fiscal online: ${error.message}`));
+  try {
+    const saved = await syncFiscalRecord(fiscal);
+    state.fiscais = upsertById(state.fiscais || [], saved);
+  } catch (error) {
+    alert(`Nao foi possivel salvar fiscal online: ${error.message}`);
+  }
   saveState();
   renderApp();
 }
@@ -5140,8 +5248,10 @@ function normalizeFiscal(fiscal = {}) {
     telefone: String(fiscal.telefone || fiscal.phone || "").trim(),
     setor: String(fiscal.setor || fiscal.sector || "Fiscalizacao").trim(),
     status: fiscalStatuses.includes(fiscal.status) ? fiscal.status : "sem_acesso",
+    ativo: fiscal.ativo ?? fiscal.active ?? fiscal.status !== "inativo",
     usuarioEmail: fiscal.usuarioEmail || fiscal.usuario_email || null,
     usuarioId: fiscal.usuarioId || fiscal.usuario_id || null,
+    authUserId: fiscal.authUserId || fiscal.auth_user_id || null,
     dataFim: fiscal.dataFim || fiscal.data_fim || null,
     motivoInativacao: fiscal.motivoInativacao || fiscal.motivo_inativacao || "",
     substitutoId: fiscal.substitutoId || fiscal.substituto_id || null,
@@ -5232,6 +5342,7 @@ function mapUserFromDb(profile) {
     role: DB_PROFILE_TO_APP_ROLE[dbPerfil] || DB_PROFILE_TO_APP_ROLE[roleKey] || "visitor",
     active: profile.ativo ?? profile.active ?? true,
     companyId: profile.empresa_id || profile.company_id || null,
+    authUserId: profile.auth_user_id || profile.authUserId || null,
     setor: profile.setor || null,
     matricula: profile.matricula || null,
     createdAt: profile.created_at || profile.createdAt || null,
@@ -5261,7 +5372,8 @@ function mapUserToDb(user, { includeId = true } = {}) {
     matricula: optionalText(user.matricula),
     ativo: Boolean(user.active !== false),
   };
-  if (includeId && user.id) payload.id = user.id;
+  if (user.authUserId || user.auth_user_id) payload.auth_user_id = user.authUserId || user.auth_user_id;
+  if (includeId && isNumericDbId(user.id)) payload.id = Number(user.id);
   return payload;
 }
 
@@ -5361,13 +5473,10 @@ function mapCompanyFromDb(company) {
 
 function mapCompanyToDb(company) {
   const item = normalizeCompany(company);
-  return {
-    id: item.id,
+  const payload = {
     name: item.name,
     cnpj: item.cnpj,
     fiscal: item.fiscal,
-    fiscal_id: item.fiscalId || null,
-    fiscais_adicionais: item.fiscaisAdicionais || [],
     responsible: item.responsible,
     phone: item.phone,
     email: item.email,
@@ -5377,6 +5486,8 @@ function mapCompanyToDb(company) {
     contract_number: item.contract || null,
     risk: item.risk || "Medio",
   };
+  if (isNumericDbId(item.id)) payload.id = Number(item.id);
+  return payload;
 }
 
 function mapFiscalFromDb(fiscal) {
@@ -5388,8 +5499,10 @@ function mapFiscalFromDb(fiscal) {
     telefone: fiscal.telefone,
     setor: fiscal.setor,
     status: fiscal.status,
+    ativo: fiscal.ativo,
     usuarioEmail: fiscal.usuario_email,
     usuarioId: fiscal.usuario_id,
+    authUserId: fiscal.auth_user_id,
     dataFim: fiscal.data_fim,
     motivoInativacao: fiscal.motivo_inativacao,
     substitutoId: fiscal.substituto_id,
@@ -5400,22 +5513,23 @@ function mapFiscalFromDb(fiscal) {
 
 function mapFiscalToDb(fiscal) {
   const item = normalizeFiscal(fiscal);
-  return {
-    id: item.id,
+  const payload = {
     nome: item.nome,
-    email: item.email || null,
-    matricula: item.matricula || null,
-    telefone: item.telefone || null,
     setor: item.setor || null,
-    status: item.status,
-    usuario_email: item.usuarioEmail || null,
-    usuario_id: item.usuarioId || null,
-    data_fim: item.dataFim || null,
-    motivo_inativacao: item.motivoInativacao || null,
-    substituto_id: item.substitutoId || null,
-    created_at: item.createdAt || null,
-    updated_at: item.updatedAt || null,
+    matricula: item.matricula || null,
+    ativo: Boolean(item.status !== "inativo" && item.ativo !== false),
   };
+  if (isNumericDbId(item.id)) payload.id = Number(item.id);
+  if (item.usuarioEmail) payload.usuario_email = item.usuarioEmail;
+  if (isNumericDbId(item.usuarioId)) payload.usuario_id = Number(item.usuarioId);
+  if (isUuid(item.authUserId)) payload.auth_user_id = item.authUserId;
+  if ("email" in item) payload.email = item.email || null;
+  if ("telefone" in item) payload.telefone = item.telefone || null;
+  if ("status" in item) payload.status = item.status;
+  if (item.dataFim) payload.data_fim = item.dataFim;
+  if (item.motivoInativacao) payload.motivo_inativacao = item.motivoInativacao;
+  if (isNumericDbId(item.substitutoId)) payload.substituto_id = Number(item.substitutoId);
+  return payload;
 }
 
 function mapEmployeeFromDb(employee) {
