@@ -539,21 +539,50 @@ async function boot() {
 }
 
 async function hydrateSupabaseSession(authUser) {
-  const profile = await fetchProfile(authUser.id);
+  const profile = await fetchProfile(authUser);
   state.session = profile.id;
   state.users = upsertById(state.users, profile);
-  await loadRemoteData();
-  await persistAutomaticStatusChanges(applyAutomaticStatusRules({ source: "Login e carga Supabase" }));
+  try {
+    await loadRemoteData();
+    state.users = upsertById(state.users, profile);
+    await persistAutomaticStatusChanges(applyAutomaticStatusRules({ source: "Login e carga Supabase" }));
+  } catch (error) {
+    console.warn("[Login Supabase] Login autenticado, mas a carga de dados operacionais falhou.", error);
+  }
   saveState();
+  return profile;
 }
 
-async function fetchProfile(userId) {
-  const usuario = await supabaseClient.from("usuarios").select("*").eq("id", userId).single();
-  if (!usuario.error) return mapUserFromDb(usuario.data);
-  console.warn("Perfil em usuarios indisponivel; usando profiles como fallback.", usuario.error);
-  const { data, error } = await supabaseClient.from("profiles").select("*").eq("id", userId).single();
-  if (error) throw error;
-  return mapUserFromDb(data);
+async function fetchProfile(authUser) {
+  const email = String(authUser?.email || "").trim().toLowerCase();
+  console.info("[Login Supabase] Buscando perfil em public.usuarios", {
+    auth_user_id: authUser?.id || null,
+    email,
+  });
+  const usuario = await supabaseClient.from("usuarios").select("*").eq("email", email).maybeSingle();
+  console.info("[Login Supabase] Resultado public.usuarios", {
+    data: usuario.data,
+    error: usuario.error,
+  });
+  if (usuario.error) throw wrapUserPersistenceError(usuario.error, { table: "public.usuarios", operation: "select perfil por email", payload: { email } });
+  if (!usuario.data) {
+    throw new PersistenceError("Usuario autenticado, mas sem perfil cadastrado.", {
+      table: "public.usuarios",
+      operation: "select perfil por email",
+      payload: { email },
+      hint: "Crie um registro em public.usuarios com o mesmo email do Supabase Auth.",
+    });
+  }
+  const profile = mapUserFromDb(usuario.data);
+  if (profile.active === false) {
+    throw new PersistenceError("Usuario autenticado, mas esta inativo no cadastro de perfis.", {
+      table: "public.usuarios",
+      operation: "validacao perfil ativo",
+      payload: { email },
+      hint: "Altere ativo para true em public.usuarios.",
+    });
+  }
+  return profile;
 }
 
 async function loadRemoteData() {
@@ -892,10 +921,10 @@ function renderLogin() {
         </div>
         <form class="login-form" id="loginForm">
           <label>E-mail
-            <input name="email" type="email" autocomplete="username" value="admin@sistema.com" required />
+            <input name="email" type="email" autocomplete="username" required />
           </label>
           <label>Senha
-            <input name="password" type="password" autocomplete="current-password" value="admin123" required />
+            <input name="password" type="password" autocomplete="current-password" required />
           </label>
           <button class="btn primary" type="submit">${icon("logout")} Entrar</button>
         </form>
@@ -938,17 +967,40 @@ function renderLogin() {
     submit.disabled = true;
 
     if (isOnlineMode()) {
+      const email = String(form.get("email") || "").trim().toLowerCase();
+      const password = String(form.get("password") || "");
       try {
+        console.info("[Login Supabase] Tentando login", { email });
         const { data, error } = await supabaseClient.auth.signInWithPassword({
-          email: String(form.get("email")),
-          password: String(form.get("password")),
+          email,
+          password,
         });
-        if (error) throw error;
-        await hydrateSupabaseSession(data.user);
+        console.info("[Login Supabase] Resposta Auth", {
+          user: data?.user || null,
+          error,
+        });
+        if (error) {
+          console.error("[Login Supabase] Erro Auth", {
+            email,
+            code: error.code || error.status || error.statusCode || null,
+            message: error.message || null,
+            details: error.details || null,
+            hint: error.hint || null,
+            error,
+          });
+          throw new PersistenceError(`Erro Auth: ${error.message || "falha ao autenticar."}`, { table: "supabase.auth", operation: "signInWithPassword", payload: { email } }, error);
+        }
+        const profile = await hydrateSupabaseSession(data.user);
+        console.info("[Login Supabase] Login concluido", {
+          email: profile.email,
+          perfil: profile.role,
+          nome: profile.name,
+        });
         currentView = "dashboard";
         render();
       } catch (error) {
-        alert(`Nao foi possivel entrar: ${error.message}`);
+        console.error("[Login Supabase] Falha no fluxo de login", error);
+        alert(`Nao foi possivel entrar: ${persistenceMessage(error)}`);
       } finally {
         submit.disabled = false;
       }
