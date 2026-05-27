@@ -398,8 +398,15 @@ class PersistenceError extends Error {
 }
 
 function persistenceMessage(error) {
-  if (error instanceof PersistenceError) return error.message;
-  return error?.message || "Erro desconhecido de persistencia.";
+  const original = error?.originalError || error;
+  const details = [
+    original?.code ? `code: ${original.code}` : "",
+    original?.message ? `message: ${original.message}` : "",
+    original?.details ? `details: ${original.details}` : "",
+    original?.hint ? `hint: ${original.hint}` : "",
+  ].filter(Boolean);
+  const base = error instanceof PersistenceError ? error.message : error?.message || "Erro desconhecido de persistencia.";
+  return details.length ? `${base}\n\nDetalhes Supabase:\n${details.join("\n")}` : base;
 }
 
 function logPersistenceError(error, fallbackContext = {}) {
@@ -442,6 +449,7 @@ function wrapUserPersistenceError(error, context) {
   const isEnum = code === "22P02" || /perfil_usuario|invalid input value for enum|enum/i.test(rawMessage);
   const isFk = code === "23503" || /foreign key/i.test(rawMessage);
   const isRequired = code === "23502" || /null value|not-null/i.test(rawMessage);
+  const isRls = code === "42501" || /row-level security|violates row-level security|rls/i.test(rawMessage);
   const hint = isDuplicate
     ? "E-mail ja cadastrado. Use outro e-mail ou edite o usuario existente."
     : isEnum
@@ -450,7 +458,9 @@ function wrapUserPersistenceError(error, context) {
         ? "ID do usuario nao existe em auth.users ou empresa_id nao existe. Crie primeiro o usuario no Auth do Supabase e depois vincule o perfil."
         : isRequired
           ? "Campo obrigatorio ausente em public.usuarios. Confira nome, email, perfil e ativo."
-          : "Falha retornada pelo Supabase ao salvar usuario. Veja o console.error detalhado.";
+          : isRls
+            ? "Permissao negada por RLS em public.usuarios. O cadastro tentara usar o id do Auth criado para respeitar auth.uid()."
+            : `Supabase retornou: ${rawMessage || "erro sem mensagem"}${code ? ` (code ${code})` : ""}.`;
   return new PersistenceError(`Falha em public.usuarios: ${hint}`, { ...context, hint }, error);
 }
 
@@ -621,7 +631,8 @@ async function syncCollection(collection, item) {
 async function syncUserRecord(user) {
   const isNewUser = !user.id || user.isNew === true;
   const authResult = isNewUser ? await createAuthUserForUsuario(user) : { ok: true, skipped: true };
-  const payload = mapUserToDb(user, { includeId: false });
+  const authUserId = authResult?.userId || null;
+  const payload = mapUserToDb({ ...user, id: user.id || authUserId }, { includeId: Boolean(isNewUser && authUserId) });
   const context = {
     table: "public.usuarios",
     operation: isNewUser ? "insert/update por email" : "update",
@@ -631,12 +642,30 @@ async function syncUserRecord(user) {
     validateUserPayload(payload);
     await ensureOnlineSession(context.table);
     const existing = await findUsuarioByEmail(payload.email);
-    const query = existing?.id
-      ? supabaseClient.from("usuarios").update(payload).eq("id", existing.id)
-      : supabaseClient.from("usuarios").insert(payload);
-    const { error } = await query;
+    const dbPayload = existing?.id ? withoutKeys(payload, ["id"]) : payload;
+    const runMutation = () =>
+      existing?.id
+        ? supabaseClient.from("usuarios").update(dbPayload).eq("id", existing.id)
+        : supabaseClient.from("usuarios").insert(dbPayload);
+    let { error } = await runMutation();
+    if (error && isRlsError(error) && authResult?.session?.access_token && payload.id === authResult.userId) {
+      console.warn("[Usuarios Supabase] RLS ao salvar com a sessao atual. Tentando novamente com a sessao do usuario Auth criado.", {
+        payload_enviado_public_usuarios: dbPayload,
+        code: error.code || null,
+        message: error.message || null,
+        details: error.details || null,
+        hint: error.hint || null,
+      });
+      await supabaseClient.auth.setSession({
+        access_token: authResult.session.access_token,
+        refresh_token: authResult.session.refresh_token,
+      });
+      const retry = await runMutation();
+      error = retry.error;
+      await restoreSupabaseSession(authResult.previousSession);
+    }
     if (error) throw error;
-    const saved = mapUserFromDb({ ...payload, id: existing?.id || user.id || crypto.randomUUID() });
+    const saved = mapUserFromDb({ ...payload, id: existing?.id || payload.id || user.id || crypto.randomUUID() });
     await recordUserCreationHistory(saved, authResult, Boolean(existing?.id));
     return saved;
   } catch (error) {
@@ -659,22 +688,14 @@ async function createAuthUserForUsuario(user) {
   };
   if (!authPayload.email || !authPayload.password) return { ok: true, skipped: true, reason: "sem email ou senha" };
   const previousSession = await supabaseClient.auth.getSession().catch(() => null);
-  const { data, error } = await supabaseClient.auth.signUp(authPayload);
   const previous = previousSession?.data?.session;
+  const { data, error } = await supabaseClient.auth.signUp(authPayload);
   const signedUserId = data?.user?.id || null;
-  if (previous?.access_token) {
-    const currentSession = await supabaseClient.auth.getSession().catch(() => null);
-    if (currentSession?.data?.session?.user?.id !== previous.user?.id) {
-      await supabaseClient.auth.setSession({
-        access_token: previous.access_token,
-        refresh_token: previous.refresh_token,
-      }).catch((restoreError) => console.warn("[Usuarios Supabase] Nao foi possivel restaurar sessao anterior apos Auth signUp.", restoreError));
-    }
-  }
+  await restoreSupabaseSession(previous);
   if (error) {
     if (isAuthDuplicateError(error)) {
       logAuthUserError(authPayload, error, "warn");
-      return { ok: true, duplicate: true, error };
+      return { ok: true, duplicate: true, error, previousSession: previous };
     }
     logAuthUserError(authPayload, error);
     throw new PersistenceError(`Erro Auth: ${friendlyAuthError(error)}`, { table: "supabase.auth", operation: "signUp", payload: { email: authPayload.email, perfil: authPayload.options.data.perfil } }, error);
@@ -682,9 +703,19 @@ async function createAuthUserForUsuario(user) {
   if (data?.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
     const duplicateInfo = new Error("E-mail ja cadastrado no Supabase Auth.");
     logAuthUserError(authPayload, duplicateInfo, "warn");
-    return { ok: true, duplicate: true, userId: signedUserId };
+    return { ok: true, duplicate: true, userId: signedUserId, session: data?.session || null, previousSession: previous };
   }
-  return { ok: true, userId: signedUserId };
+  return { ok: true, userId: signedUserId, session: data?.session || null, previousSession: previous };
+}
+
+async function restoreSupabaseSession(session) {
+  if (!session?.access_token) return;
+  const currentSession = await supabaseClient.auth.getSession().catch(() => null);
+  if (currentSession?.data?.session?.user?.id === session.user?.id) return;
+  await supabaseClient.auth.setSession({
+    access_token: session.access_token,
+    refresh_token: session.refresh_token,
+  }).catch((restoreError) => console.warn("[Usuarios Supabase] Nao foi possivel restaurar sessao anterior.", restoreError));
 }
 
 async function findUsuarioByEmail(email) {
@@ -715,6 +746,11 @@ async function recordUserCreationHistory(user, authResult, updatedExisting) {
 function isAuthDuplicateError(error) {
   const text = `${error?.message || ""} ${error?.code || ""}`.toLowerCase();
   return /already registered|already exists|user already|email.*exist|email_exists|duplicate/.test(text);
+}
+
+function isRlsError(error) {
+  const text = `${error?.message || ""} ${error?.code || ""}`.toLowerCase();
+  return /42501|row-level security|violates row-level security|rls/.test(text);
 }
 
 function friendlyAuthError(error) {
@@ -789,6 +825,12 @@ function uniqueById(items) {
     seen.add(item.id);
     return true;
   });
+}
+
+function withoutKeys(object, keys = []) {
+  const copy = { ...(object || {}) };
+  keys.forEach((key) => delete copy[key]);
+  return copy;
 }
 
 function icon(name) {
