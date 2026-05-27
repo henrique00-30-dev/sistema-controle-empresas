@@ -1,6 +1,6 @@
 const STORAGE_KEY = "sctempresas.v1";
 const ONLINE_STORAGE_NOTE =
-  "Modo online preparado. Configure supabase-config.js para usar autenticacao, banco e armazenamento online.";
+  "Modo online ativo com projeto Supabase oficial fixado em supabase-config.js.";
 
 const PROFILE_LABELS = {
   admin: "Administrador",
@@ -242,8 +242,9 @@ const DOCUMENT_WORKFLOW_SECTORS = ["Fiscal", "Medicina", "EHS", "Patrimonial"];
 const app = document.querySelector("#app") || document.querySelector("#root");
 const supabaseConfig = window.SUPABASE_CONFIG || {};
 const supabaseDiagnostics = buildSupabaseDiagnostics(supabaseConfig);
+const supabaseConfigError = validateOfficialSupabaseConfig(supabaseConfig, supabaseDiagnostics);
 const supabaseClient =
-  supabaseConfig.url && supabaseConfig.anonKey && window.supabase
+  !supabaseConfigError && supabaseConfig.url && supabaseConfig.anonKey && window.supabase
     ? window.supabase.createClient(supabaseConfig.url, supabaseConfig.anonKey, {
         auth: {
           persistSession: true,
@@ -252,7 +253,8 @@ const supabaseClient =
         },
       })
     : null;
-console.info("[Supabase Config] Configuracao carregada pelo frontend", supabaseDiagnostics);
+console.info("[Supabase Config] Projeto Supabase oficial carregado pelo frontend", supabaseDiagnostics);
+if (supabaseConfigError) console.error("[Supabase Config] Configuracao bloqueada", supabaseConfigError);
 let state = loadState();
 let currentView = "dashboard";
 let searchTerm = "";
@@ -272,7 +274,7 @@ const tableState = {
 };
 let searchRenderTimer = null;
 const contractDetailState = {};
-let authMode = supabaseClient ? "supabase" : "local";
+let authMode = supabaseClient ? "supabase" : "blocked";
 let isLoading = Boolean(supabaseClient);
 let authNotice = "";
 let darkMode = localStorage.getItem("sctempresas.theme") !== "light";
@@ -502,6 +504,7 @@ function logAuthUserError(payload, error, level = "error") {
 function buildSupabaseDiagnostics(config = {}) {
   const url = String(config.url || "").trim();
   const anonKey = String(config.anonKey || "").trim();
+  const configuredProjectRef = String(config.projectRef || "").trim();
   let hostname = "";
   let projectRef = "";
   try {
@@ -514,11 +517,37 @@ function buildSupabaseDiagnostics(config = {}) {
     url: url || "nao_configurada",
     hostname,
     projectRef,
+    configuredProjectRef: configuredProjectRef || "nao_configurado",
+    locked: Boolean(config.locked),
     anonKeyPrefix: anonKey ? anonKey.slice(0, 18) : "nao_configurada",
     anonKeySuffix: anonKey ? anonKey.slice(-8) : "nao_configurada",
     anonKeyType: anonKey.startsWith("sb_publishable_") ? "publishable" : anonKey.startsWith("eyJ") ? "jwt_anon" : anonKey ? "desconhecida" : "ausente",
     createClientDisponivel: Boolean(window.supabase?.createClient),
   };
+}
+
+function validateOfficialSupabaseConfig(config = {}, diagnostics = {}) {
+  const projectRef = String(config.projectRef || "").trim();
+  const url = String(config.url || "").trim();
+  const anonKey = String(config.anonKey || "").trim();
+  const expectedUrl = projectRef ? `https://${projectRef}.supabase.co` : "";
+  const errors = [];
+  if (!config.locked) errors.push("locked precisa ser true em supabase-config.js.");
+  if (!projectRef) errors.push("projectRef oficial ausente em supabase-config.js.");
+  if (!url) errors.push("url ausente em supabase-config.js.");
+  if (!anonKey) errors.push("anonKey ausente em supabase-config.js.");
+  if (projectRef && diagnostics.projectRef && diagnostics.projectRef !== projectRef) {
+    errors.push(`URL aponta para ${diagnostics.projectRef}, mas o projeto oficial configurado e ${projectRef}.`);
+  }
+  if (expectedUrl && url !== expectedUrl) errors.push(`URL precisa ser exatamente ${expectedUrl}.`);
+  if (!window.supabase?.createClient) errors.push("Biblioteca Supabase JS nao carregou.");
+  return errors.length
+    ? {
+        message: "Configuracao Supabase oficial invalida. Login online bloqueado para evitar projeto antigo ou chave trocada.",
+        errors,
+        diagnostics,
+      }
+    : null;
 }
 
 function logHistoryPersistenceError(payload, error) {
@@ -550,7 +579,10 @@ async function ensureOnlineSession(table) {
 
 async function boot() {
   if (!supabaseClient) {
-    console.warn("[Supabase Config] Cliente Supabase nao foi criado. O sistema iniciou em modo local.", supabaseDiagnostics);
+    console.warn("[Supabase Config] Cliente Supabase nao foi criado. Login online bloqueado ate corrigir supabase-config.js.", {
+      supabase: supabaseDiagnostics,
+      erro: supabaseConfigError,
+    });
     render();
     return;
   }
@@ -1099,7 +1131,11 @@ function renderLogin() {
           <button class="btn primary" type="submit">${icon("logout")} Entrar</button>
         </form>
         <div class="login-note">
-          ${isOnlineMode() ? "Use um usuario criado no ambiente online." : "Modo demonstracao local"}<br />
+          ${
+            isOnlineMode()
+              ? `Projeto Supabase oficial: ${supabaseDiagnostics.projectRef}. Use um usuario criado neste ambiente online.`
+              : "Login online bloqueado: confira supabase-config.js e o console do navegador."
+          }<br />
           Admin: admin@sistema.com / admin123<br />
           Fiscal: fiscal@sistema.com / fiscal123<br />
           Medicina: medicina@sistema.com / medicina123<br />
@@ -1190,21 +1226,11 @@ function renderLogin() {
       return;
     }
 
-    const user = state.users.find(
-      (item) =>
-        item.email.toLowerCase() === String(form.get("email")).toLowerCase() &&
-        item.password === form.get("password") &&
-        item.active,
-    );
-    if (!user) {
-      alert("E-mail ou senha invalidos.");
-      submit.disabled = false;
-      return;
-    }
-    state.session = user.id;
-    saveState();
-    currentView = "dashboard";
-    render();
+    console.error("[Login Supabase] Login bloqueado porque a configuracao oficial nao criou cliente Supabase.", {
+      supabase: supabaseDiagnostics,
+      erro: supabaseConfigError,
+    });
+    alert("Login online bloqueado. Confira supabase-config.js e o console do navegador para ver o projeto Supabase usado.");
     submit.disabled = false;
   });
 }
@@ -3514,7 +3540,7 @@ function renderSettings() {
         <div class="modal-head"><h2>Configuracoes gerais</h2></div>
         <div class="modal-body item-list">
           <div class="item-card"><strong>Tema enterprise</strong><span class="muted">Use o botao no topo para alternar entre modo claro e escuro.</span></div>
-          <div class="item-card"><strong>Armazenamento online</strong><span class="muted">Cole a URL do projeto e a chave anon publica em supabase-config.js.</span></div>
+          <div class="item-card"><strong>Armazenamento online</strong><span class="muted">Projeto Supabase oficial fixado em supabase-config.js.</span></div>
           <div class="item-card"><strong>Publicacao</strong><span class="muted">Interface mantida em HTML, CSS e JavaScript puro.</span></div>
         </div>
       </section>

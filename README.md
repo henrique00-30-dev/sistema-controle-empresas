@@ -1,50 +1,24 @@
 # Sistema de Controle de Empresas Terceirizadas
 
-Aplicacao web preparada para funcionar localmente ou online com Supabase.
+Aplicacao web online com configuracao Supabase oficial centralizada.
 
-## Modo local
+## Projeto Supabase oficial
 
-Abra `index.html` no navegador. Os dados ficam salvos no `localStorage`.
-
-Acessos de demonstracao:
-
-- `admin@sistema.com` / `admin123`
-- `fiscal@sistema.com` / `fiscal123`
-- `fornecedor@sistema.com` / `fornecedor123`
-- `visitante@sistema.com` / `visitante123`
-
-## Ativar Supabase
-
-1. Crie um projeto no Supabase.
-2. Execute o arquivo `supabase-schema.sql` no SQL Editor.
-3. Crie usuarios no Supabase Auth.
-4. Para cada usuario, cadastre/ajuste o perfil na tabela `profiles` com um dos perfis:
-   - `administrador`
-   - `fiscal`
-   - `fornecedor`
-   - `visitante`
-5. Para fornecedores, preencha `company_id` no perfil.
-6. Edite `supabase-config.js`:
+A configuracao do Supabase fica somente em `supabase-config.js`. Nao use `.env`, variaveis Vite ou URLs duplicadas para este deploy estatico.
 
 ```js
-window.SUPABASE_CONFIG = {
-  url: "https://SEU-PROJETO.supabase.co",
-  anonKey: "SUA_ANON_KEY",
-};
+window.SUPABASE_CONFIG = Object.freeze({
+  projectRef: "aqubdvkxkmpuztqglkqi",
+  url: "https://aqubdvkxkmpuztqglkqi.supabase.co",
+  anonKey: "CHAVE_PUBLICA_OFICIAL",
+  locked: true,
+});
 ```
 
-Quando essas chaves estiverem preenchidas, o sistema usa Supabase Auth, tabelas com RLS e armazenamento preparado no bucket `documents`.
+O `app.js` valida se a URL bate com `projectRef`. Se alguem trocar a URL para outro projeto, o login online e bloqueado e o console mostra o projeto carregado.
 
-## Tabela profiles
+## Usuarios
 
-A tabela `profiles` fica vinculada ao `auth.users` pelo campo `id`.
+O login usa Supabase Auth. Apos autenticar, o perfil e buscado no mesmo projeto Supabase em `public.usuarios`; se essa tabela nao estiver exposta no REST, o sistema usa `public.profiles` como compatibilidade.
 
-Campos principais:
-
-- `id`: mesmo ID do usuario em `auth.users`
-- `nome`: nome exibido no sistema
-- `email`: email de login
-- `perfil`: `administrador`, `fiscal`, `fornecedor` ou `visitante`
-- `company_id`: empresa vinculada ao fornecedor
-
-Quando um usuario novo for criado no Supabase Auth, o SQL cria um perfil inicial como `visitante`. Depois o administrador pode alterar o perfil.
+Crie usuarios no Supabase Auth e mantenha o mesmo e-mail no cadastro de perfil.
