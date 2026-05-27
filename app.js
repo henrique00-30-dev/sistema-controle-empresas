@@ -266,6 +266,7 @@ let searchRenderTimer = null;
 const contractDetailState = {};
 let authMode = supabaseClient ? "supabase" : "local";
 let isLoading = Boolean(supabaseClient);
+let authNotice = "";
 let darkMode = localStorage.getItem("sctempresas.theme") !== "light";
 let sidebarCollapsed = localStorage.getItem("sctempresas.sidebar") === "collapsed";
 
@@ -900,11 +901,96 @@ function render() {
     app.innerHTML = `<div class="loading-screen"><strong>Carregando sistema...</strong><span>${ONLINE_STORAGE_NOTE}</span></div>`;
     return;
   }
+  if (isPasswordRecoveryRoute()) {
+    renderPasswordRecovery();
+    return;
+  }
   if (!currentUser()) {
     renderLogin();
     return;
   }
   renderApp();
+}
+
+function recoveryParams() {
+  const hash = new URLSearchParams(String(window.location.hash || "").replace(/^#/, ""));
+  const query = new URLSearchParams(window.location.search || "");
+  return {
+    accessToken: hash.get("access_token") || query.get("access_token"),
+    refreshToken: hash.get("refresh_token") || query.get("refresh_token"),
+    type: hash.get("type") || query.get("type"),
+  };
+}
+
+function isPasswordRecoveryRoute() {
+  const params = recoveryParams();
+  return isOnlineMode() && params.type === "recovery" && Boolean(params.accessToken);
+}
+
+function clearRecoveryUrl() {
+  if (window.history?.replaceState) {
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }
+}
+
+function renderPasswordRecovery() {
+  app.innerHTML = `
+    <section class="login-shell">
+      <div class="login-panel">
+        <div class="login-brand">
+          <div class="logo-mark">CI</div>
+          <div>
+            <span class="eyebrow">Recuperacao de acesso</span>
+            <h1>Redefinir senha</h1>
+            <p>Informe uma nova senha para concluir a recuperacao do acesso pelo Supabase Auth.</p>
+          </div>
+        </div>
+        <form class="login-form" id="recoveryForm">
+          <label>Nova senha
+            <input name="password" type="password" autocomplete="new-password" minlength="6" required />
+          </label>
+          <label>Confirmar nova senha
+            <input name="confirmPassword" type="password" autocomplete="new-password" minlength="6" required />
+          </label>
+          <button class="btn primary" type="submit">${icon("save")} Atualizar senha</button>
+        </form>
+        <div class="login-note">Apos atualizar, voce sera direcionado para a tela de login.</div>
+      </div>
+    </section>
+  `;
+
+  document.querySelector("#recoveryForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const password = String(form.get("password") || "");
+    const confirmPassword = String(form.get("confirmPassword") || "");
+    const submit = event.currentTarget.querySelector("button[type='submit']");
+    if (password !== confirmPassword) {
+      alert("As senhas nao conferem.");
+      return;
+    }
+    submit.disabled = true;
+    try {
+      const params = recoveryParams();
+      const { error: sessionError } = await supabaseClient.auth.setSession({
+        access_token: params.accessToken,
+        refresh_token: params.refreshToken || params.accessToken,
+      });
+      if (sessionError) throw new PersistenceError(`Erro ao validar link de recuperacao: ${sessionError.message}`, { table: "supabase.auth", operation: "setSession recovery" }, sessionError);
+      const { error } = await supabaseClient.auth.updateUser({ password });
+      if (error) throw new PersistenceError(`Erro ao atualizar senha: ${error.message}`, { table: "supabase.auth", operation: "updateUser password" }, error);
+      await supabaseClient.auth.signOut().catch((signOutError) => console.warn("[Recuperacao de senha] Nao foi possivel encerrar sessao apos redefinir senha.", signOutError));
+      state.session = null;
+      authNotice = "Senha redefinida com sucesso. Entre novamente com a nova senha.";
+      clearRecoveryUrl();
+      saveState();
+      renderLogin();
+    } catch (error) {
+      console.error("[Recuperacao de senha] Falha ao redefinir senha", error);
+      alert(`Nao foi possivel redefinir a senha.\n\n${persistenceMessage(error)}`);
+      submit.disabled = false;
+    }
+  });
 }
 
 function renderLogin() {
@@ -920,6 +1006,7 @@ function renderLogin() {
           </div>
         </div>
         <form class="login-form" id="loginForm">
+          ${authNotice ? `<div class="login-note">${authNotice}</div>` : ""}
           <label>E-mail
             <input name="email" type="email" autocomplete="username" required />
           </label>
@@ -996,6 +1083,7 @@ function renderLogin() {
           perfil: profile.role,
           nome: profile.name,
         });
+        authNotice = "";
         currentView = "dashboard";
         render();
       } catch (error) {
