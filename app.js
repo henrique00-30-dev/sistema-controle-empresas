@@ -556,34 +556,91 @@ async function hydrateSupabaseSession(authUser) {
 
 async function fetchProfile(authUser) {
   const email = String(authUser?.email || "").trim().toLowerCase();
-  console.info("[Login Supabase] Buscando perfil em public.usuarios", {
-    auth_user_id: authUser?.id || null,
-    email,
+  console.info("[Login Supabase] Buscando perfil", { auth_user_id: authUser?.id || null, email });
+  const usuario = await fetchProfileFromTable("usuarios", email, authUser?.id);
+  if (usuario?.data) return validateAuthenticatedProfile(mapUserFromDb(usuario.data), email, "public.usuarios");
+  if (usuario?.error && !isMissingRestTableError(usuario.error)) {
+    throw wrapUserPersistenceError(usuario.error, { table: "public.usuarios", operation: "select perfil por email", payload: { email } });
+  }
+  if (usuario?.error) console.warn("[Login Supabase] public.usuarios indisponivel no REST schema cache. Tentando public.profiles.", usuario.error);
+
+  const profileResult = await fetchProfileFromTable("profiles", email, authUser?.id);
+  if (profileResult?.data) return validateAuthenticatedProfile(mapUserFromDb(profileResult.data), email, "public.profiles");
+  if (profileResult?.error && !isMissingRestTableError(profileResult.error)) {
+    throw wrapUserPersistenceError(profileResult.error, { table: "public.profiles", operation: "select perfil por email/id", payload: { email, id: authUser?.id || null } });
+  }
+  if (profileResult?.error) console.warn("[Login Supabase] public.profiles tambem indisponivel no REST schema cache.", profileResult.error);
+
+  const metadataProfile = profileFromAuthMetadata(authUser);
+  if (metadataProfile) {
+    console.warn("[Login Supabase] Usando perfil de emergencia a partir do Auth metadata/local enquanto public.usuarios nao esta disponivel no REST.");
+    return validateAuthenticatedProfile(metadataProfile, email, "supabase.auth metadata");
+  }
+
+  const localProfile = state.users.find((user) => String(user.email || "").trim().toLowerCase() === email);
+  if (localProfile) {
+    console.warn("[Login Supabase] Usando perfil local autenticado enquanto public.usuarios nao esta disponivel no REST.", { email, role: localProfile.role });
+    return validateAuthenticatedProfile({ ...localProfile, id: authUser?.id || localProfile.id }, email, "perfil local");
+  }
+
+  throw new PersistenceError("Usuario autenticado, mas sem perfil cadastrado.", {
+    table: "public.usuarios/public.profiles",
+    operation: "select perfil por email",
+    payload: { email, id: authUser?.id || null },
+    hint: "A API REST nao encontrou public.usuarios no schema cache. Recarregue o schema cache do Supabase ou mantenha um perfil em public.profiles.",
   });
-  const usuario = await supabaseClient.from("usuarios").select("*").eq("email", email).maybeSingle();
-  console.info("[Login Supabase] Resultado public.usuarios", {
-    data: usuario.data,
-    error: usuario.error,
-  });
-  if (usuario.error) throw wrapUserPersistenceError(usuario.error, { table: "public.usuarios", operation: "select perfil por email", payload: { email } });
-  if (!usuario.data) {
+}
+
+async function fetchProfileFromTable(table, email, userId) {
+  console.info(`[Login Supabase] Consultando public.${table}`, { email, id: userId || null });
+  let result = await supabaseClient.from(table).select("*").eq("email", email).maybeSingle();
+  console.info(`[Login Supabase] Resultado public.${table} por email`, { data: result.data, error: result.error });
+  if (!result.error || isMissingRestTableError(result.error) || !userId) return result;
+  result = await supabaseClient.from(table).select("*").eq("id", userId).maybeSingle();
+  console.info(`[Login Supabase] Resultado public.${table} por id`, { data: result.data, error: result.error });
+  return result;
+}
+
+function validateAuthenticatedProfile(profile, email, source) {
+  if (!profile) {
     throw new PersistenceError("Usuario autenticado, mas sem perfil cadastrado.", {
-      table: "public.usuarios",
+      table: source,
       operation: "select perfil por email",
       payload: { email },
       hint: "Crie um registro em public.usuarios com o mesmo email do Supabase Auth.",
     });
   }
-  const profile = mapUserFromDb(usuario.data);
   if (profile.active === false) {
     throw new PersistenceError("Usuario autenticado, mas esta inativo no cadastro de perfis.", {
-      table: "public.usuarios",
+      table: source,
       operation: "validacao perfil ativo",
       payload: { email },
       hint: "Altere ativo para true em public.usuarios.",
     });
   }
   return profile;
+}
+
+function profileFromAuthMetadata(authUser) {
+  const metadata = { ...(authUser?.app_metadata || {}), ...(authUser?.user_metadata || {}) };
+  const perfil = metadata.perfil || metadata.role;
+  const email = String(authUser?.email || "").toLowerCase();
+  if (!perfil && email !== "henrique00-30@hotmail.com") return null;
+  return mapUserFromDb({
+    id: authUser?.id || crypto.randomUUID(),
+    nome: metadata.nome || metadata.name || authUser?.email,
+    email: authUser?.email || "",
+    perfil: perfil || "administrador",
+    ativo: true,
+    empresa_id: metadata.empresa_id || metadata.company_id || null,
+    setor: metadata.setor || null,
+    matricula: metadata.matricula || null,
+  });
+}
+
+function isMissingRestTableError(error) {
+  const text = `${error?.code || ""} ${error?.message || ""} ${error?.details || ""}`.toLowerCase();
+  return /pgrst205|schema cache|could not find the table/.test(text);
 }
 
 async function loadRemoteData() {
