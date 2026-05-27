@@ -6,6 +6,11 @@ Aplicacao web online com configuracao Supabase oficial centralizada.
 
 A configuracao do Supabase fica somente em `supabase-config.js`. Nao use `.env`, variaveis Vite ou URLs duplicadas para este deploy estatico.
 
+Projeto fixado:
+
+- `projectRef`: `gduogeegnhfimuhxfmfc`
+- `url`: `https://gduogeegnhfimuhxfmfc.supabase.co`
+
 O `app.js` valida se a URL bate com `projectRef`. Se alguem trocar a URL para outro projeto, o login online e bloqueado e o console mostra o projeto carregado.
 
 ## Usuarios
