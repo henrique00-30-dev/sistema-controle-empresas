@@ -130,41 +130,7 @@ const ROLE_PERMISSIONS = {
 
 const defaultData = {
   session: null,
-  users: [
-    {
-      id: crypto.randomUUID(),
-      name: "Administrador",
-      email: "admin@sistema.com",
-      password: "admin123",
-      role: "admin",
-      active: true,
-    },
-    {
-      id: crypto.randomUUID(),
-      name: "Fiscal de Fornecedor",
-      email: "fiscal@sistema.com",
-      password: "fiscal123",
-      role: "fiscal",
-      active: true,
-    },
-    {
-      id: crypto.randomUUID(),
-      name: "Fornecedor Demo",
-      email: "fornecedor@sistema.com",
-      password: "fornecedor123",
-      role: "supplier",
-      active: true,
-      companyId: null,
-    },
-    {
-      id: crypto.randomUUID(),
-      name: "Visitante",
-      email: "visitante@sistema.com",
-      password: "visitante123",
-      role: "visitor",
-      active: true,
-    },
-  ],
+  users: [],
   companies: [
     {
       id: crypto.randomUUID(),
@@ -253,6 +219,8 @@ const supabaseClient =
         },
       })
     : null;
+console.log("[SUPABASE PROJECT]", supabaseDiagnostics.projectRef);
+console.log("[SUPABASE URL]", supabaseDiagnostics.url);
 console.info("[Supabase Config] Projeto Supabase oficial carregado pelo frontend", supabaseDiagnostics);
 if (supabaseConfigError) console.error("[Supabase Config] Configuracao bloqueada", supabaseConfigError);
 let state = loadState();
@@ -306,8 +274,6 @@ function loadState() {
     makeDoc(data.companies[0].id, data.employees[1].id, "Treinamento NR-10", "2026-05-18", "Aprovado"),
     makeDoc(data.companies[1].id, data.employees[2].id, "Ficha de EPI", "2026-07-04", "Pendente"),
   ];
-  const supplier = data.users.find((user) => user.role === "supplier");
-  if (supplier) supplier.companyId = data.companies[0].id;
   saveState(data);
   return data;
 }
@@ -318,37 +284,6 @@ function migrateState(data) {
   data.employees ||= [];
   data.documents ||= [];
   data.historico ||= data.history || [];
-
-  if (!data.users.some((user) => user.role === "supplier")) {
-    data.users.push({
-      id: crypto.randomUUID(),
-      name: "Fornecedor Demo",
-      email: "fornecedor@sistema.com",
-      password: "fornecedor123",
-      role: "supplier",
-      active: true,
-      companyId: data.companies[0]?.id || null,
-    });
-  }
-  if (!data.users.some((user) => user.role === "visitor")) {
-    data.users.push({
-      id: crypto.randomUUID(),
-      name: "Visitante",
-      email: "visitante@sistema.com",
-      password: "visitante123",
-      role: "visitor",
-      active: true,
-    });
-  }
-  [
-    ["medicina", "Medicina Ocupacional", "medicina@sistema.com", "medicina123"],
-    ["ehs", "Analista EHS", "ehs@sistema.com", "ehs123"],
-    ["patrimonial", "Seguranca Patrimonial", "patrimonial@sistema.com", "patrimonial123"],
-  ].forEach(([role, name, email, password]) => {
-    if (!data.users.some((user) => user.role === role)) {
-      data.users.push({ id: crypto.randomUUID(), name, email, password, role, active: true });
-    }
-  });
 
   data.users = data.users.map((user) =>
     user.role === "supplier" && !user.companyId ? { ...user, companyId: data.companies[0]?.id || null } : user,
@@ -540,6 +475,9 @@ function validateOfficialSupabaseConfig(config = {}, diagnostics = {}) {
     errors.push(`URL aponta para ${diagnostics.projectRef}, mas o projeto oficial configurado e ${projectRef}.`);
   }
   if (expectedUrl && url !== expectedUrl) errors.push(`URL precisa ser exatamente ${expectedUrl}.`);
+  if (/COLE_AQUI|SUA_ANON_KEY|SEU-PROJETO/i.test(anonKey)) {
+    errors.push("anonKey oficial do projeto ainda nao foi preenchida em supabase-config.js.");
+  }
   if (!window.supabase?.createClient) errors.push("Biblioteca Supabase JS nao carregou.");
   return errors.length
     ? {
@@ -583,6 +521,8 @@ async function boot() {
       supabase: supabaseDiagnostics,
       erro: supabaseConfigError,
     });
+    state.session = null;
+    saveState();
     render();
     return;
   }
@@ -599,6 +539,9 @@ async function boot() {
     });
     if (session?.user) {
       await hydrateSupabaseSession(session.user);
+    } else {
+      state.session = null;
+      saveState();
     }
   } catch (error) {
     console.warn("Falha ao iniciar Supabase:", error);
@@ -628,24 +571,13 @@ async function fetchProfile(authUser) {
   console.info("[Login Supabase] Buscando perfil em public.usuarios", { supabase: supabaseDiagnostics, auth_user_id: authUser?.id || null, email });
   const usuario = await fetchProfileFromTable("usuarios", email, authUser?.id);
   if (usuario?.data) return validateAuthenticatedProfile(mapUserFromDb(usuario.data), email, "public.usuarios");
-  if (usuario?.error && isMissingRestTableError(usuario.error)) {
-    console.warn("[Login Supabase] public.usuarios nao esta visivel no REST deste projeto. Usando public.profiles como compatibilidade.", {
-      supabase: supabaseDiagnostics,
-      error: usuario.error,
-    });
-    const profileResult = await fetchProfileFromTable("profiles", email, authUser?.id);
-    if (profileResult?.data) return validateAuthenticatedProfile(mapUserFromDb(profileResult.data), email, "public.profiles");
-    if (profileResult?.error) {
-      throw wrapUserPersistenceError(profileResult.error, { table: "public.profiles", operation: "select perfil por email/id", payload: { email, id: authUser?.id || null, supabase: supabaseDiagnostics } });
-    }
-  }
   if (usuario?.error) throw wrapUserPersistenceError(usuario.error, { table: "public.usuarios", operation: "select perfil por email/id", payload: { email, id: authUser?.id || null, supabase: supabaseDiagnostics } });
 
   throw new PersistenceError("Usuario autenticado, mas sem perfil cadastrado.", {
     table: "public.usuarios",
     operation: "select perfil por email",
     payload: { email, id: authUser?.id || null, supabase: supabaseDiagnostics },
-    hint: "O Auth aceitou o login, mas nao existe perfil ativo em public.usuarios neste projeto. Se public.usuarios nao estiver exposta no REST, crie tambem o perfil em public.profiles ou ajuste a URL/chave para o projeto correto.",
+    hint: "O Auth aceitou o login, mas nao existe perfil ativo em public.usuarios neste projeto oficial.",
   });
 }
 
@@ -679,53 +611,28 @@ function validateAuthenticatedProfile(profile, email, source) {
   return profile;
 }
 
-function profileFromAuthMetadata(authUser) {
-  const metadata = { ...(authUser?.app_metadata || {}), ...(authUser?.user_metadata || {}) };
-  const perfil = metadata.perfil || metadata.role;
-  const email = String(authUser?.email || "").toLowerCase();
-  if (!perfil && email !== "henrique00-30@hotmail.com") return null;
-  return mapUserFromDb({
-    id: authUser?.id || crypto.randomUUID(),
-    nome: metadata.nome || metadata.name || authUser?.email,
-    email: authUser?.email || "",
-    perfil: perfil || "administrador",
-    ativo: true,
-    empresa_id: metadata.empresa_id || metadata.company_id || null,
-    setor: metadata.setor || null,
-    matricula: metadata.matricula || null,
-  });
-}
-
-function isMissingRestTableError(error) {
-  const text = `${error?.code || ""} ${error?.message || ""} ${error?.details || ""}`.toLowerCase();
-  return /pgrst205|schema cache|could not find the table/.test(text);
-}
-
 async function loadRemoteData() {
-  const [companies, employees, documents, profiles] = await Promise.all([
+  const [companies, employees, documents, usuarios] = await Promise.all([
     supabaseClient.from("companies").select("*").order("name"),
     supabaseClient.from("employees").select("*").order("name"),
     supabaseClient.from("documents").select("*").order("due_date"),
     fetchUsersForAccessControl(),
   ]);
 
-  for (const result of [companies, employees, documents, profiles]) {
+  for (const result of [companies, employees, documents, usuarios]) {
     if (result.error) throw result.error;
   }
 
   state.companies = companies.data.map(mapCompanyFromDb);
   state.employees = employees.data.map(mapEmployeeFromDb);
   state.documents = documents.data.map(mapDocumentFromDb);
-  state.users = profiles.data.map(mapUserFromDb);
+  state.users = usuarios.data.map(mapUserFromDb);
   state.historico = await loadRemoteHistory();
 }
 
 async function fetchUsersForAccessControl() {
   if (!can("users.view")) return { data: state.users, error: null };
-  const usuarios = await supabaseClient.from("usuarios").select("*").order("nome");
-  if (!usuarios.error) return usuarios;
-  console.warn("Tabela usuarios indisponivel; usando profiles como fallback.", usuarios.error);
-  return supabaseClient.from("profiles").select("*").order("nome");
+  return supabaseClient.from("usuarios").select("*").order("nome");
 }
 
 async function loadRemoteHistory() {
@@ -950,10 +857,6 @@ async function deleteRemote(collection, id) {
     users: "usuarios",
   }[collection];
   const { error } = await supabaseClient.from(table).delete().eq("id", id);
-  if (error && collection === "users" && table === "usuarios") {
-    const fallback = await supabaseClient.from("profiles").delete().eq("id", id);
-    if (!fallback.error) return;
-  }
   if (error) throw error;
 }
 
@@ -1136,13 +1039,7 @@ function renderLogin() {
               ? `Projeto Supabase oficial: ${supabaseDiagnostics.projectRef}. Use um usuario criado neste ambiente online.`
               : "Login online bloqueado: confira supabase-config.js e o console do navegador."
           }<br />
-          Admin: admin@sistema.com / admin123<br />
-          Fiscal: fiscal@sistema.com / fiscal123<br />
-          Medicina: medicina@sistema.com / medicina123<br />
-          EHS: ehs@sistema.com / ehs123<br />
-          Patrimonial: patrimonial@sistema.com / patrimonial123<br />
-          Fornecedor: fornecedor@sistema.com / fornecedor123<br />
-          Visitante: visitante@sistema.com / visitante123
+          A autenticacao usa exclusivamente Supabase Auth neste projeto.
         </div>
       </div>
       <div class="login-intel">

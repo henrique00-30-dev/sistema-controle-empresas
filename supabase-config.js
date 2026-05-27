@@ -1,6 +1,6 @@
 window.SUPABASE_CONFIG = Object.freeze({
-  projectRef: "aqubdvkxkmpuztqglkqi",
-  url: "https://aqubdvkxkmpuztqglkqi.supabase.co",
-  anonKey: "sb_publishable_ZkElt-EY0PChg9IjW6j0TA_QJ-f2_fd",
+  projectRef: "gduogeegnhfimuhxfmfc",
+  url: "https://gduogeegnhfimuhxfmfc.supabase.co",
+  anonKey: "COLE_AQUI_A_CHAVE_PUBLICA_ANON_OU_PUBLISHABLE_DO_PROJETO_GDUOGEEGNHFIMUHXFMFC",
   locked: true,
 });
