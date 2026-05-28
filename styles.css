@@ -1241,6 +1241,28 @@ th {
   color: #d6a15f;
 }
 
+.link-button {
+  display: inline;
+  border: 0;
+  background: transparent;
+  color: #f5f1ea;
+  font: inherit;
+  font-weight: 850;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.link-button:hover {
+  color: #d6a15f;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.link-button.strong {
+  font-weight: 950;
+}
+
 tbody tr {
   transition: background 0.16s ease;
 }
@@ -2133,6 +2155,11 @@ tr:last-child td {
   gap: 12px;
 }
 
+.detail-grid.compact {
+  grid-template-columns: repeat(4, minmax(140px, 1fr));
+  margin-top: 12px;
+}
+
 .detail-card {
   padding: 14px;
   border: 1px solid var(--line);
@@ -2163,6 +2190,10 @@ tr:last-child td {
 
 .employee-record-modal {
   width: min(1220px, calc(100vw - 28px));
+}
+
+.company-detail-modal {
+  width: min(1280px, calc(100vw - 28px));
 }
 
 .employee-record-header {
@@ -2215,6 +2246,35 @@ tr:last-child td {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.approval-card-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(180px, 1fr));
+  gap: 12px;
+  margin: 14px 0;
+}
+
+.approval-mini-card {
+  min-height: 132px;
+  border-color: rgba(214, 161, 95, 0.2);
+  background:
+    radial-gradient(circle at top right, rgba(214, 161, 95, 0.12), transparent 9rem),
+    rgba(245, 241, 234, 0.035);
+}
+
+.approval-mini-card.ok {
+  border-color: rgba(95, 143, 102, 0.36);
+}
+
+.approval-mini-card.bad,
+.approval-mini-card.blocked {
+  border-color: rgba(143, 38, 56, 0.42);
+}
+
+.approval-mini-card strong {
+  display: block;
+  margin: 10px 0 6px;
 }
 
 .employee-workflow {
@@ -2489,6 +2549,8 @@ tr:last-child td {
   .alert-grid,
   .dashboard-grid,
   .detail-grid,
+  .detail-grid.compact,
+  .approval-card-grid,
   .enterprise-strip,
   .report-grid,
   .integration-grid,
@@ -2532,6 +2594,8 @@ tr:last-child td {
   .dashboard-grid,
   .contract-summary-grid,
   .detail-grid,
+  .detail-grid.compact,
+  .approval-card-grid,
   .enterprise-strip,
   .report-grid,
   .integration-grid,
