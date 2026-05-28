@@ -731,7 +731,7 @@ async function fetchUsersForAccessControl() {
 async function fetchFiscaisForCompanies() {
   const result = await supabaseClient.from("fiscais").select("*").order("nome");
   if (result.error) {
-    console.warn("Tabela public.fiscais indisponivel. Execute supabase-fiscais.sql para ativar a base de fiscais.", result.error);
+    console.warn("Tabela public.fiscais indisponivel. Execute supabase-operational-tables.sql para ativar fiscais, employees, historico e empresa_fiscais.", result.error);
     return { data: state.fiscais || [], error: null };
   }
   return result;
@@ -5554,12 +5554,11 @@ function mapEmployeeFromDb(employee) {
 
 function mapEmployeeToDb(employee) {
   const item = normalizeEmployee(employee);
-  return {
-    id: item.id,
+  const payload = {
     name: item.name,
     cpf: onlyDigits(item.cpf),
     job_role: item.role,
-    company_id: item.companyId,
+    company_id: isNumericDbId(item.companyId) ? Number(item.companyId) : item.companyId,
     aso_validity: item.asoValidity || null,
     training_validity: item.trainingValidity || null,
     document_status: item.docStatus,
@@ -5567,6 +5566,8 @@ function mapEmployeeToDb(employee) {
     notes: serializeEmployeeNotes(item),
     hiring_status: item.status,
   };
+  if (isNumericDbId(item.id)) payload.id = Number(item.id);
+  return payload;
 }
 
 function mapDocumentFromDb(doc) {
@@ -5586,16 +5587,17 @@ function mapDocumentFromDb(doc) {
 }
 
 function mapDocumentToDb(doc) {
-  return {
-    id: doc.id,
-    company_id: doc.companyId,
-    employee_id: doc.employeeId || null,
+  const payload = {
+    company_id: isNumericDbId(doc.companyId) ? Number(doc.companyId) : doc.companyId,
+    employee_id: isNumericDbId(doc.employeeId) ? Number(doc.employeeId) : null,
     type: doc.type,
     due_date: doc.dueDate || null,
     status: doc.status,
     notes: serializeDocumentNotes(doc),
     file_path: doc.filePath || null,
   };
+  if (isNumericDbId(doc.id)) payload.id = Number(doc.id);
+  return payload;
 }
 
 function parseDocumentMeta(notes = "") {

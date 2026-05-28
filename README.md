@@ -22,3 +22,5 @@ Crie usuarios no Supabase Auth e mantenha o mesmo e-mail no cadastro de perfil.
 ## Base de fiscais
 
 Execute `supabase-fiscais.sql` no SQL Editor do Supabase para criar a tabela `public.fiscais` e os vinculos opcionais com `public.companies`.
+
+Para corrigir a base operacional completa do projeto oficial, execute `supabase-operational-tables.sql`. Ele cria/ajusta `public.companies`, `public.employees`, `public.documents`, `public.fiscais`, `public.empresa_fiscais`, `public.historico` e finaliza com `NOTIFY pgrst, 'reload schema';`.
