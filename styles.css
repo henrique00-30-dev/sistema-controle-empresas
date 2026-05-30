@@ -2196,6 +2196,26 @@ tr:last-child td {
   width: min(1280px, calc(100vw - 28px));
 }
 
+.record-action-bar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  background:
+    linear-gradient(135deg, rgba(15, 27, 45, 0.96), rgba(94, 26, 39, 0.82)),
+    var(--panel);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(14px);
+}
+
+.record-action-bar .btn:first-child {
+  margin-right: auto;
+}
+
 .employee-record-header {
   display: grid;
   grid-template-columns: auto 1fr auto auto;
@@ -2448,6 +2468,67 @@ tr:last-child td {
   min-height: 360px;
 }
 
+.record-footer {
+  display: grid;
+  gap: 16px;
+  border-top: 1px solid var(--line);
+  background:
+    radial-gradient(circle at top right, rgba(214, 161, 95, 0.08), transparent 18rem),
+    rgba(15, 27, 45, 0.5);
+}
+
+.record-section {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(245, 241, 234, 0.035);
+}
+
+.record-section-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.record-section-title h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 1rem;
+  font-style: italic;
+}
+
+.record-activity-list {
+  display: grid;
+  gap: 8px;
+  overflow-x: auto;
+}
+
+.record-activity-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-width: 460px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(15, 27, 45, 0.44);
+}
+
+.record-activity-row strong,
+.record-activity-row span {
+  display: block;
+}
+
+.record-activity-row span {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
 .employee-doc-section {
   display: grid;
   gap: 12px;
@@ -2523,6 +2604,10 @@ tr:last-child td {
   .employee-record-status {
     grid-column: 2 / -1;
     justify-content: flex-start;
+  }
+
+  .record-action-bar {
+    flex-wrap: wrap;
   }
 
   .employee-workflow {
@@ -2634,6 +2719,37 @@ tr:last-child td {
 
   .employee-record-status {
     grid-column: 1 / -1;
+  }
+
+  .record-action-bar {
+    align-items: stretch;
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .record-action-bar .btn {
+    flex: 1 1 calc(50% - 8px);
+    justify-content: center;
+  }
+
+  .record-action-bar .btn:first-child {
+    flex-basis: 100%;
+    margin-right: 0;
+  }
+
+  .record-section {
+    padding: 12px;
+    border-radius: 14px;
+  }
+
+  .record-section-title {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .record-activity-row {
+    min-width: 0;
+    grid-template-columns: 1fr;
   }
 
   .employee-workflow {

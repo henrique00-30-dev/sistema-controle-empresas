@@ -1034,6 +1034,7 @@ function icon(name) {
     edit: "M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z",
     trash: "M3 6h18M8 6V4h8v2m-9 0 1 14h8l1-14",
     close: "M18 6 6 18M6 6l12 12",
+    arrow: "M19 12H5m7-7-7 7 7 7",
     logout: "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4m7 14 5-5-5-5m5 5H9",
     save: "M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2ZM17 21v-8H7v8M7 3v5h8",
   };
@@ -2179,6 +2180,89 @@ function renderHistoryTimeline(entityType, entityId, fallbackItems = []) {
   return `<div class="history-list">${rows.length ? rows.join("") : `<div class="empty">Nenhum historico registrado para esta ficha.</div>`}</div>`;
 }
 
+function renderRecordActionBar(type, item) {
+  const isEmployee = type === "employee";
+  const canEditRecord = isEmployee ? can("edit.employee", item) : can("edit.company", item);
+  const canStatus = isEmployee ? can("updateHiringStatus", item) : can("edit.company", item);
+  return `
+    <div class="record-action-bar">
+      <button class="btn secondary compact" type="button" data-close>${icon("arrow")} Voltar</button>
+      ${canEditRecord ? `<button class="btn primary compact" type="button" data-record-edit="${type}" data-id="${item.id}">${icon("edit")} Editar cadastro</button>` : ""}
+      ${
+        isEmployee && canStatus
+          ? `
+            <button class="btn warning compact" type="button" data-employee-action="inactivate" data-id="${item.id}">Inativar</button>
+            <button class="btn danger compact" type="button" data-employee-action="block" data-id="${item.id}">Bloquear</button>
+          `
+          : ""
+      }
+      ${
+        !isEmployee && canStatus
+          ? `<button class="btn warning compact" type="button" data-demobilize="company" data-id="${item.id}">Desmobilizar contrato</button>`
+          : ""
+      }
+    </div>
+  `;
+}
+
+function renderRecordFooter(title, rows, entityType, entityId) {
+  return `
+    <section class="record-section">
+      <div class="record-section-title">
+        <h3>Resumo de Atividades</h3>
+        <span class="mini-pill">${rows.length} item(ns)</span>
+      </div>
+      <div class="record-activity-list">
+        ${
+          rows.length
+            ? rows.map((row) => `
+              <div class="record-activity-row">
+                <div>
+                  <strong>${escapeHtml(row.title)}</strong>
+                  <span>${escapeHtml(row.detail || "")}</span>
+                </div>
+                ${statusBadge(row.status || "Pendente")}
+              </div>
+            `).join("")
+            : `<div class="empty">Nenhuma atividade operacional registrada.</div>`
+        }
+      </div>
+    </section>
+    <section class="record-section">
+      <div class="record-section-title">
+        <h3>Historico Completo</h3>
+        <span class="mini-pill">${escapeHtml(title)}</span>
+      </div>
+      ${renderHistoryTimeline(entityType, entityId)}
+    </section>
+  `;
+}
+
+function employeeActivityRows(employee) {
+  const item = normalizeEmployee(employee);
+  const docs = state.documents.filter((doc) => doc.employeeId === item.id);
+  return [
+    { title: "Status contratacao", detail: item.status, status: item.status },
+    { title: "Status documental", detail: `${docs.length} documento(s) vinculados`, status: item.docStatus },
+    { title: "ASO", detail: formatDate(item.asoValidity), status: isPastDate(item.asoValidity) ? "Vencido" : "Aprovado" },
+    { title: "Treinamento", detail: formatDate(item.trainingValidity), status: isPastDate(item.trainingValidity) ? "Vencido" : "Aprovado" },
+    { title: "Workflow", detail: "Fiscal, Medicina, EHS e Patrimonial", status: employeeWorkflowSteps(item).at(-1)?.status || "Pendente" },
+  ];
+}
+
+function companyActivityRows(company) {
+  const item = normalizeCompany(company);
+  const employees = state.employees.filter((employee) => employee.companyId === item.id);
+  const documents = companyDocuments(item.id);
+  return [
+    { title: "Status da empresa", detail: item.status, status: item.status },
+    { title: "Contrato principal", detail: `${item.contract || "Nao informado"} - vence ${formatDate(item.endDate)}`, status: isPastDate(item.endDate) ? "Vencido" : item.status },
+    { title: "Funcionarios vinculados", detail: `${employees.length} funcionario(s)`, status: employees.some((employee) => normalizeEmployee(employee).status === "Bloqueado") ? "Bloqueado" : "Aprovado" },
+    { title: "Documentos pendentes", detail: `${companyPendingDocumentsCount(item.id)} pendencia(s)`, status: companyPendingDocumentsCount(item.id) ? "Pendente" : "Aprovado" },
+    { title: "Fiscalizacao", detail: item.fiscal || "Nao informado", status: companyHasNoFiscal(item) ? "Pendente" : "Aprovado" },
+  ];
+}
+
 function formatDateTime(value) {
   if (!value) return "Nao informado";
   const date = new Date(value);
@@ -2445,6 +2529,7 @@ function openEmployeeRecord(id) {
   modal.className = "modal-backdrop employee-record-backdrop";
   modal.innerHTML = `
     <section class="modal employee-record-modal">
+      ${renderRecordActionBar("employee", item)}
       <div class="employee-record-header">
         <div class="employee-avatar">${employeeInitials(item.name)}</div>
         <div class="employee-record-title">
@@ -2476,6 +2561,7 @@ function openEmployeeRecord(id) {
           .join("")}
       </div>
       <div class="modal-body employee-tab-content">${renderEmployeeRecordTab(item, defaultTab)}</div>
+      <div class="modal-body record-footer">${renderRecordFooter("Funcionario/FIT", employeeActivityRows(item), "funcionario", item.id)}</div>
     </section>
   `;
   document.body.appendChild(modal);
@@ -2494,6 +2580,22 @@ function openEmployeeRecord(id) {
     if (companyDetail) {
       event.stopPropagation();
       openCompanyDetails(companyDetail.dataset.companyDetail);
+      return;
+    }
+    const recordEdit = event.target.closest("[data-record-edit]");
+    if (recordEdit) {
+      event.stopPropagation();
+      editingEmployeeId = recordEdit.dataset.id;
+      modal.remove();
+      currentView = "employees";
+      renderApp();
+      return;
+    }
+    const employeeAction = event.target.closest("[data-employee-action]");
+    if (employeeAction) {
+      event.stopPropagation();
+      modal.remove();
+      updateEmployeeOperationalStatus(employeeAction.dataset.id, employeeAction.dataset.employeeAction);
       return;
     }
     if (event.target === modal) modal.remove();
@@ -3344,6 +3446,7 @@ function openCompanyDetails(id) {
   modal.className = "modal-backdrop company-detail-backdrop";
   modal.innerHTML = `
     <section class="modal contract-detail-modal company-detail-modal">
+      ${renderRecordActionBar("company", item)}
       <div class="employee-record-header company-record-header">
         <div class="employee-avatar">${employeeInitials(item.name)}</div>
         <div class="employee-record-title">
@@ -3378,11 +3481,28 @@ function openCompanyDetails(id) {
           .join("")}
       </div>
       <div class="modal-body company-tab-content">${renderCompanyTab(company, "general")}</div>
+      <div class="modal-body record-footer">${renderRecordFooter("Empresa", companyActivityRows(item), "empresa", item.id)}</div>
     </section>
   `;
   document.body.appendChild(modal);
   modal.querySelectorAll("[data-close]").forEach((button) => button.addEventListener("click", () => modal.remove()));
   modal.addEventListener("click", (event) => {
+    const recordEdit = event.target.closest("[data-record-edit]");
+    if (recordEdit) {
+      event.stopPropagation();
+      editingCompanyId = recordEdit.dataset.id;
+      modal.remove();
+      currentView = "companies";
+      renderApp();
+      return;
+    }
+    const demobilize = event.target.closest("[data-demobilize='company']");
+    if (demobilize) {
+      event.stopPropagation();
+      modal.remove();
+      demobilizeCompany(demobilize.dataset.id);
+      return;
+    }
     if (event.target === modal) modal.remove();
   });
   modal.querySelectorAll("[data-company-tab]").forEach((button) => {
