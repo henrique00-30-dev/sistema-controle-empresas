@@ -1579,9 +1579,30 @@ function renderView() {
 }
 
 function filtered(items, fields) {
-  const term = searchTerm.trim().toLowerCase();
+  const term = normalizeSearchValue(searchTerm);
+  const digitTerm = onlyDigits(searchTerm);
   if (!term) return items;
-  return items.filter((item) => fields.some((field) => String(field(item) || "").toLowerCase().includes(term)));
+  return items.filter((item) =>
+    fields.some((field) => {
+      const rawValue = String(field(item) || "");
+      if (!rawValue) return false;
+      const normalizedValue = normalizeSearchValue(rawValue);
+      if (normalizedValue.includes(term)) return true;
+      if (digitTerm) {
+        const valueDigits = onlyDigits(rawValue);
+        if (valueDigits.includes(digitTerm)) return true;
+      }
+      return false;
+    }),
+  );
+}
+
+function normalizeSearchValue(value = "") {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
 }
 
 function tableConfig(view) {
@@ -2004,6 +2025,7 @@ function renderCompanies() {
     (item) => item.name,
     (item) => companyTradeName(item),
     (item) => item.cnpj,
+    (item) => companyCode(item),
     (item) => companyPrimaryContract(item),
     (item) => employeeCostCenter({}, item),
     (item) => item.fiscal,
@@ -2439,7 +2461,14 @@ function formatDateTime(value) {
 }
 
 function renderFiscalRegistry() {
-  const fiscais = (state.fiscais || []).map(normalizeFiscal);
+  const fiscais = filtered((state.fiscais || []).map(normalizeFiscal), [
+    (fiscal) => fiscal.nome,
+    (fiscal) => fiscal.email,
+    (fiscal) => fiscal.matricula,
+    (fiscal) => fiscal.setor,
+    (fiscal) => fiscalStatusLabel(fiscal.status),
+    (fiscal) => fiscal.usuarioEmail,
+  ]);
   return `
     <section class="panel table-wrap">
       <div class="modal-head">
@@ -3517,6 +3546,7 @@ function documentOperationalSector(doc = {}) {
 function renderDocuments() {
   const baseItems = visibleDocuments();
   const filteredItems = filtered(baseItems, [
+    (item) => item.name,
     (item) => item.type,
     (item) => companyName(item.companyId),
     (item) => employeeName(item.employeeId),
@@ -3525,6 +3555,7 @@ function renderDocuments() {
     (item) => state.companies.find((company) => sameId(company.id, item.companyId))?.contract,
     (item) => employeeCostCenter(state.employees.find((employee) => sameId(employee.id, item.employeeId)) || {}, state.companies.find((company) => sameId(company.id, item.companyId))),
     (item) => docStatus(item),
+    (item) => item.dueDate,
   ]);
   const items = sortItems("documents", applyOperationalFilters("documents", filteredItems));
   const { pageItems, totalPages } = paginateItems("documents", items);
@@ -3553,6 +3584,9 @@ function renderContracts() {
     (item) => item.status,
     (item) => item.cnpj,
     (item) => employeeCostCenter({}, item),
+    (item) => normalizeCompany(item).fiscal,
+    (item) => normalizeCompany(item).manager || normalizeCompany(item).responsible,
+    (item) => normalizeCompany(item).endDate,
   ]).filter((item) => (contractStatusFilter === "Todos" ? true : normalizeCompany(item).status === contractStatusFilter))));
   const { pageItems, totalPages } = paginateItems("contracts", contracts);
   const active = visibleCompanies().filter((company) => normalizeCompany(company).status === "Ativa").length;
