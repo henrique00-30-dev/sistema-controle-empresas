@@ -1994,6 +1994,8 @@ function renderDocCard(doc) {
 
 function renderCompanies() {
   const baseItems = visibleCompanies();
+  const activeCompanies = baseItems.filter((company) => ["Ativa", "Ativo", "Liberado", "Aprovado"].some((status) => statusMatches(normalizeCompany(company).status, status)));
+  const inactiveCompanies = baseItems.filter((company) => ["Inativa", "Inativo", "Desmobilizada", "Desmobilizado", "Bloqueada", "Bloqueado"].some((status) => statusMatches(normalizeCompany(company).status, status)));
   const filteredItems = filtered(baseItems, [
     (item) => item.name,
     (item) => companyTradeName(item),
@@ -2017,6 +2019,10 @@ function renderCompanies() {
     ${sectionHead("Empresas", "Carteira operacional de empresas terceirizadas, fiscais, contratos e pendencias.", "Nova empresa", "company")}
     ${renderCompanyEditor(editingCompany)}
     ${renderFiscalRegistry()}
+    <div class="status-filter operational-filters" aria-label="Separacao de empresas">
+      <button class="${tableConfig("companies").quick === "Ativas" ? "active" : ""}" type="button" data-quick-view="companies" data-quick-filter="Ativas">Empresas ativas <span class="mini-pill">${activeCompanies.length}</span></button>
+      <button class="${tableConfig("companies").quick === "Desmobilizado" ? "active" : ""}" type="button" data-quick-view="companies" data-quick-filter="Desmobilizado">Empresas inativas/desmobilizadas <span class="mini-pill">${inactiveCompanies.length}</span></button>
+    </div>
     ${toolbar("Buscar por razao social, nome fantasia, CNPJ, codigo, contrato, fiscal ou status")}
     ${renderOperationalFilters("companies", baseItems, { quicks: ["Todos", "Ativas", "Pendentes", "Bloqueadas", "Contrato vencido", "Documentos vencidos", "Sem fiscal vinculado"], exportKey: "empresas" })}
     <section class="panel table-wrap">
@@ -2109,11 +2115,11 @@ function companyPrimaryContract(company = {}) {
 }
 
 function companyEmployeeCount(companyId) {
-  return state.employees.filter((employee) => employee.companyId === companyId).length;
+  return state.employees.filter((employee) => sameId(employee.companyId, companyId)).length;
 }
 
 function companyDocuments(companyId) {
-  return state.documents.filter((doc) => doc.companyId === companyId);
+  return state.documents.filter((doc) => sameId(doc.companyId, companyId));
 }
 
 function companyPendingDocumentsCount(companyId) {
@@ -2392,7 +2398,7 @@ function employeeActivityRows(employee) {
 
 function companyActivityRows(company) {
   const item = normalizeCompany(company);
-  const employees = state.employees.filter((employee) => employee.companyId === item.id);
+  const employees = state.employees.filter((employee) => sameId(employee.companyId, item.id));
   const documents = companyDocuments(item.id);
   return [
     { title: "Status da empresa", detail: item.status, status: item.status },
@@ -2478,14 +2484,14 @@ function renderCompanyRow(company) {
 }
 
 function companyRowActions(id) {
-  const company = state.companies.find((item) => item.id === id);
+  const company = state.companies.find((item) => sameId(item.id, id));
+  const canEditCompany = can("edit.company", company);
   return `
     <div class="actions wrap">
       <button class="btn secondary compact" type="button" data-company-detail="${id}">${icon("company")} Ver detalhes</button>
-      ${can("edit.company", company) ? `<button class="btn secondary compact" type="button" data-edit="company" data-id="${id}">${icon("edit")} Editar</button>` : ""}
-      ${can("edit.company", company) ? `<button class="btn warning compact" type="button" data-demobilize="company" data-id="${id}">Desmobilizar</button>` : ""}
-      ${can("delete.company", company) ? `<button class="btn danger compact" type="button" data-delete="company" data-id="${id}">${icon("trash")} Excluir</button>` : ""}
-      ${!can("edit.company", company) && !can("delete.company", company) ? `<span class="mini-pill">Somente leitura</span>` : ""}
+      ${canEditCompany ? `<button class="btn secondary compact" type="button" data-edit="company" data-id="${id}">${icon("edit")} Editar</button>` : ""}
+      ${canEditCompany ? `<button class="btn warning compact" type="button" data-demobilize="company" data-id="${id}">Desmobilizar</button>` : ""}
+      ${!canEditCompany ? `<span class="mini-pill">Somente leitura</span>` : ""}
     </div>
   `;
 }
@@ -3587,10 +3593,10 @@ function renderContractOperationalSummary(company) {
 }
 
 function openCompanyDetails(id) {
-  const company = visibleCompanies().find((item) => item.id === id) || state.companies.find((item) => item.id === id);
+  const company = visibleCompanies().find((item) => sameId(item.id, id)) || state.companies.find((item) => sameId(item.id, id));
   if (!company) return;
   const item = normalizeCompany(company);
-  const employees = state.employees.filter((employee) => employee.companyId === company.id);
+  const employees = state.employees.filter((employee) => sameId(employee.companyId, company.id));
   const pendencies = companyPendingDocumentsCount(company.id);
   const modal = document.createElement("div");
   modal.className = "modal-backdrop company-detail-backdrop";
@@ -3694,8 +3700,8 @@ function bindCompanyDetailEvents(modal, company) {
 
 function renderCompanyTab(company, tab) {
   const item = normalizeCompany(company);
-  const employees = state.employees.filter((employee) => employee.companyId === company.id);
-  const documents = state.documents.filter((doc) => doc.companyId === company.id);
+  const employees = state.employees.filter((employee) => sameId(employee.companyId, company.id));
+  const documents = state.documents.filter((doc) => sameId(doc.companyId, company.id));
   if (tab === "general") {
     return `
       <div class="detail-grid">
@@ -5249,7 +5255,7 @@ function bindDocumentUpload(scope) {
 }
 
 function companyForm(id) {
-  const item = state.companies.find((company) => company.id === id) || {};
+  const item = state.companies.find((company) => sameId(company.id, id)) || {};
   return {
     title: id ? "Editar empresa" : "Nova empresa",
     fields: [
@@ -5938,7 +5944,7 @@ function updateDocumentStatus(id, status) {
 }
 
 function demobilizeCompany(id) {
-  const company = state.companies.find((item) => item.id === id);
+  const company = state.companies.find((item) => sameId(item.id, id));
   if (!company) return;
   if (!confirm(`Deseja desmobilizar o contrato da empresa ${company.name}?`)) return;
   const previousStatus = company.status || "";
@@ -5960,6 +5966,15 @@ function demobilizeCompany(id) {
 }
 
 function removeItem(type, id) {
+  if (type === "company") {
+    alert("Empresas nao sao excluidas fisicamente. Use Desmobilizar para preservar o historico.");
+    demobilizeCompany(id);
+    return;
+  }
+  if (type === "contract") {
+    alert("Contratos nao sao excluidos fisicamente. Use Encerrar ou Desmobilizar para preservar o historico.");
+    return;
+  }
   if (type === "employee") {
     alert("Funcionarios nao sao excluidos fisicamente. Use Desmobilizar, Inativar ou Bloquear para manter o historico.");
     return;
@@ -5971,22 +5986,6 @@ function removeItem(type, id) {
     user: "users",
   };
   const collection = collections[type];
-  if (type === "company") {
-    const company = state.companies.find((item) => item.id === id);
-    const hasEmployees = state.employees.some((employee) => employee.companyId === id);
-    const message = hasEmployees
-      ? `Esta empresa possui funcionarios vinculados. Deseja excluir mesmo assim? Os funcionarios e documentos vinculados tambem serao removidos.`
-      : `Deseja excluir definitivamente a empresa ${company?.name || ""}?`;
-    if (!confirm(message)) return;
-    state.employees = state.employees.filter((employee) => employee.companyId !== id);
-    state.documents = state.documents.filter((doc) => doc.companyId !== id);
-    state.companies = state.companies.filter((item) => item.id !== id);
-    deleteRemote("companies", id).catch((error) => alert(`Nao foi possivel excluir online: ${error.message}`));
-    if (editingCompanyId === id) editingCompanyId = null;
-    saveState();
-    render();
-    return;
-  }
   if (type === "employee") {
     state.documents = state.documents.map((doc) => (sameId(doc.employeeId, id) ? { ...doc, employeeId: "" } : doc));
     if (editingEmployeeId === id) editingEmployeeId = null;
