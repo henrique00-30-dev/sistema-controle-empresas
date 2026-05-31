@@ -359,7 +359,7 @@ function ensureFiscalBase(data = state) {
     const fiscalName = String(company.fiscal || "").trim();
     if (!fiscalName || fiscalName === "Nao informado") return;
     const key = fiscalName.toLowerCase();
-    let fiscal = company.fiscalId ? data.fiscais.find((item) => item.id === company.fiscalId) : byName.get(key);
+    let fiscal = company.fiscalId ? data.fiscais.find((item) => sameId(item.id, company.fiscalId)) : byName.get(key);
     if (!fiscal) {
       fiscal = normalizeFiscal({
         id: crypto.randomUUID(),
@@ -1748,7 +1748,7 @@ function can(permission, item = null) {
       return canApproveDocumentSector(item);
     }
     if (permissions[action].includes(subject)) return true;
-    if (subject === "company" && permissions[action].includes("companyOwn")) return item?.id === user?.companyId;
+    if (subject === "company" && permissions[action].includes("companyOwn")) return sameId(item?.id, user?.companyId);
     if (subject === "employee" && permissions[action].includes("employeeOwn")) return item?.companyId === user?.companyId;
     if (subject === "document" && permissions[action].includes("documentOwn")) return item?.companyId === user?.companyId;
   }
@@ -2566,7 +2566,7 @@ function renderEmployees() {
     ${renderOperationalFilters("employees", baseItems, { quicks: ["Todos", "Ativo", "Bloqueado", "Pendente", "Medicina", "EHS", "Desmobilizado"], exportKey: "funcionarios-ativos" })}
     <section class="panel table-wrap">
       <table>
-        <thead><tr>${sortableHeader("employees", "ID/Matricula", "id")}${sortableHeader("employees", "Nome", "name")}${sortableHeader("employees", "CPF", "cpf")}<th>Empresa</th><th>Contrato</th>${sortableHeader("employees", "Funcao", "sector")}<th>Centro de custo</th>${sortableHeader("employees", "Status documental", "status")}<th>Status contratacao</th><th>ASO</th><th>Treinamento</th><th>Ultima atualizacao</th><th>Acoes</th></tr></thead>
+        <thead><tr>${sortableHeader("employees", "ID/Matricula", "id")}${sortableHeader("employees", "Nome", "name")}${sortableHeader("employees", "CPF", "cpf")}<th>Empresa</th><th>Contrato</th>${sortableHeader("employees", "Funcao", "sector")}<th>Centro de custo</th>${sortableHeader("employees", "Status documental", "status")}<th>Status contratacao</th><th>Etapa atual do fluxo</th><th>ASO</th><th>Treinamento</th><th>Ultima atualizacao</th><th>Acoes</th></tr></thead>
         <tbody>
           ${renderEmployeeGroupedRows(pageItems)}
         </tbody>
@@ -2654,10 +2654,116 @@ function renderEmployeeStatusFilters() {
   `;
 }
 
+function extractOperationalReasonText(raw = "") {
+  const text = String(raw || "").trim();
+  if (!text) return "";
+  const match = text.match(/motivo:\s*([^\n\r]+)/i);
+  if (match?.[1]) return match[1].trim();
+  const firstLine = text.split("\n").map((line) => line.trim()).find(Boolean) || "";
+  return firstLine.length > 140 ? `${firstLine.slice(0, 137)}...` : firstLine;
+}
+
+function workflowDisplayStatus(status = "") {
+  if (statusMatches(status, "Aprovado")) return "Concluido";
+  if (statusMatches(status, "Aprovado com pendencia")) return "Em analise";
+  if (statusMatches(status, "Reprovado")) return "Reprovado";
+  if (statusMatches(status, "Pendente")) return "Pendente";
+  if (statusMatches(status, "Em analise")) return "Em analise";
+  return "Pendente";
+}
+
+function workflowDisplayClass(status = "") {
+  if (statusMatches(status, "Concluido")) return "ok";
+  if (statusMatches(status, "Reprovado")) return "bad";
+  if (statusMatches(status, "Em analise")) return "analysis";
+  return "warn";
+}
+
+function employeeWorkflowReason(employee, step) {
+  const normalized = normalizeEmployee(employee);
+  const action = employeeWorkflowActions(normalized)?.[step.id] || {};
+  const actionReason = extractOperationalReasonText(action.motivo || action.observation || "");
+  if (actionReason) return actionReason;
+  if (step.id === "liberacao") return statusMatches(step.status, "Aprovado") ? "Fluxo completo concluido." : "Aguardando conclusao das etapas anteriores.";
+  const stepDocs = state.documents.filter((doc) => sameId(doc.employeeId, normalized.id) && documentOperationalSector(doc) === step.sector);
+  const issueDoc = stepDocs.find((doc) => statusMatches(docStatus(doc), "Reprovado", "Vencido", "Pendente", "Em analise", "A vencer"));
+  if (!issueDoc) return "";
+  const docReason = extractOperationalReasonText(documentVisibleNotes(issueDoc));
+  if (docReason) return docReason;
+  return `${issueDoc.type || "Documento"} em ${docStatus(issueDoc).toLowerCase()}.`;
+}
+
+function employeeOperationalStages(employee) {
+  const normalized = normalizeEmployee(employee);
+  const workflowSteps = employeeWorkflowSteps(normalized);
+  const byId = Object.fromEntries(workflowSteps.map((step) => [step.id, step]));
+  const supplierStatus = employeeHasCoreData(normalized) ? "Concluido" : "Pendente";
+  const documentStep = byId.fiscal || { status: "Pendente" };
+  const medicineStep = byId.medicina || { status: "Pendente" };
+  const ehsStep = byId.ehs || { status: "Pendente" };
+  const patrimonialStep = byId.patrimonial || { status: "Pendente" };
+  const liberacaoStep = byId.liberacao || { status: "Pendente" };
+  return [
+    {
+      key: "supplier",
+      label: "Fornecedor",
+      status: supplierStatus,
+      reason: supplierStatus === "Concluido" ? "Cadastro base enviado pelo fornecedor." : "Aguardando dados obrigatorios do fornecedor.",
+    },
+    {
+      key: "documentation",
+      label: "Documentacao",
+      status: workflowDisplayStatus(documentStep.status),
+      reason: employeeWorkflowReason(normalized, { ...documentStep, id: "fiscal", sector: "Fiscal" }),
+    },
+    {
+      key: "medicine",
+      label: "Medicina",
+      status: workflowDisplayStatus(medicineStep.status),
+      reason: employeeWorkflowReason(normalized, { ...medicineStep, id: "medicina", sector: "Medicina" }),
+    },
+    {
+      key: "ehs",
+      label: "EHS/SSMA",
+      status: workflowDisplayStatus(ehsStep.status),
+      reason: employeeWorkflowReason(normalized, { ...ehsStep, id: "ehs", sector: "EHS" }),
+    },
+    {
+      key: "patrimonial",
+      label: "Patrimonial",
+      status: workflowDisplayStatus(patrimonialStep.status),
+      reason: employeeWorkflowReason(normalized, { ...patrimonialStep, id: "patrimonial", sector: "Patrimonial" }),
+    },
+    {
+      key: "released",
+      label: "Liberado",
+      status: workflowDisplayStatus(liberacaoStep.status),
+      reason: employeeWorkflowReason(normalized, { ...liberacaoStep, id: "liberacao", sector: "Fiscal" }),
+    },
+  ];
+}
+
+function employeeCurrentOperationalStage(employee) {
+  const stages = employeeOperationalStages(employee);
+  const firstPending = stages.find((stage) => !statusMatches(stage.status, "Concluido"));
+  return firstPending ? `${firstPending.label} (${firstPending.status})` : "Liberado (Concluido)";
+}
+
+function renderEmployeeWorkflowInline(employee) {
+  const stages = employeeOperationalStages(employee);
+  return `
+    <div class="history-list">
+      ${stages.map((stage) => `<div class="item-card"><div class="item-row"><strong>${stage.label}</strong><span class="status ${workflowDisplayClass(stage.status)}">${stage.status}</span></div>${stage.reason ? `<span class="muted">${escapeHtml(stage.reason)}</span>` : ""}</div>`).join("")}
+    </div>
+  `;
+}
+
 function renderEmployeeRow(employee) {
   const item = normalizeEmployee(employee);
   const group = employeeVisualGroup(item);
-  const company = state.companies.find((entry) => entry.id === item.companyId);
+  const company = state.companies.find((entry) => sameId(entry.id, item.companyId));
+  const currentStage = employeeCurrentOperationalStage(item);
+  const stageReason = (employeeOperationalStages(item).find((stage) => !statusMatches(stage.status, "Concluido")) || {}).reason || "Fluxo sem pendencias.";
   return `
     <tr class="employee-row employee-row-${group.key}">
       <td><button class="link-button" type="button" data-employee-record="${employee.id}">${escapeHtml(employeeRegistration(item))}</button></td>
@@ -2669,6 +2775,7 @@ function renderEmployeeRow(employee) {
       <td>${item.costCenter || employeeCostCenter(item, company)}</td>
       <td>${statusBadge(item.docStatus)}</td>
       <td>${statusBadge(item.status)}</td>
+      <td><strong>${escapeHtml(currentStage)}</strong><br><span class="muted">${escapeHtml(stageReason)}</span></td>
       <td>${formatDate(item.asoValidity)}${isPastDate(item.asoValidity) ? `<br>${statusBadge("Vencido")}` : ""}</td>
       <td>${formatDate(item.trainingValidity)}${isPastDate(item.trainingValidity) ? `<br>${statusBadge("Vencido")}` : ""}</td>
       <td>${formatDateTime(employeeUpdatedAt(item))}</td>
@@ -2683,7 +2790,7 @@ function renderEmployeeRow(employee) {
 }
 
 function renderEmployeeGroupedRows(items) {
-  if (!items.length) return emptyRow(13);
+  if (!items.length) return emptyRow(14);
   const groups = [
     { key: "active", title: "Funcionarios ativos" },
     { key: "blocked", title: "Funcionarios bloqueados" },
@@ -2695,7 +2802,7 @@ function renderEmployeeGroupedRows(items) {
       if (!employees.length) return "";
       return `
         <tr class="employee-group-row employee-group-${group.key}">
-          <td colspan="13">
+          <td colspan="14">
             <span>${group.title}</span>
             <strong>${employees.length}</strong>
           </td>
@@ -2831,6 +2938,7 @@ function renderEmployeeRecordTab(employee, tab) {
   const employeeDocs = state.documents.filter((doc) => sameId(doc.employeeId, employee.id));
   const allDocs = [...employeeDocs, ...companyDocs];
   if (tab === "summary") {
+    const stages = employeeOperationalStages(employee);
     return `
       <div class="detail-grid">
         ${detailCard("Status geral", statusBadge(employee.status))}
@@ -2841,6 +2949,14 @@ function renderEmployeeRecordTab(employee, tab) {
         ${detailCard("Centro de custo", employee.costCenter || employeeCostCenter(employee, company))}
         ${detailCard("ASO", `${formatDate(employee.asoValidity)} ${isPastDate(employee.asoValidity) ? statusBadge("Vencido") : ""}`)}
         ${detailCard("Treinamento", `${formatDate(employee.trainingValidity)} ${isPastDate(employee.trainingValidity) ? statusBadge("Vencido") : ""}`)}
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Etapa</th><th>Status</th><th>Motivo/Pendencia</th></tr></thead>
+          <tbody>
+            ${stages.map((stage) => `<tr><td><strong>${stage.label}</strong></td><td><span class="status ${workflowDisplayClass(stage.status)}">${stage.status}</span></td><td>${escapeHtml(stage.reason || "Sem pendencia.")}</td></tr>`).join("")}
+          </tbody>
+        </table>
       </div>
       ${renderEmployeeApprovalCards(employee)}
       <div class="employee-workflow large">${renderEmployeeWorkflow(employee)}</div>
@@ -2984,6 +3100,7 @@ function renderEmployeeWorkflow(employee) {
           <strong>${step.label}</strong>
           ${workflowStatusBadge(step.status)}
           <em>${step.detail}</em>
+          ${employeeWorkflowReason(employee, step) ? `<span class="muted">${escapeHtml(employeeWorkflowReason(employee, step))}</span>` : ""}
           ${renderWorkflowStepActions(employee, step)}
         </div>
       `,
@@ -3095,7 +3212,7 @@ function canActOnWorkflowStep(step) {
 }
 
 function updateEmployeeWorkflowStep(employeeId, stepId, action) {
-  const employee = state.employees.find((item) => item.id === employeeId);
+  const employee = state.employees.find((item) => sameId(item.id, employeeId));
   if (!employee) return;
   const item = normalizeEmployee(employee);
   const step = employeeWorkflowSteps(item).find((entry) => entry.id === stepId);
@@ -3728,6 +3845,31 @@ function renderCompanyTab(company, tab) {
   const item = normalizeCompany(company);
   const employees = state.employees.filter((employee) => sameId(employee.companyId, company.id));
   const documents = state.documents.filter((doc) => sameId(doc.companyId, company.id));
+  const workflowSummary = employees.reduce(
+    (acc, employee) => {
+      const normalized = normalizeEmployee(employee);
+      const stages = employeeOperationalStages(normalized);
+      const stage = (key) => stages.find((entry) => entry.key === key);
+      if (statusMatches(normalized.status, "Bloqueado")) acc.blocked += 1;
+      if (statusMatches(normalized.status, "Desmobilizado", "Desmobilização solicitada", "Inativo")) acc.demobilized += 1;
+      if (statusMatches(stage("released")?.status, "Concluido")) acc.released += 1;
+      if (!statusMatches(stage("documentation")?.status, "Concluido")) acc.pendingDocumentation += 1;
+      if (!statusMatches(stage("medicine")?.status, "Concluido")) acc.pendingMedicine += 1;
+      if (!statusMatches(stage("ehs")?.status, "Concluido")) acc.pendingEhs += 1;
+      if (!statusMatches(stage("patrimonial")?.status, "Concluido")) acc.pendingPatrimonial += 1;
+      return acc;
+    },
+    {
+      total: employees.length,
+      released: 0,
+      pendingDocumentation: 0,
+      pendingMedicine: 0,
+      pendingEhs: 0,
+      pendingPatrimonial: 0,
+      blocked: 0,
+      demobilized: 0,
+    },
+  );
   if (tab === "general") {
     return `
       <div class="detail-grid">
@@ -3748,6 +3890,21 @@ function renderCompanyTab(company, tab) {
         ${detailCard("Fiscal responsavel", item.fiscal || "Nao informado")}
         ${detailCard("Fiscais adicionais", fiscalNames(item.fiscaisAdicionais))}
         ${detailCard("Observacoes", item.notes || item.observacoes || "Sem observacoes")}
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th colspan="2">Resumo operacional de funcionarios</th></tr></thead>
+          <tbody>
+            <tr><td>Total de funcionarios</td><td><strong>${workflowSummary.total}</strong></td></tr>
+            <tr><td>Liberados</td><td><strong>${workflowSummary.released}</strong></td></tr>
+            <tr><td>Pendentes documentacao</td><td><strong>${workflowSummary.pendingDocumentation}</strong></td></tr>
+            <tr><td>Pendentes medicina</td><td><strong>${workflowSummary.pendingMedicine}</strong></td></tr>
+            <tr><td>Pendentes EHS/SSMA</td><td><strong>${workflowSummary.pendingEhs}</strong></td></tr>
+            <tr><td>Pendentes patrimonial</td><td><strong>${workflowSummary.pendingPatrimonial}</strong></td></tr>
+            <tr><td>Bloqueados</td><td><strong>${workflowSummary.blocked}</strong></td></tr>
+            <tr><td>Desmobilizados</td><td><strong>${workflowSummary.demobilized}</strong></td></tr>
+          </tbody>
+        </table>
       </div>
     `;
   }
@@ -3817,7 +3974,7 @@ function renderCompanyTab(company, tab) {
   }
   if (tab === "fiscalization") {
     const fiscalIds = [item.fiscalId, ...(item.fiscaisAdicionais || [])].filter(Boolean);
-    const linkedFiscais = fiscalIds.map((id) => state.fiscais.find((fiscal) => fiscal.id === id)).filter(Boolean).map(normalizeFiscal);
+    const linkedFiscais = fiscalIds.map((id) => state.fiscais.find((fiscal) => sameId(fiscal.id, id))).filter(Boolean).map(normalizeFiscal);
     const pendingDocs = documents.filter((doc) => ["Pendente", "Reprovado", "Vencido", "A vencer"].includes(docStatus(doc)));
     return `
       <div class="detail-grid">
@@ -3842,7 +3999,7 @@ function renderCompanyTab(company, tab) {
 }
 
 function closeCompanyContract(id) {
-  const company = state.companies.find((item) => item.id === id);
+  const company = state.companies.find((item) => sameId(item.id, id));
   if (!company || !can("edit.company", company)) return false;
   if (!confirm(`Deseja encerrar o contrato da empresa ${company.name}?`)) return false;
   const previousStatus = company.status || "";
@@ -3901,7 +4058,7 @@ function bindContractDetailEvents(modal, company) {
 }
 
 function openCompanyQuickDetails(id) {
-  const company = state.companies.find((item) => item.id === id);
+  const company = state.companies.find((item) => sameId(item.id, id));
   if (!company) return;
   const item = normalizeCompany(company);
   const modal = document.createElement("div");
@@ -4029,15 +4186,13 @@ function renderContractTab(company, tab) {
     `;
   }
   if (tab === "history") {
-    return `
-      <div class="history-list">
-        <div class="item-card"><strong>Contrato registrado</strong><span class="muted">${formatDate(item.startDate)} - ${item.name}</span></div>
-        <div class="item-card"><strong>Status atual</strong><span class="muted">${item.status}</span></div>
-        <div class="item-card"><strong>Documentos monitorados</strong><span class="muted">${documents.length} documento(s) associados ao contrato.</span></div>
-        <div class="item-card"><strong>Funcionarios vinculados</strong><span class="muted">${employees.length} funcionario(s)/FIT vinculados.</span></div>
-        <div class="item-card"><strong>Pendencias atuais</strong><span class="muted">${pendingDocs.length} documento(s) e ${blockedEmployees.length} bloqueio(s) em acompanhamento.</span></div>
-      </div>
-    `;
+    return renderHistoryTimeline("contrato", company.id, [
+      `<div class="item-card"><strong>Contrato registrado</strong><span class="muted">${formatDate(item.startDate)} - ${item.name}</span></div>`,
+      `<div class="item-card"><strong>Status atual</strong><span class="muted">${item.status}</span></div>`,
+      `<div class="item-card"><strong>Documentos monitorados</strong><span class="muted">${documents.length} documento(s) associados ao contrato.</span></div>`,
+      `<div class="item-card"><strong>Funcionarios vinculados</strong><span class="muted">${employees.length} funcionario(s)/FIT vinculados.</span></div>`,
+      `<div class="item-card"><strong>Pendencias atuais</strong><span class="muted">${pendingDocs.length} documento(s) e ${blockedEmployees.length} bloqueio(s) em acompanhamento.</span></div>`,
+    ]);
   }
   return `
     <div class="grid-two">
@@ -4270,7 +4425,7 @@ function renderBlocks() {
             pageItems.length
               ? pageItems.map((item) => {
                   const isEmployee = item.blockType === "Funcionario";
-                  const company = state.companies.find((entry) => entry.id === item.blockCompanyId);
+                  const company = state.companies.find((entry) => sameId(entry.id, item.blockCompanyId));
                   return `<tr><td>${item.blockType}</td><td><strong>${item.blockName}</strong><br><span class="muted">${isEmployee ? item.role : item.cnpj}</span></td><td>${company?.name || item.blockName}</td><td>${company?.contract || item.contract || "Nao informado"}</td><td>${statusBadge(item.status)}</td><td>${isEmployee ? `<button class="btn secondary compact" type="button" data-employee-record="${item.id}">${icon("users")} Ver detalhes</button>` : `<button class="btn secondary compact" type="button" data-contract-detail="${item.id}">${icon("docs")} Ver detalhes</button>`}</td></tr>`;
                 }).join("")
               : emptyRow(6)
@@ -4695,7 +4850,7 @@ function toolbar(placeholder) {
 
 function rowActions(type, id) {
   if (type === "employee") {
-    const employee = state.employees.find((entry) => entry.id === id);
+    const employee = state.employees.find((entry) => sameId(entry.id, id));
     return employee ? employeeRowActions(employee) : "";
   }
   const collection = {
@@ -4703,7 +4858,7 @@ function rowActions(type, id) {
     document: state.documents,
     user: state.users,
   }[type];
-  const item = collection?.find((entry) => entry.id === id);
+  const item = collection?.find((entry) => sameId(entry.id, id));
   return `
     <div class="actions">
       ${can(`edit.${type}`, item) ? `<button class="btn icon" title="Editar" data-edit="${type}" data-id="${id}">${icon("edit")}</button>` : ""}
@@ -5442,7 +5597,7 @@ function employeeForm(id) {
 }
 
 function documentForm(id) {
-  const item = state.documents.find((doc) => doc.id === id) || {};
+  const item = state.documents.find((doc) => sameId(doc.id, id)) || {};
   const comments = documentSectorComments(item);
   const companyOptions = visibleCompanies().map((company) => ({ value: company.id, label: company.name }));
   const employeeSource = currentUser()?.role === "supplier" ? visibleEmployees() : state.employees;
@@ -5567,7 +5722,7 @@ function validateDocumentPayload(payload) {
 }
 
 function userForm(id) {
-  const item = state.users.find((user) => user.id === id) || {};
+  const item = state.users.find((user) => sameId(user.id, id)) || {};
   return {
     title: id ? "Editar usuario" : "Novo usuario",
     fields: [
@@ -5612,7 +5767,7 @@ function userForm(id) {
       if (isOnlineMode()) {
         try {
           const saved = await syncUserRecord(payload);
-          state.users = state.users.filter((user) => user.id === id || String(user.email || "").trim().toLowerCase() !== saved.email);
+          state.users = state.users.filter((user) => sameId(user.id, id) || String(user.email || "").trim().toLowerCase() !== saved.email);
           upsert("users", saved.id, { ...payload, ...saved, isNew: false });
           alert(id ? "Usuario atualizado com sucesso." : "Usuario criado com sucesso.");
         } catch (error) {
@@ -5651,6 +5806,7 @@ async function saveCompanyFromForm(form) {
     return;
   }
   const previous = state.companies.find((company) => sameId(company.id, id));
+  const isNewCompany = !previous;
   const previousStatus = previous?.status || "";
   const quickFiscal = createQuickFiscalFromCompanyForm(form);
   const selectedFiscalId = quickFiscal?.id || optionalNull(form.get("fiscalId"));
@@ -5697,6 +5853,16 @@ async function saveCompanyFromForm(form) {
     contract: contractNumber,
     risk: "Medio",
   });
+  const companyAuditAction = createHistoryEvent({
+    entityType: "empresa",
+    entityId: saved.id,
+    action: isNewCompany ? "Criacao de empresa" : "Edicao de empresa",
+    previousStatus: previousStatus || null,
+    nextStatus: saved.status || null,
+    observation: `${isNewCompany ? "Cadastro" : "Atualizacao"} da empresa ${saved.name}. Contrato: ${saved.contract || "Nao informado"}.`,
+  });
+  state.historico = upsertById(state.historico, companyAuditAction);
+  syncHistoryEvent(companyAuditAction);
   if (quickFiscal) {
     recordFiscalHistory(quickFiscal, "Fiscal criado", "", quickFiscal.status, `Fiscal ${quickFiscal.nome} criado no cadastro rapido da empresa ${saved.name}.`);
     syncFiscalRecord(quickFiscal)
@@ -5715,6 +5881,18 @@ async function saveCompanyFromForm(form) {
       previousStatus: previous?.fiscal || "",
       nextStatus: saved.fiscal || "",
       observation: `Fiscal principal da empresa ${saved.name} alterado.`,
+    });
+    state.historico = upsertById(state.historico, history);
+    syncHistoryEvent(history);
+  }
+  if ((previous?.manager || previous?.responsible || "") !== (saved.manager || saved.responsible || "")) {
+    const history = createHistoryEvent({
+      entityType: "empresa",
+      entityId: saved.id,
+      action: "Troca de gestor",
+      previousStatus: previous?.manager || previous?.responsible || "",
+      nextStatus: saved.manager || saved.responsible || "",
+      observation: `Gestor do contrato da empresa ${saved.name} alterado.`,
     });
     state.historico = upsertById(state.historico, history);
     syncHistoryEvent(history);
@@ -5865,6 +6043,7 @@ async function saveEmployeeFromForm(form) {
     return;
   }
   const existing = state.employees.find((employee) => sameId(employee.id, id));
+  const isNewEmployee = !existing;
   const previousStatus = existing?.status || "";
   const linkedCompany = normalizeCompany(state.companies.find((company) => sameId(company.id, form.get("companyId"))) || {});
   const canEditFullEmployee =
@@ -5930,6 +6109,16 @@ async function saveEmployeeFromForm(form) {
   draft.docStatus = calculateDocumentStatus(draft, linkedDocs);
   draft.status = calculateHiringStatus(draft, linkedDocs, draft.docStatus);
   const saved = upsert("employees", id, draft);
+  const employeeAuditAction = createHistoryEvent({
+    entityType: "funcionario",
+    entityId: saved.id,
+    action: isNewEmployee ? "Criacao de funcionario" : "Edicao de funcionario",
+    previousStatus: previousStatus || null,
+    nextStatus: saved.status || null,
+    observation: `${isNewEmployee ? "Cadastro" : "Atualizacao"} do funcionario ${saved.name}.`,
+  });
+  state.historico = upsertById(state.historico, employeeAuditAction);
+  syncHistoryEvent(employeeAuditAction);
   saveState();
   try {
     const onlineSaved = await syncCollection("employees", saved);
@@ -6197,7 +6386,7 @@ function removeItem(type, id) {
 }
 
 function normalizeCompany(company) {
-  const fiscal = company.fiscalId ? state.fiscais?.find((item) => item.id === company.fiscalId) : null;
+  const fiscal = company.fiscalId ? state.fiscais?.find((item) => sameId(item.id, company.fiscalId)) : null;
   return {
     ...company,
     fiscalId: company.fiscalId || company.fiscal_id || null,
