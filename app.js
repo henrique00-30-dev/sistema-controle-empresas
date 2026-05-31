@@ -220,21 +220,18 @@ const documentTypes = [
 ];
 
 const hiringStatuses = [
-  "Em analise",
-  "Pendente",
-  "Documentos pendente",
-  "Aguardando exames",
-  "Em treinamento",
-  "Aguardando aprovacao do fiscal",
-  "Aprovado",
+  "Em cadastro",
+  "Em análise documental",
+  "Aguardando medicina",
+  "Aguardando EHS/RH",
+  "Aguardando patrimonial",
   "Liberado",
-  "Ativo com pendencia",
   "Bloqueado",
+  "Desmobilização solicitada",
   "Desmobilizado",
-  "Inativo",
 ];
 
-const documentStatuses = ["Regular", "Pendente", "A vencer", "Vencido", "Reprovado"];
+const documentStatuses = ["Pendente", "Em análise", "Aprovado", "Reprovado", "Vencido", "Aprovado com pendência"];
 const fiscalStatuses = ["sem_acesso", "com_acesso", "inativo"];
 const DOC_META_MARKER = "\n\n[SCT_ENTERPRISE_META]";
 const EMPLOYEE_META_MARKER = "\n\n[SCT_EMPLOYEE_META]";
@@ -532,6 +529,18 @@ function isUuid(value) {
 function sameId(left, right) {
   if (left === null || left === undefined || right === null || right === undefined) return false;
   return String(left) === String(right);
+}
+
+function normalizeStatusKey(value = "") {
+  return String(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function sameStatus(left, right) {
+  return normalizeStatusKey(left) === normalizeStatusKey(right);
 }
 
 function buildSupabaseDiagnostics(config = {}) {
@@ -1611,23 +1620,23 @@ function matchesQuickFilter(view, item, quick) {
   const company = item.companyId ? state.companies.find((entry) => sameId(entry.id, item.companyId)) : item;
   const employee = item.cpf || item.role ? item : item.employeeId ? state.employees.find((entry) => sameId(entry.id, item.employeeId)) : null;
   const status = item.dueDate ? docStatus(item) : employee ? normalizeEmployee(employee).status : normalizeCompany(company).status;
-  if (quick === "Ativas") return ["Ativa", "Ativo"].includes(status);
-  if (quick === "Pendentes") return ["Pendente", "A vencer", "Reprovado", "Documentos pendente", "Aguardando exames", "Em treinamento", "Aguardando aprovacao do fiscal", "Ativo com pendencia"].includes(status);
-  if (quick === "Bloqueadas") return ["Bloqueado", "Bloqueada"].includes(status);
+  if (quick === "Ativas") return ["Ativa", "Ativo", "Liberado", "Aprovado"].some((value) => statusMatches(status, value));
+  if (quick === "Pendentes") return ["Pendente", "A vencer", "Reprovado", "Em análise documental", "Aguardando medicina", "Aguardando EHS/RH", "Aguardando patrimonial", "Desmobilização solicitada"].some((value) => statusMatches(status, value));
+  if (quick === "Bloqueadas") return ["Bloqueado", "Bloqueada"].some((value) => statusMatches(status, value));
   if (quick === "Contrato vencido") return company ? isPastDate(normalizeCompany(company).endDate) : false;
   if (quick === "Documentos vencidos") return employee ? employeeHasExpiredDocuments(employee) : company ? companyHasExpiredDocuments(company.id) : status === "Vencido";
   if (quick === "Sem fiscal vinculado") return company ? companyHasNoFiscal(company) : false;
-  if (quick === "Ativo") return ["Ativa", "Ativo", "Aprovado", "Liberado", "Ativo com pendencia"].includes(status);
-  if (quick === "Bloqueado") return ["Bloqueado", "Bloqueada", "Inativo"].includes(status);
-  if (quick === "Critico") return ["Bloqueado", "Bloqueada", "Pendente"].includes(status);
-  if (quick === "Pendente") return ["Pendente", "A vencer", "Reprovado", "Documentos pendente", "Aguardando exames", "Em treinamento", "Aguardando aprovacao do fiscal", "Ativo com pendencia"].includes(status);
+  if (quick === "Ativo") return ["Ativa", "Ativo", "Aprovado", "Liberado"].some((value) => statusMatches(status, value));
+  if (quick === "Bloqueado") return ["Bloqueado", "Bloqueada", "Inativo"].some((value) => statusMatches(status, value));
+  if (quick === "Critico") return ["Bloqueado", "Bloqueada", "Pendente"].some((value) => statusMatches(status, value));
+  if (quick === "Pendente") return ["Pendente", "A vencer", "Reprovado", "Em análise documental", "Aguardando medicina", "Aguardando EHS/RH", "Aguardando patrimonial", "Desmobilização solicitada"].some((value) => statusMatches(status, value));
   if (quick === "Vencido") return status === "Vencido";
-  if (quick === "Desmobilizado") return ["Desmobilizada", "Desmobilizado", "Inativa", "Inativo"].includes(status);
+  if (quick === "Desmobilizado") return ["Desmobilizada", "Desmobilizado", "Inativa", "Inativo"].some((value) => statusMatches(status, value));
   if (quick === "Vencendo") return contractDays(company) >= 0 && contractDays(company) <= 60;
   if (quick === "ASO vencido") return employee ? isPastDate(normalizeEmployee(employee).asoValidity) : false;
   if (quick === "Treinamento vencido") return employee ? isPastDate(normalizeEmployee(employee).trainingValidity) : false;
-  if (quick === "Medicina") return employee ? employeeMedicineStatus(normalizeEmployee(employee)) === "Pendente" || normalizeEmployee(employee).status === "Aguardando exames" : /aso|exame|medic/i.test(item.type || "");
-  if (quick === "EHS") return employee ? employeeEhsStatus(normalizeEmployee(employee)) === "Pendente" || normalizeEmployee(employee).status === "Em treinamento" : /nr-|treinamento|epi|segur/i.test(item.type || "");
+  if (quick === "Medicina") return employee ? employeeMedicineStatus(normalizeEmployee(employee)) === "Pendente" || statusMatches(normalizeEmployee(employee).status, "Aguardando medicina") : /aso|exame|medic/i.test(item.type || "");
+  if (quick === "EHS") return employee ? employeeEhsStatus(normalizeEmployee(employee)) === "Pendente" || statusMatches(normalizeEmployee(employee).status, "Aguardando EHS/RH") : /nr-|treinamento|epi|segur/i.test(item.type || "");
   return status === quick;
 }
 
@@ -1774,32 +1783,32 @@ function visibleDocuments() {
 function operationalMetrics(companies = visibleCompanies(), employees = visibleEmployees(), documents = visibleDocuments()) {
   const normalizedCompanies = companies.map((company) => ({ ...normalizeCompany(company), raw: company }));
   const normalizedEmployees = employees.map((employee) => ({ ...normalizeEmployee(employee), raw: employee }));
-  const pendingEmployeeStatuses = ["Pendente", "Documentos pendente", "Aguardando exames", "Em treinamento", "Aguardando aprovacao do fiscal", "Ativo com pendencia", "Em analise"];
+  const pendingEmployeeStatuses = ["Em cadastro", "Em análise documental", "Aguardando medicina", "Aguardando EHS/RH", "Aguardando patrimonial", "Desmobilização solicitada"];
   const criticalCompanyStatuses = ["Bloqueada", "Bloqueado", "Pendente"];
   const pendingApprovalStatuses = ["Pendente", "Reprovado", "A vencer"];
   return {
-    activeCompanies: normalizedCompanies.filter((company) => company.status === "Ativa").map((company) => company.raw),
-    activeContracts: normalizedCompanies.filter((company) => ["Ativa", "Pendente"].includes(company.status)).map((company) => company.raw),
+    activeCompanies: normalizedCompanies.filter((company) => statusMatches(company.status, "Ativa", "Ativo", "Pendente")).map((company) => company.raw),
+    activeContracts: normalizedCompanies.filter((company) => ["Ativa", "Pendente"].some((status) => statusMatches(company.status, status))).map((company) => company.raw),
     expiringContracts: normalizedCompanies.filter((company) => contractDays(company.raw) >= 0 && contractDays(company.raw) <= 60).map((company) => company.raw),
-    blockedContracts: normalizedCompanies.filter((company) => ["Bloqueada", "Bloqueado", "Inativa", "Desmobilizada"].includes(company.status)).map((company) => company.raw),
-    activeEmployees: normalizedEmployees.filter((employee) => ["Aprovado", "Ativo", "Liberado", "Ativo com pendencia"].includes(employee.status)).map((employee) => employee.raw),
-    blockedEmployees: normalizedEmployees.filter((employee) => ["Bloqueado"].includes(employee.status)).map((employee) => employee.raw),
+    blockedContracts: normalizedCompanies.filter((company) => ["Bloqueada", "Bloqueado", "Inativa", "Desmobilizada"].some((status) => statusMatches(company.status, status))).map((company) => company.raw),
+    activeEmployees: normalizedEmployees.filter((employee) => ["Liberado", "Aprovado"].some((status) => statusMatches(employee.status, status))).map((employee) => employee.raw),
+    blockedEmployees: normalizedEmployees.filter((employee) => statusMatches(employee.status, "Bloqueado")).map((employee) => employee.raw),
     pendingEmployees: normalizedEmployees.filter((employee) => pendingEmployeeStatuses.includes(employee.status)).map((employee) => employee.raw),
-    inactiveEmployees: normalizedEmployees.filter((employee) => ["Inativo", "Desmobilizado", "Desmobilizada"].includes(employee.status)).map((employee) => employee.raw),
+    inactiveEmployees: normalizedEmployees.filter((employee) => ["Inativo", "Desmobilizado"].some((status) => statusMatches(employee.status, status))).map((employee) => employee.raw),
     expiredAso: normalizedEmployees.filter((employee) => isPastDate(employee.asoValidity)).map((employee) => employee.raw),
     expiredTrainings: normalizedEmployees.filter((employee) => isPastDate(employee.trainingValidity)).map((employee) => employee.raw),
     medicinePendencies: normalizedEmployees
-      .filter((employee) => employee.status === "Aguardando exames" || ["Vencido", "A vencer"].includes(employee.docStatus) || employeeMedicineStatus(employee.raw) === "Pendente")
+      .filter((employee) => statusMatches(employee.status, "Aguardando medicina") || ["Vencido", "Pendente", "Em análise", "Reprovado", "Aprovado com pendência"].some((status) => statusMatches(employee.docStatus, status)) || employeeMedicineStatus(employee.raw) === "Pendente")
       .map((employee) => employee.raw),
     ehsPendencies: normalizedEmployees
-      .filter((employee) => ["Em treinamento", "Documentos pendente"].includes(employee.status) || employeeEhsStatus(employee.raw) === "Pendente")
+      .filter((employee) => statusMatches(employee.status, "Aguardando EHS/RH") || employeeEhsStatus(employee.raw) === "Pendente")
       .map((employee) => employee.raw),
-    patrimonialPendencies: normalizedEmployees.filter((employee) => employee.status === "Aguardando aprovacao do fiscal" || employeePatrimonialStatus(employee.raw) === "Pendente").map((employee) => employee.raw),
+    patrimonialPendencies: normalizedEmployees.filter((employee) => statusMatches(employee.status, "Aguardando patrimonial") || employeePatrimonialStatus(employee.raw) === "Pendente").map((employee) => employee.raw),
     expiredDocs: documents.filter((doc) => docStatus(doc) === "Vencido"),
     expiringDocs: documents.filter((doc) => docStatus(doc) === "A vencer"),
     pendingApprovals: documents.filter((doc) => pendingApprovalStatuses.includes(docStatus(doc))),
     criticalCompanies: normalizedCompanies
-      .filter((company) => criticalCompanyStatuses.includes(company.status) || documents.some((doc) => doc.companyId === company.id && ["Vencido", "Reprovado"].includes(docStatus(doc))) || employees.some((employee) => employee.companyId === company.id && normalizeEmployee(employee).status === "Bloqueado"))
+      .filter((company) => criticalCompanyStatuses.some((status) => statusMatches(company.status, status)) || documents.some((doc) => doc.companyId === company.id && ["Vencido", "Reprovado"].includes(docStatus(doc))) || employees.some((employee) => employee.companyId === company.id && statusMatches(normalizeEmployee(employee).status, "Bloqueado")))
       .map((company) => company.raw),
   };
 }
@@ -2136,14 +2145,138 @@ function employeeHasExpiredDocuments(employee = {}) {
   return isPastDate(item.asoValidity) || isPastDate(item.trainingValidity) || docs.some((doc) => docStatus(doc) === "Vencido");
 }
 
+function statusToken(value = "") {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function statusMatches(value, ...candidates) {
+  const actual = statusToken(value);
+  return candidates.some((candidate) => statusToken(candidate) === actual);
+}
+
+function normalizeDocumentStatusLabel(status = "") {
+  const map = {
+    regular: "Aprovado",
+    aprovado: "Aprovado",
+    pendente: "Pendente",
+    "em analise": "Em análise",
+    "a vencer": "A vencer",
+    vencido: "Vencido",
+    reprovado: "Reprovado",
+    "aprovado com pendencia": "Aprovado com pendência",
+  };
+  return map[statusToken(status)] || String(status || "").trim() || "Pendente";
+}
+
+function normalizeHiringStatusLabel(status = "") {
+  const map = {
+    "em cadastro": "Em cadastro",
+    "em analise": "Em análise documental",
+    "em analise documental": "Em análise documental",
+    "documentos pendente": "Em análise documental",
+    "pendente": "Em análise documental",
+    "aguardando exames": "Aguardando medicina",
+    "aguardando medicina": "Aguardando medicina",
+    "em treinamento": "Aguardando EHS/RH",
+    "aguardando ehs/rh": "Aguardando EHS/RH",
+    "aguardando aprovacao do fiscal": "Aguardando patrimonial",
+    "aguardando patrimonial": "Aguardando patrimonial",
+    liberado: "Liberado",
+    "ativo com pendencia": "Em análise documental",
+    bloqueado: "Bloqueado",
+    desmobilizado: "Desmobilizado",
+    "desmobilizacao solicitada": "Desmobilização solicitada",
+    inativo: "Desmobilizado",
+  };
+  return map[statusToken(status)] || String(status || "").trim() || "Em cadastro";
+}
+
+function employeeDocsFor(employee = {}, docs = state.documents) {
+  return (docs || []).filter((doc) => sameId(doc.employeeId, employee.id));
+}
+
+function employeeHasCoreData(employee = {}) {
+  return Boolean(
+    String(employee.name || "").trim() &&
+      String(employee.companyId || "").trim() &&
+      String(employee.role || "").trim() &&
+      onlyDigits(employee.cpf || "").length === 11,
+  );
+}
+
+function employeeWorkflowActions(employee = {}) {
+  const meta = employeeMeta(employee);
+  return employee.workflowActions || meta.workflowActions || {};
+}
+
+function normalizeWorkflowStatusLabel(status = "") {
+  const map = {
+    aprovado: "Aprovado",
+    "aprovado com pendencia": "Aprovado com pendencia",
+    pendente: "Pendente",
+    reprovado: "Reprovado",
+    bloqueado: "Bloqueado",
+  };
+  return map[statusToken(status)] || String(status || "").trim() || "Pendente";
+}
+
+function employeeWorkflowActionStatus(employee = {}, stepId = "") {
+  return normalizeWorkflowStatusLabel(employeeWorkflowActions(employee)?.[stepId]?.status || "");
+}
+
+function calculateDocumentStatus(employee = {}, docs = employeeDocsFor(employee)) {
+  const attachedDocs = (docs || []).filter(Boolean);
+  if (!attachedDocs.length) return "Pendente";
+  const fiscalWorkflowStatus = employeeWorkflowActionStatus(employee, "fiscal");
+  if (statusMatches(fiscalWorkflowStatus, "Reprovado", "Bloqueado")) return "Reprovado";
+  if (statusMatches(fiscalWorkflowStatus, "Aprovado", "Aprovado com pendencia")) {
+    if (attachedDocs.some((doc) => statusMatches(docStatus(doc), "Reprovado"))) return "Reprovado";
+    if (attachedDocs.some((doc) => statusMatches(docStatus(doc), "Vencido"))) return "Vencido";
+    return hasPendingApprovalException(employee) ? "Aprovado com pendência" : "Aprovado";
+  }
+  if (attachedDocs.some((doc) => statusMatches(docStatus(doc), "Reprovado"))) return "Reprovado";
+  if (attachedDocs.some((doc) => statusMatches(docStatus(doc), "Vencido"))) return "Vencido";
+  if (attachedDocs.some((doc) => statusMatches(docStatus(doc), "Pendente", "Em análise"))) return "Em análise";
+  return hasPendingApprovalException(employee) ? "Aprovado com pendência" : "Aprovado";
+}
+
+function calculateHiringStatus(employee = {}, docs = employeeDocsFor(employee), documentStatus = calculateDocumentStatus(employee, docs)) {
+  const rawStatus = normalizeHiringStatusLabel(employee.status || employee.hiringStatus || "");
+  if (statusMatches(rawStatus, "Bloqueado")) return "Bloqueado";
+  if (statusMatches(rawStatus, "Desmobilizado")) return "Desmobilizado";
+  if (statusMatches(rawStatus, "Desmobilização solicitada")) return "Desmobilização solicitada";
+  if (!employeeHasCoreData(employee)) return "Em cadastro";
+  if (statusMatches(documentStatus, "Reprovado", "Vencido")) return "Bloqueado";
+  if (statusMatches(documentStatus, "Pendente", "Em análise")) return "Em análise documental";
+  if (employeeMedicineStatus(employee, docs) !== "Aprovado") return "Aguardando medicina";
+  if (employeeEhsStatus(employee, docs) !== "Aprovado") return "Aguardando EHS/RH";
+  if (employeePatrimonialStatus(employee, docs) !== "Aprovado") return "Aguardando patrimonial";
+  return "Liberado";
+}
+
 function employeeMatchesStatusFilter(employee, filter) {
   if (!filter || filter === "Todos") return true;
   const item = normalizeEmployee(employee);
-  if (filter === "Documentos vencidos") return employeeHasExpiredDocuments(item);
-  if (filter === "Em analise") return ["Em analise", "Aguardando aprovacao do fiscal"].includes(item.status);
-  if (filter === "Pendente") return ["Pendente", "Documentos pendente", "Aguardando exames", "Em treinamento", "Aguardando aprovacao do fiscal"].includes(item.status) || item.docStatus === "Pendente";
-  if (filter === "Aprovado") return item.status === "Aprovado" || item.docStatus === "Regular";
-  return item.status === filter || item.docStatus === filter;
+  const normalizedFilter = normalizeHiringStatusLabel(filter);
+  if (statusMatches(filter, "Documentos vencidos")) return employeeHasExpiredDocuments(item);
+  if (statusMatches(normalizedFilter, "Em cadastro")) return statusMatches(item.status, "Em cadastro");
+  if (statusMatches(normalizedFilter, "Em análise documental")) return statusMatches(item.status, "Em análise documental");
+  if (statusMatches(normalizedFilter, "Aguardando medicina")) return statusMatches(item.status, "Aguardando medicina");
+  if (statusMatches(normalizedFilter, "Aguardando EHS/RH")) return statusMatches(item.status, "Aguardando EHS/RH");
+  if (statusMatches(normalizedFilter, "Aguardando patrimonial")) return statusMatches(item.status, "Aguardando patrimonial");
+  if (statusMatches(normalizedFilter, "Liberado")) return statusMatches(item.status, "Liberado");
+  if (statusMatches(normalizedFilter, "Bloqueado")) return statusMatches(item.status, "Bloqueado");
+  if (statusMatches(normalizedFilter, "Desmobilização solicitada")) return statusMatches(item.status, "Desmobilização solicitada");
+  if (statusMatches(normalizedFilter, "Desmobilizado")) return statusMatches(item.status, "Desmobilizado");
+  if (statusMatches(normalizedFilter, "Pendente")) return ["Em cadastro", "Em análise documental", "Aguardando medicina", "Aguardando EHS/RH", "Aguardando patrimonial", "Desmobilização solicitada"].some((status) => statusMatches(item.status, status)) || statusMatches(item.docStatus, "Pendente", "Em análise");
+  if (statusMatches(normalizedFilter, "Aprovado")) return statusMatches(item.status, "Liberado") || statusMatches(item.docStatus, "Aprovado", "Aprovado com pendência");
+  if (statusMatches(normalizedFilter, "Reprovado")) return statusMatches(item.docStatus, "Reprovado") || statusMatches(item.status, "Bloqueado");
+  if (statusMatches(normalizedFilter, "Vencido")) return statusMatches(item.docStatus, "Vencido") || employeeHasExpiredDocuments(item);
+  return statusMatches(item.status, normalizedFilter) || statusMatches(item.docStatus, normalizedFilter);
 }
 
 function historyEventsFor(entityType, entityId) {
@@ -2453,7 +2586,7 @@ function renderEmployeeEditor(employee = null) {
 }
 
 function renderEmployeeStatusFilters() {
-  const filters = ["Todos", "Em analise", "Pendente", "Aprovado", "Liberado", "Ativo com pendencia", "Bloqueado", "Desmobilizado", "Inativo", "Documentos vencidos"];
+  const filters = ["Todos", "Em cadastro", "Em análise documental", "Aguardando medicina", "Aguardando EHS/RH", "Aguardando patrimonial", "Liberado", "Bloqueado", "Desmobilização solicitada", "Desmobilizado", "Documentos vencidos"];
   return `
     <div class="status-filter" aria-label="Filtros de funcionarios por status">
       ${filters
@@ -2520,8 +2653,8 @@ function renderEmployeeGroupedRows(items) {
 
 function employeeVisualGroup(employee) {
   const status = normalizeEmployee(employee).status;
-  if (status === "Bloqueado") return { key: "blocked", title: "Funcionarios bloqueados" };
-  if (["Desmobilizado", "Desmobilizada", "Inativo", "Inativa"].includes(status)) return { key: "inactive", title: "Funcionarios desmobilizados/inativos" };
+  if (statusMatches(status, "Bloqueado")) return { key: "blocked", title: "Funcionarios bloqueados" };
+  if (statusMatches(status, "Desmobilizado", "Inativo")) return { key: "inactive", title: "Funcionarios desmobilizados/inativos" };
   return { key: "active", title: "Funcionarios ativos" };
 }
 
@@ -2807,6 +2940,8 @@ function employeeWorkflowSteps(employee) {
   const item = normalizeEmployee(employee);
   const workflow = item.workflowActions || {};
   const docs = state.documents.filter((doc) => sameId(doc.employeeId, item.id));
+  const documentStatus = calculateDocumentStatus(item, docs);
+  const hiringStatus = calculateHiringStatus(item, docs, documentStatus);
   const exception = hasPendingApprovalException(item);
   const fiscalDocs = docs.filter((doc) => documentOperationalSector(doc) === "Fiscal");
   const medicineDocs = docs.filter((doc) => documentOperationalSector(doc) === "Medicina");
@@ -2819,8 +2954,8 @@ function employeeWorkflowSteps(employee) {
       label: "Fiscal / Documentos pessoais",
       icon: "docs",
       status: workflow.fiscal?.status || resolveWorkflowStepStatus(item, fiscalDocs, {
-        pending: item.status === "Documentos pendente" || item.docStatus === "Pendente",
-        approved: item.docStatus === "Regular" || fiscalDocs.some((doc) => docStatus(doc) === "Aprovado"),
+        pending: statusMatches(documentStatus, "Pendente", "Em análise"),
+        approved: statusMatches(documentStatus, "Aprovado", "Aprovado com pendência") || fiscalDocs.some((doc) => statusMatches(docStatus(doc), "Aprovado", "A vencer")),
         exception,
       }),
       detail: "Cadastro, CPF, vinculo e documentos pessoais",
@@ -2831,7 +2966,7 @@ function employeeWorkflowSteps(employee) {
       label: "Medicina",
       icon: "shield",
       status: workflow.medicina?.status || resolveWorkflowStepStatus(item, medicineDocs, {
-        pending: item.status === "Aguardando exames" || employeeMedicineStatus(item, docs) === "Pendente",
+        pending: statusMatches(hiringStatus, "Aguardando medicina") || employeeMedicineStatus(item, docs) === "Pendente",
         approved: employeeMedicineStatus(item, docs) === "Aprovado",
         exception,
       }),
@@ -2843,7 +2978,7 @@ function employeeWorkflowSteps(employee) {
       label: "EHS",
       icon: "factory",
       status: workflow.ehs?.status || resolveWorkflowStepStatus(item, ehsDocs, {
-        pending: item.status === "Em treinamento" || employeeEhsStatus(item, docs) === "Pendente",
+        pending: statusMatches(hiringStatus, "Aguardando EHS/RH") || employeeEhsStatus(item, docs) === "Pendente",
         approved: employeeEhsStatus(item, docs) === "Aprovado",
         exception,
       }),
@@ -2855,14 +2990,14 @@ function employeeWorkflowSteps(employee) {
       label: "Patrimonial",
       icon: "block",
       status: workflow.patrimonial?.status || resolveWorkflowStepStatus(item, patrimonialDocs, {
-        pending: item.status === "Aguardando aprovacao do fiscal" || employeePatrimonialStatus(item) === "Pendente",
-        approved: employeePatrimonialStatus(item) === "Aprovado",
+        pending: statusMatches(hiringStatus, "Aguardando patrimonial") || employeePatrimonialStatus(item, docs) === "Pendente",
+        approved: employeePatrimonialStatus(item, docs) === "Aprovado",
         exception,
       }),
       detail: "Acesso, credencial e liberacao patrimonial",
     },
   ];
-  const blockingStatus = item.status === "Bloqueado" || steps.some((step) => step.status === "Bloqueado");
+  const blockingStatus = statusMatches(hiringStatus, "Bloqueado") || steps.some((step) => step.status === "Bloqueado");
   const rejectedStatus = steps.some((step) => step.status === "Reprovado");
   const pendingStatus = steps.some((step) => ["Pendente", "Aprovado com pendencia"].includes(step.status));
   steps.push({
@@ -2870,7 +3005,17 @@ function employeeWorkflowSteps(employee) {
     sector: "Fiscal",
     label: "Liberacao final",
     icon: "approve",
-    status: workflow.liberacao?.status || (blockingStatus ? "Bloqueado" : rejectedStatus ? "Reprovado" : pendingStatus ? (exception ? "Aprovado com pendencia" : "Pendente") : "Aprovado"),
+    status:
+      workflow.liberacao?.status ||
+      (blockingStatus
+        ? "Bloqueado"
+        : rejectedStatus
+          ? "Reprovado"
+          : pendingStatus || ["Em cadastro", "Em análise documental", "Aguardando medicina", "Aguardando EHS/RH", "Aguardando patrimonial", "Desmobilização solicitada"].some((status) => statusMatches(hiringStatus, status))
+            ? exception
+              ? "Aprovado com pendencia"
+              : "Pendente"
+            : "Aprovado"),
     detail: "Consolidacao fiscal para inicio ou manutencao",
   });
   return steps;
@@ -3031,11 +3176,11 @@ function workflowStatusBadge(status) {
 }
 
 function resolveWorkflowStepStatus(employee, docs, { pending = false, approved = false, exception = false } = {}) {
-  if (employee.status === "Bloqueado") return "Bloqueado";
-  if (docs.some((doc) => doc.status === "Reprovado" || docStatus(doc) === "Reprovado")) return "Reprovado";
-  if (docs.some((doc) => docStatus(doc) === "Vencido")) return "Bloqueado";
-  if (pending || docs.some((doc) => ["Pendente", "A vencer"].includes(docStatus(doc)))) return exception ? "Aprovado com pendencia" : "Pendente";
-  if (approved || docs.some((doc) => docStatus(doc) === "Aprovado")) return "Aprovado";
+  if (statusMatches(employee.status, "Bloqueado")) return "Bloqueado";
+  if (docs.some((doc) => statusMatches(doc.status, "Reprovado") || statusMatches(docStatus(doc), "Reprovado"))) return "Reprovado";
+  if (docs.some((doc) => statusMatches(docStatus(doc), "Vencido"))) return "Bloqueado";
+  if (pending || docs.some((doc) => ["Pendente", "A vencer", "Em análise"].some((value) => statusMatches(docStatus(doc), value)))) return exception ? "Aprovado com pendencia" : "Pendente";
+  if (approved || docs.some((doc) => ["Aprovado", "A vencer"].some((value) => statusMatches(docStatus(doc), value)))) return "Aprovado";
   return exception ? "Aprovado com pendencia" : "Pendente";
 }
 
@@ -3068,28 +3213,46 @@ function employeeCostCenter(employee, company) {
 }
 
 function employeeActiveState(employee) {
-  if (employee.status === "Bloqueado") return "Bloqueado";
-  if (["Inativo", "Desmobilizado", "Desmobilizada"].includes(employee.status)) return "Inativo";
-  if (employee.status === "Ativo com pendencia") return "Ativo com pendencia";
+  const status = normalizeHiringStatusLabel(employee.status);
+  if (statusMatches(status, "Bloqueado")) return "Bloqueado";
+  if (statusMatches(status, "Desmobilizado")) return "Inativo";
+  if (statusMatches(status, "Desmobilização solicitada", "Em análise documental", "Aguardando medicina", "Aguardando EHS/RH", "Aguardando patrimonial")) return "Ativo com pendencia";
   return "Ativo";
 }
 
 function employeeMedicineStatus(employee, docs = []) {
-  if (employee.status === "Aguardando exames") return "Pendente";
-  if (employee.docStatus === "Vencido" || employee.docStatus === "A vencer") return employee.docStatus;
-  if (docs.some((doc) => /aso|exame|medic/i.test(doc.type) && docStatus(doc) === "Aprovado")) return "Aprovado";
-  return employee.asoValidity ? "Aprovado" : "Pendente";
+  const workflowStatus = employeeWorkflowActionStatus(employee, "medicina");
+  if (statusMatches(workflowStatus, "Aprovado", "Aprovado com pendencia")) return "Aprovado";
+  if (statusMatches(workflowStatus, "Reprovado", "Bloqueado")) return "Pendente";
+  if (statusMatches(employee.status, "Bloqueado", "Desmobilizado")) return "Pendente";
+  if (statusMatches(employee.status, "Liberado", "Aprovado")) return "Aprovado";
+  const medicineDocs = docs.filter((doc) => /aso|exame|medic/i.test(doc.type));
+  if (medicineDocs.some((doc) => statusMatches(docStatus(doc), "Reprovado", "Vencido", "Pendente", "Em análise"))) return "Pendente";
+  if (medicineDocs.some((doc) => statusMatches(docStatus(doc), "Aprovado", "A vencer"))) return "Aprovado";
+  return employee.asoValidity && !isPastDate(employee.asoValidity) ? "Aprovado" : "Pendente";
 }
 
 function employeeEhsStatus(employee, docs = []) {
-  if (employee.status === "Em treinamento") return "Pendente";
-  if (docs.some((doc) => /nr-|treinamento|epi|segur/i.test(doc.type) && docStatus(doc) === "Aprovado")) return "Aprovado";
-  return employee.trainingValidity ? "Aprovado" : "Pendente";
+  const workflowStatus = employeeWorkflowActionStatus(employee, "ehs");
+  if (statusMatches(workflowStatus, "Aprovado", "Aprovado com pendencia")) return "Aprovado";
+  if (statusMatches(workflowStatus, "Reprovado", "Bloqueado")) return "Pendente";
+  if (statusMatches(employee.status, "Bloqueado", "Desmobilizado")) return "Pendente";
+  if (statusMatches(employee.status, "Liberado", "Aprovado")) return "Aprovado";
+  const ehsDocs = docs.filter((doc) => /nr-|treinamento|epi|segur/i.test(doc.type));
+  if (ehsDocs.some((doc) => statusMatches(docStatus(doc), "Reprovado", "Vencido", "Pendente", "Em análise"))) return "Pendente";
+  if (ehsDocs.some((doc) => statusMatches(docStatus(doc), "Aprovado", "A vencer"))) return "Aprovado";
+  return employee.trainingValidity && !isPastDate(employee.trainingValidity) ? "Aprovado" : "Pendente";
 }
 
-function employeePatrimonialStatus(employee) {
-  if (["Bloqueado", "Inativo"].includes(employee.status)) return employee.status;
-  if (employee.status === "Aprovado" || employee.status === "Ativo") return "Aprovado";
+function employeePatrimonialStatus(employee, docs = []) {
+  const workflowStatus = employeeWorkflowActionStatus(employee, "patrimonial");
+  if (statusMatches(workflowStatus, "Aprovado", "Aprovado com pendencia")) return "Aprovado";
+  if (statusMatches(workflowStatus, "Reprovado", "Bloqueado")) return "Pendente";
+  if (statusMatches(employee.status, "Bloqueado", "Desmobilizado")) return "Pendente";
+  if (statusMatches(employee.status, "Liberado", "Aprovado")) return "Aprovado";
+  const patrimonialDocs = docs.filter((doc) => documentOperationalSector(doc) === "Patrimonial");
+  if (patrimonialDocs.some((doc) => statusMatches(docStatus(doc), "Reprovado", "Vencido", "Pendente", "Em análise"))) return "Pendente";
+  if (patrimonialDocs.some((doc) => statusMatches(docStatus(doc), "Aprovado", "A vencer"))) return "Aprovado";
   return "Pendente";
 }
 
@@ -3098,17 +3261,20 @@ function applyAutomaticStatusRules({ syncRemote = false, source = "Motor automat
   state.historico ||= [];
   const changes = [];
   const inactiveCompanyStatuses = ["Inativa", "Desmobilizada", "Encerrado"];
-  const inactiveEmployeeStatuses = ["Inativo", "Desmobilizado", "Desmobilizada"];
-  const employeePendingStatuses = ["Pendente", "Documentos pendente", "Aguardando exames", "Em treinamento", "Aguardando aprovacao do fiscal", "Ativo com pendencia"];
+  const employeePendingStatuses = ["Em cadastro", "Em análise documental", "Aguardando medicina", "Aguardando EHS/RH", "Aguardando patrimonial", "Desmobilização solicitada"];
 
-  const registerStatusChange = (collection, entityType, item, nextStatus, observation) => {
-    const previousStatus = item.status || "";
+  const registerStatusChange = (collection, entityType, item, fieldOrNextStatus, maybeNextStatus, maybeObservation) => {
+    const hasExplicitField = typeof maybeObservation !== "undefined";
+    const field = hasExplicitField ? fieldOrNextStatus : "status";
+    const nextStatus = hasExplicitField ? maybeNextStatus : fieldOrNextStatus;
+    const observation = hasExplicitField ? maybeObservation : maybeNextStatus;
+    const previousStatus = item[field] || "";
     if (!nextStatus || previousStatus === nextStatus) return;
-    item.status = nextStatus;
+    item[field] = nextStatus;
     const history = createHistoryEvent({
       entityType,
       entityId: item.id,
-      action: "Status automatico",
+      action: field === "docStatus" ? "Status documental automatico" : "Status contratacao automatico",
       previousStatus,
       nextStatus,
       observation: `${source}: ${observation}`,
@@ -3119,57 +3285,28 @@ function applyAutomaticStatusRules({ syncRemote = false, source = "Motor automat
 
   state.employees.forEach((employee) => {
     const item = normalizeEmployee(employee);
-    if (inactiveEmployeeStatuses.includes(item.status)) return;
-    const docs = state.documents.filter((doc) => sameId(doc.employeeId, item.id));
-    const expiredDocs = docs.filter((doc) => docStatus(doc) === "Vencido" || doc.status === "Reprovado");
-    const pendingDocs = docs.filter((doc) => ["Pendente", "A vencer"].includes(docStatus(doc)));
-    const workflowBase = item.status === "Bloqueado" && !expiredDocs.length ? { ...item, status: "Em analise" } : item;
-    const workflowSteps = employeeWorkflowSteps(workflowBase);
+    const docs = employeeDocsFor(item);
+    const nextDocumentStatus = calculateDocumentStatus(item, docs);
+    const nextHiringStatus = calculateHiringStatus(item, docs, nextDocumentStatus);
+    const workflowSteps = employeeWorkflowSteps(item);
     const workflowStatuses = workflowSteps.map((step) => step.status);
     const hasWorkflowRejection = workflowStatuses.includes("Reprovado");
     const hasWorkflowBlock = workflowStatuses.includes("Bloqueado");
-    const hasWorkflowPendingApproval = workflowStatuses.includes("Aprovado com pendencia");
     const hasWorkflowPending = workflowStatuses.includes("Pendente");
-    const allWorkflowApproved = workflowSteps.length > 0 && workflowStatuses.every((status) => status === "Aprovado");
-    const hasPendingApproval = ["Aprovado", "Ativo", "Liberado"].includes(item.status) && pendingDocs.length && !hasPendingApprovalException(item);
+    const hasBlockingDocs = docs.some((doc) => statusMatches(docStatus(doc), "Vencido", "Reprovado"));
 
-    if (expiredDocs.length || hasWorkflowRejection || hasWorkflowBlock) {
-      const reason = expiredDocs.length ? `documento vencido ou reprovado (${expiredDocs[0].type})` : "etapa do workflow reprovada ou bloqueada";
-      registerStatusChange("employees", "funcionario", employee, "Bloqueado", reason);
-      employee.docStatus = "Vencido";
+    registerStatusChange("employees", "funcionario", employee, "docStatus", nextDocumentStatus, `status documental recalculado para ${nextDocumentStatus}`);
+    registerStatusChange("employees", "funcionario", employee, "status", nextHiringStatus, `status de contratacao recalculado para ${nextHiringStatus}`);
+
+    if (hasBlockingDocs || hasWorkflowRejection || hasWorkflowBlock || statusMatches(nextHiringStatus, "Bloqueado")) {
+      registerStatusChange("employees", "funcionario", employee, "status", "Bloqueado", hasBlockingDocs ? `documento vencido ou reprovado (${docs.find((doc) => statusMatches(docStatus(doc), "Vencido", "Reprovado"))?.type || "documento"})` : "etapa do workflow reprovada ou bloqueada");
       return;
     }
-    if (hasWorkflowPendingApproval || hasPendingApprovalException(item)) {
-      registerStatusChange("employees", "funcionario", employee, "Ativo com pendencia", "aprovacao com pendencia formalizada com responsavel, motivo e prazo");
-      employee.docStatus = pendingDocs.length ? "A vencer" : "Regular";
-      return;
-    }
-    if (hasPendingApproval || pendingDocs.length) {
-      const sector = documentOperationalSector(pendingDocs[0]);
-      const nextStatus =
-        sector === "Medicina"
-          ? "Aguardando exames"
-          : sector === "EHS"
-            ? "Em treinamento"
-            : sector === "Patrimonial"
-              ? "Aguardando aprovacao do fiscal"
-              : "Pendente";
-      registerStatusChange("employees", "funcionario", employee, nextStatus, `pendencia documental no setor ${sector}`);
-      employee.docStatus = pendingDocs.some((doc) => docStatus(doc) === "A vencer") ? "A vencer" : "Pendente";
-      return;
-    }
-    if (hasWorkflowPending) {
-      registerStatusChange("employees", "funcionario", employee, "Pendente", "etapas do workflow ainda pendentes");
-      employee.docStatus = docs.length && docs.every((doc) => docStatus(doc) === "Aprovado") ? "Regular" : employee.docStatus || "Pendente";
-      return;
-    }
-    if (allWorkflowApproved && (!docs.length || docs.every((doc) => docStatus(doc) === "Aprovado"))) {
-      registerStatusChange("employees", "funcionario", employee, "Liberado", "todas as etapas do workflow e documentos aprovados");
-      employee.docStatus = "Regular";
-      return;
-    }
-    if (item.docStatus !== "Regular" && docs.length && docs.every((doc) => docStatus(doc) === "Aprovado")) {
-      employee.docStatus = "Regular";
+    if (hasPendingApprovalException(item)) {
+      registerStatusChange("employees", "funcionario", employee, "docStatus", "Aprovado com pendência", "aprovacao com pendencia formalizada com responsavel, motivo e prazo");
+      if (!statusMatches(nextHiringStatus, "Liberado")) {
+        registerStatusChange("employees", "funcionario", employee, "status", "Liberado", "aprovacao com pendencia nao bloqueia a liberacao operacional");
+      }
     }
   });
 
@@ -3436,9 +3573,9 @@ function openContractDetails(id) {
 function renderContractOperationalSummary(company) {
   const employees = state.employees.filter((employee) => employee.companyId === company.id);
   const documents = state.documents.filter((doc) => doc.companyId === company.id);
-  const pendencies = documents.filter((doc) => docStatus(doc) !== "Aprovado").length + employees.filter((employee) => ["Documentos pendente", "Aguardando exames", "Em treinamento", "Aguardando aprovacao do fiscal"].includes(normalizeEmployee(employee).status)).length;
+  const pendencies = documents.filter((doc) => !statusMatches(docStatus(doc), "Aprovado")).length + employees.filter((employee) => ["Em análise documental", "Aguardando medicina", "Aguardando EHS/RH", "Aguardando patrimonial", "Desmobilização solicitada"].some((status) => statusMatches(normalizeEmployee(employee).status, status))).length;
   const expiring = documents.filter((doc) => docStatus(doc) === "A vencer").length + (contractDays(company) >= 0 && contractDays(company) <= 60 ? 1 : 0);
-  const blocks = employees.filter((employee) => ["Bloqueado", "Inativo"].includes(normalizeEmployee(employee).status)).length + (["Bloqueada", "Bloqueado", "Inativa", "Desmobilizada"].includes(normalizeCompany(company).status) ? 1 : 0);
+  const blocks = employees.filter((employee) => ["Bloqueado", "Desmobilizado", "Inativo"].some((status) => statusMatches(normalizeEmployee(employee).status, status))).length + (["Bloqueada", "Bloqueado", "Inativa", "Desmobilizada"].some((status) => statusMatches(normalizeCompany(company).status, status)) ? 1 : 0);
   return `
     <div class="contract-ops-summary">
       <div><span>Funcionarios</span><strong>${employees.length}</strong></div>
@@ -3765,7 +3902,7 @@ function renderContractTab(company, tab) {
   const employees = state.employees.filter((employee) => employee.companyId === company.id);
   const documents = state.documents.filter((doc) => doc.companyId === company.id);
   const days = contractDays(item);
-  const blockedEmployees = employees.filter((employee) => ["Bloqueado", "Inativo"].includes(normalizeEmployee(employee).status));
+  const blockedEmployees = employees.filter((employee) => ["Bloqueado", "Desmobilizado", "Inativo"].some((status) => statusMatches(normalizeEmployee(employee).status, status)));
   const pendingDocs = documents.filter((doc) => docStatus(doc) !== "Aprovado");
   if (tab === "general") {
     return `
@@ -3990,8 +4127,8 @@ function renderThirdPartyManagement() {
   const cards = companies
     .map((company) => {
       const companyEmployees = employees.filter((employee) => employee.companyId === company.id);
-      const blocked = companyEmployees.filter((employee) => ["Bloqueado", "Inativo"].includes(normalizeEmployee(employee).status)).length;
-      const approved = companyEmployees.filter((employee) => ["Aprovado", "Ativo"].includes(normalizeEmployee(employee).status)).length;
+      const blocked = companyEmployees.filter((employee) => ["Bloqueado", "Desmobilizado", "Inativo"].some((status) => statusMatches(normalizeEmployee(employee).status, status))).length;
+      const approved = companyEmployees.filter((employee) => ["Liberado", "Aprovado"].some((status) => statusMatches(normalizeEmployee(employee).status, status))).length;
       return `
         <article class="supplier-card">
           <div class="supplier-card-head">
@@ -4036,7 +4173,7 @@ function renderCompliance() {
   const risks = [
     ["Documentos vencidos", documents.filter((doc) => docStatus(doc) === "Vencido").length, "bad"],
     ["Empresas desmobilizadas", companies.filter((company) => normalizeCompany(company).status === "Desmobilizada").length, "warn"],
-    ["Funcionarios bloqueados", employees.filter((employee) => normalizeEmployee(employee).status === "Bloqueado").length, "bad"],
+    ["Funcionarios bloqueados", employees.filter((employee) => ["Bloqueado", "Desmobilizado"].some((status) => statusMatches(normalizeEmployee(employee).status, status))).length, "bad"],
     ["Pendencias totais", documents.filter((doc) => docStatus(doc) !== "Aprovado").length, "info"],
   ];
   return `
@@ -4070,8 +4207,8 @@ function renderCompliance() {
 }
 
 function renderBlocks() {
-  const blockedCompanies = visibleCompanies().filter((company) => ["Bloqueada", "Bloqueado", "Inativa", "Desmobilizada"].includes(normalizeCompany(company).status));
-  const blockedEmployees = visibleEmployees().filter((employee) => ["Bloqueado", "Inativo"].includes(normalizeEmployee(employee).status));
+  const blockedCompanies = visibleCompanies().filter((company) => ["Bloqueada", "Bloqueado", "Inativa", "Desmobilizada"].some((status) => statusMatches(normalizeCompany(company).status, status)));
+  const blockedEmployees = visibleEmployees().filter((employee) => ["Bloqueado", "Desmobilizado", "Inativo"].some((status) => statusMatches(normalizeEmployee(employee).status, status)));
   const baseItems = [
     ...blockedCompanies.map((company) => ({ ...company, blockType: "Empresa", blockName: company.name, blockCompanyId: company.id })),
     ...blockedEmployees.map((employee) => ({ ...employee, blockType: "Funcionario", blockName: employee.name, blockCompanyId: employee.companyId })),
@@ -4574,24 +4711,37 @@ function emptyRow(columns) {
 }
 
 function statusBadge(status) {
+  const raw = String(status || "").trim();
+  const docLabel = normalizeDocumentStatusLabel(raw);
+  const hireLabel = normalizeHiringStatusLabel(raw);
+  const normalized = [
+    "Pendente",
+    "Em análise",
+    "Aprovado",
+    "Reprovado",
+    "Vencido",
+    "Aprovado com pendência",
+    "A vencer",
+  ].includes(docLabel)
+    ? docLabel
+    : hireLabel;
   const kind = {
     Aprovado: "ok",
-    "Aprovado com pendencia": "conditional",
-    Regular: "ok",
+    "Aprovado com pendência": "conditional",
     Ativa: "ok",
     Ativo: "ok",
     Liberado: "ok",
     Integrado: "ok",
     Conectado: "ok",
     Estatico: "ok",
+    "Em análise": "analysis",
+    "Em análise documental": "analysis",
     "A vencer": "warn",
     Pendente: "warn",
-    "Ativo com pendencia": "conditional",
-    "Em analise": "analysis",
-    "Documentos pendente": "pending-docs",
-    "Aguardando exames": "exams",
-    "Em treinamento": "training",
-    "Aguardando aprovacao do fiscal": "fiscal",
+    "Aguardando medicina": "exams",
+    "Aguardando EHS/RH": "training",
+    "Aguardando patrimonial": "fiscal",
+    "Desmobilização solicitada": "warn",
     Vencido: "bad",
     Inativa: "bad",
     Inativo: "bad",
@@ -4603,31 +4753,48 @@ function statusBadge(status) {
     Bloqueada: "bad",
     Preparado: "info",
     Roadmap: "info",
-  }[status] || "info";
-  return `<span class="status ${kind}">${status}</span>`;
+  }[normalized] || "info";
+  return `<span class="status ${kind}">${escapeHtml(normalized)}</span>`;
 }
 
 function statusClass(status) {
+  const raw = String(status || "").trim();
+  const docLabel = normalizeDocumentStatusLabel(raw);
+  const hireLabel = normalizeHiringStatusLabel(raw);
+  const normalized = [
+    "Pendente",
+    "Em análise",
+    "Aprovado",
+    "Reprovado",
+    "Vencido",
+    "Aprovado com pendência",
+    "A vencer",
+  ].includes(docLabel)
+    ? docLabel
+    : hireLabel;
   return {
     Aprovado: "ok",
-    "Aprovado com pendencia": "conditional",
-    Regular: "ok",
+    "Aprovado com pendência": "conditional",
     Ativa: "ok",
     Ativo: "ok",
     Liberado: "ok",
     Pendente: "warn",
-    "Ativo com pendencia": "conditional",
     "A vencer": "warn",
+    "Em análise": "analysis",
+    "Em análise documental": "analysis",
     Reprovado: "bad",
     Vencido: "bad",
     Bloqueado: "bad",
     Bloqueada: "bad",
+    "Aguardando medicina": "exams",
+    "Aguardando EHS/RH": "training",
+    "Aguardando patrimonial": "fiscal",
+    "Desmobilização solicitada": "warn",
     Inativo: "bad",
     Encerrado: "bad",
     Desmobilizado: "bad",
     Desmobilizada: "bad",
-    "Em analise": "info",
-  }[status] || "info";
+  }[normalized] || "info";
 }
 
 function bindViewEvents() {
@@ -5118,6 +5285,9 @@ function companyForm(id) {
 
 function employeeForm(id) {
   const item = state.employees.find((employee) => sameId(employee.id, id)) || {};
+  const docs = employeeDocsFor(item);
+  const documentStatus = calculateDocumentStatus(item, docs);
+  const hiringStatus = calculateHiringStatus(item, docs, documentStatus);
   return {
     title: id ? "Editar funcionario" : "Novo funcionario",
     fields: [
@@ -5127,12 +5297,14 @@ function employeeForm(id) {
       inputField("cpf", "CPF", item.cpf, "required"),
       inputField("asoValidity", "Validade de ASO", item.asoValidity || today(), "type='date'"),
       inputField("trainingValidity", "Validade de treinamento", item.trainingValidity || today(), "type='date'"),
-      selectField("docStatus", "Status documental", item.docStatus || "Pendente", documentStatuses.map(option)),
-      selectField("status", "Status de contratacao", item.status || "Em analise", hiringStatuses.map(option)),
+      inputField("docStatus", "Status documental", documentStatus, "readonly"),
+      inputField("status", "Status de contratacao", hiringStatus, "readonly"),
       textAreaField("address", "Endereco", item.address),
       textAreaField("notes", "Observacoes", item.notes),
     ],
     save(form) {
+      const nextDocStatus = calculateDocumentStatus({ ...item, name: form.get("name"), companyId: form.get("companyId"), role: form.get("role"), cpf: form.get("cpf"), asoValidity: form.get("asoValidity"), trainingValidity: form.get("trainingValidity"), notes: form.get("notes") }, employeeDocsFor({ ...item, id: id || item.id }));
+      const nextHiringStatus = calculateHiringStatus({ ...item, name: form.get("name"), companyId: form.get("companyId"), role: form.get("role"), cpf: form.get("cpf"), asoValidity: form.get("asoValidity"), trainingValidity: form.get("trainingValidity"), notes: form.get("notes"), docStatus: nextDocStatus }, employeeDocsFor({ ...item, id: id || item.id }), nextDocStatus);
       upsert("employees", id, {
         name: form.get("name"),
         companyId: form.get("companyId"),
@@ -5140,10 +5312,10 @@ function employeeForm(id) {
         cpf: form.get("cpf"),
         asoValidity: form.get("asoValidity"),
         trainingValidity: form.get("trainingValidity"),
-        docStatus: form.get("docStatus"),
+        docStatus: nextDocStatus,
         address: form.get("address"),
         notes: form.get("notes"),
-        status: form.get("status"),
+        status: nextHiringStatus,
       });
     },
   };
@@ -5558,16 +5730,17 @@ async function saveEmployeeFromForm(form) {
     complement: form.get("complement"),
     asoValidity: form.get("asoValidity"),
     trainingValidity: form.get("trainingValidity"),
-    docStatus: form.get("docStatus"),
     address: buildEmployeeAddressFromForm(form),
     notes: form.get("notes"),
-    status: form.get("status"),
   };
   const fiscalPayload = existing
-    ? { ...existing, docStatus: form.get("docStatus"), notes: form.get("notes"), status: form.get("status") }
+    ? { ...existing, notes: form.get("notes") }
     : payload;
-
-  const saved = upsert("employees", id, canEditFullEmployee ? payload : fiscalPayload);
+  const draft = { ...(canEditFullEmployee ? payload : fiscalPayload), id: id || existing?.id || crypto.randomUUID() };
+  const linkedDocs = employeeDocsFor(draft);
+  draft.docStatus = calculateDocumentStatus(draft, linkedDocs);
+  draft.status = calculateHiringStatus(draft, linkedDocs, draft.docStatus);
+  const saved = upsert("employees", id, draft);
   saveState();
   try {
     const onlineSaved = await syncCollection("employees", saved);
@@ -5620,7 +5793,7 @@ function updateEmployeeOperationalStatus(id, action) {
 
   const actions = {
     demobilize: { label: "desmobilizar", status: "Desmobilizado", historyStatus: "Desmobilizado" },
-    inactivate: { label: "inativar", status: "Inativo", historyStatus: "Inativado" },
+    inactivate: { label: "inativar", status: "Desmobilizado", historyStatus: "Desmobilizado" },
     block: { label: "bloquear", status: "Bloqueado", historyStatus: "Bloqueado" },
   };
   const config = actions[action];
@@ -5646,12 +5819,13 @@ function updateEmployeeOperationalStatus(id, action) {
     if (!approver || !approver.trim()) {
       const pendingLine = `[${timestamp}] ${actor}: Solicitacao de desmobilizacao pendente de aprovacao. Motivo: ${reason.trim()}`;
       employee.notes = currentNotes ? `${currentNotes}\n${pendingLine}` : pendingLine;
+      employee.status = "Desmobilização solicitada";
       const history = createHistoryEvent({
         entityType: "funcionario",
         entityId: employee.id,
         action: "Desmobilizacao solicitada",
         previousStatus,
-        nextStatus: previousStatus,
+        nextStatus: employee.status,
         observation: `Motivo: ${reason.trim()}. Aguardando aprovacao do responsavel.`,
       });
       state.historico = upsertById(state.historico, history);
@@ -5867,6 +6041,9 @@ function normalizeFiscal(fiscal = {}) {
 
 function normalizeEmployee(employee) {
   const meta = employeeMeta(employee);
+  const docs = employeeDocsFor(employee);
+  const documentStatus = calculateDocumentStatus(employee, docs);
+  const hiringStatus = calculateHiringStatus(employee, docs, documentStatus);
   return {
     ...employee,
     registration: employee.registration || employee.matricula || meta.registration || "",
@@ -5886,11 +6063,11 @@ function normalizeEmployee(employee) {
     complement: employee.complement || employee.complemento || meta.complement || "",
     asoValidity: employee.asoValidity || employee.admission || "",
     trainingValidity: employee.trainingValidity || "",
-    docStatus: employee.docStatus || "Pendente",
+    docStatus: normalizeDocumentStatusLabel(employee.docStatus || documentStatus),
     address: employee.address || "",
     notes: employeeVisibleNotes(employee),
     workflowActions: employee.workflowActions || meta.workflowActions || {},
-    status: employee.status || "Em analise",
+    status: normalizeHiringStatusLabel(employee.status || hiringStatus),
   };
 }
 
