@@ -525,6 +525,11 @@ function isNumericDbId(value) {
   return typeof value === "number" || (typeof value === "string" && /^\d+$/.test(value));
 }
 
+function sameId(left, right) {
+  if (left === null || left === undefined || right === null || right === undefined) return false;
+  return String(left) === String(right);
+}
+
 function isUuid(value) {
   return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
@@ -991,16 +996,18 @@ async function deleteRemote(collection, id) {
 }
 
 function upsertById(items, item) {
-  return items.some((current) => current.id === item.id)
-    ? items.map((current) => (current.id === item.id ? { ...current, ...item } : current))
+  return items.some((current) => sameId(current.id, item.id))
+    ? items.map((current) => (sameId(current.id, item.id) ? { ...current, ...item } : current))
     : [...items, item];
 }
 
 function uniqueById(items) {
   const seen = new Set();
   return items.filter((item) => {
-    if (!item?.id || seen.has(item.id)) return false;
-    seen.add(item.id);
+    if (!item?.id) return false;
+    const key = String(item.id);
+    if (seen.has(key)) return false;
+    seen.add(key);
     return true;
   });
 }
@@ -1199,6 +1206,7 @@ async function createAccessForFiscal(fiscal) {
   await syncHistoryEvent(history);
   saveState();
   renderApp();
+  alert(`Acesso criado para ${updated.nome} (${updated.email}).`);
 }
 
 function renderPasswordRecovery() {
@@ -1993,7 +2001,7 @@ function renderCompanies() {
   const items = sortItems("companies", applyOperationalFilters("companies", filteredItems));
   const { pageItems, totalPages } = paginateItems("companies", items);
   const editingCompany = editingCompanyId
-    ? state.companies.find((company) => company.id === editingCompanyId)
+    ? state.companies.find((company) => sameId(company.id, editingCompanyId))
     : currentUser()?.role === "supplier"
       ? visibleCompanies()[0]
       : null;
@@ -3299,7 +3307,7 @@ function renderContracts() {
         <h2>Gestao de contratos de terceiros</h2>
         <p>Controle executivo de vigencia, status, documentos obrigatorios, funcionarios vinculados e trilha operacional.</p>
       </div>
-      ${can("create.company") ? `<button class="btn primary" data-create="company">${icon("plus")} Novo contrato</button>` : ""}
+      ${can("create.company") ? `<button class="btn primary" data-create="contract">${icon("plus")} Novo contrato</button>` : ""}
     </section>
     <div class="contract-summary-grid">
       <article class="contract-summary-card"><span>Total de contratos</span><strong>${visibleCompanies().length}</strong><small>Base real de empresas cadastradas</small></article>
@@ -3373,7 +3381,7 @@ function renderContracts() {
 }
 
 function openContractDetails(id) {
-  const company = visibleCompanies().find((item) => item.id === id) || state.companies.find((item) => item.id === id);
+  const company = visibleCompanies().find((item) => sameId(item.id, id)) || state.companies.find((item) => sameId(item.id, id));
   if (!company) return;
   contractDetailState[company.id] ||= { employeeSearch: "", employeeStatus: "Todos" };
   const modal = document.createElement("div");
@@ -4516,7 +4524,21 @@ function bindViewEvents() {
 
   document.querySelectorAll("[data-create]").forEach((button) => {
     button.addEventListener("click", () => {
+      if (button.dataset.create === "contract") {
+        currentView = "companies";
+        editingCompanyId = null;
+        searchTerm = "";
+        render();
+        return;
+      }
       if (button.dataset.create === "company") {
+        if (currentView === "contracts") {
+          currentView = "companies";
+          editingCompanyId = null;
+          searchTerm = "";
+          render();
+          return;
+        }
         editingCompanyId = null;
         renderApp();
         return;
@@ -4720,7 +4742,7 @@ function bindViewEvents() {
 
   document.querySelectorAll("[data-fiscal-access]").forEach((button) => {
     button.addEventListener("click", () => {
-      const fiscal = state.fiscais.find((item) => item.id === button.dataset.fiscalAccess);
+      const fiscal = state.fiscais.find((item) => sameId(item.id, button.dataset.fiscalAccess));
       if (!fiscal) return;
       createAccessForFiscal(fiscal).catch((error) => alert(`Nao foi possivel criar acesso.\n\n${persistenceMessage(error)}`));
     });
@@ -5068,7 +5090,7 @@ function validateDocumentPayload(payload) {
       payload,
     });
   }
-  const companyExists = state.companies.some((company) => company.id === payload.companyId);
+  const companyExists = state.companies.some((company) => sameId(company.id, payload.companyId));
   if (!companyExists) {
     throw new PersistenceError("Falha em public.documents: empresa vinculada nao existe ou nao esta disponivel para o usuario atual.", {
       table: "public.documents",
@@ -5078,7 +5100,7 @@ function validateDocumentPayload(payload) {
     });
   }
   if (payload.employeeId) {
-    const employee = state.employees.find((item) => item.id === payload.employeeId);
+    const employee = state.employees.find((item) => sameId(item.id, payload.employeeId));
     if (!employee) {
       throw new PersistenceError("Falha em public.documents: funcionario vinculado nao existe.", {
         table: "public.documents",
@@ -5087,7 +5109,7 @@ function validateDocumentPayload(payload) {
         payload,
       });
     }
-    if (employee.companyId !== payload.companyId) {
+    if (!sameId(employee.companyId, payload.companyId)) {
       throw new PersistenceError("Falha em public.documents: o funcionario selecionado nao pertence a empresa do documento.", {
         table: "public.documents",
         operation: "validacao de relacionamento",
@@ -5311,14 +5333,14 @@ async function saveFiscalFromForm(form) {
 }
 
 function inactivateFiscal(id) {
-  const fiscal = state.fiscais.find((item) => item.id === id);
+  const fiscal = state.fiscais.find((item) => sameId(item.id, id));
   if (!fiscal) return;
   const motivo = prompt(`Informe o motivo obrigatorio para inativar ${fiscal.nome}:`);
   if (!motivo || !motivo.trim()) {
     alert("Motivo obrigatorio. Fiscal nao foi inativado.");
     return;
   }
-  const activeSubstitutes = state.fiscais.filter((item) => item.id !== id && normalizeFiscal(item).status !== "inativo");
+  const activeSubstitutes = state.fiscais.filter((item) => !sameId(item.id, id) && normalizeFiscal(item).status !== "inativo");
   const substituteText = activeSubstitutes.length
     ? activeSubstitutes.map((item, index) => `${index + 1}. ${normalizeFiscal(item).nome}`).join("\n")
     : "Nenhum substituto cadastrado.";
@@ -5333,15 +5355,20 @@ function inactivateFiscal(id) {
     updatedAt: new Date().toISOString(),
   });
   state.companies = state.companies.map((company) => {
-    if (company.fiscalId !== fiscal.id) return company;
+    if (!sameId(company.fiscalId, fiscal.id)) return company;
     return { ...company, fiscalId: substitute?.id || null, fiscal: substitute?.nome || company.fiscal, fiscaisAdicionais: Array.from(new Set([...(company.fiscaisAdicionais || []), fiscal.id])) };
   });
   recordFiscalHistory(fiscal, "Fiscal inativado", previousStatus, "inativo", `Motivo: ${motivo.trim()}${substitute ? `. Substituto: ${substitute.nome}.` : "."}`);
   if (substitute) recordFiscalHistory(substitute, "Substituicao de fiscal", "", substitute.status, `Fiscal ${substitute.nome} definido como substituto de ${fiscal.nome}.`);
   syncCollection("fiscais", fiscal).catch((error) => alert(`Nao foi possivel atualizar fiscal online: ${error.message}`));
-  Promise.all(state.companies.filter((company) => company.fiscaisAdicionais?.includes(fiscal.id) || company.fiscalId === substitute?.id).map((company) => syncCollection("companies", company).catch((error) => console.warn("Nao foi possivel atualizar empresa online.", error))));
+  Promise.all(
+    state.companies
+      .filter((company) => (company.fiscaisAdicionais || []).some((fiscalId) => sameId(fiscalId, fiscal.id)) || sameId(company.fiscalId, substitute?.id))
+      .map((company) => syncCollection("companies", company).catch((error) => console.warn("Nao foi possivel atualizar empresa online.", error))),
+  );
   saveState();
   renderApp();
+  alert(`Fiscal ${fiscal.nome} inativado com sucesso.`);
 }
 
 function recordFiscalHistory(entity, action, previousStatus, nextStatus, observation) {
@@ -6138,19 +6165,19 @@ function fiscalStatusLabel(status) {
 }
 
 function companyName(id) {
-  return state.companies.find((company) => company.id === id)?.name || "Nao informado";
+  return state.companies.find((company) => sameId(company.id, id))?.name || "Nao informado";
 }
 
 function fiscalNames(ids = []) {
   const names = ids
-    .map((id) => state.fiscais.find((fiscal) => fiscal.id === id))
+    .map((id) => state.fiscais.find((fiscal) => sameId(fiscal.id, id)))
     .filter(Boolean)
     .map((fiscal) => normalizeFiscal(fiscal).nome);
   return names.length ? names.join(", ") : "Nenhum";
 }
 
 function employeeName(id) {
-  return state.employees.find((employee) => employee.id === id)?.name || "Nao informado";
+  return state.employees.find((employee) => sameId(employee.id, id))?.name || "Nao informado";
 }
 
 function docStatus(doc) {
