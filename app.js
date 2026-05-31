@@ -7038,11 +7038,14 @@ function optionalText(value = "") {
 }
 
 function formatCpf(value = "") {
-  const digits = onlyDigits(value).slice(0, 11);
-  return digits
+  const digits = onlyDigits(value);
+  const baseDigits = digits.slice(0, 11);
+  const extraDigits = digits.slice(11);
+  const formattedBase = baseDigits
     .replace(/^(\d{3})(\d)/, "$1.$2")
     .replace(/^(\d{3})\.(\d{3})(\d)/, "$1.$2.$3")
     .replace(/^(\d{3})\.(\d{3})\.(\d{3})(\d)/, "$1.$2.$3-$4");
+  return `${formattedBase}${extraDigits}`;
 }
 
 function formatCep(value = "") {
@@ -7129,12 +7132,15 @@ function validateCompanyRegistration({ id = null, cnpj = "", phone = "", cep = "
 
 function validateEmployeeRegistration({ id = null, cpf = "" } = {}) {
   const cpfDigits = onlyDigits(cpf);
-  if (cpfDigits.length !== 11 || !isValidCpf(cpfDigits)) {
-    return { ok: false, message: "CPF invalido. Use o formato 000.000.000-00." };
+  if (cpfDigits.length < 11) {
+    return { ok: false, message: "CPF incompleto. Informe 11 digitos." };
+  }
+  if (cpfDigits.length > 11) {
+    return { ok: false, message: "CPF possui numeros demais." };
   }
   const duplicated = state.employees.some((employee) => !sameId(employee.id, id) && onlyDigits(employee.cpf || "") === cpfDigits);
   if (duplicated) {
-    return { ok: false, message: "CPF ja cadastrado para outro funcionario." };
+    return { ok: false, message: "CPF ja cadastrado." };
   }
   return { ok: true, cpf: cpfDigits };
 }
