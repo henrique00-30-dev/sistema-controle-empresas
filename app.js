@@ -1110,7 +1110,14 @@ async function syncFiscalRecord(fiscal) {
     state.fiscais = upsertById(state.fiscais, saved);
     return saved;
   } catch (error) {
-    console.error("[Fiscais Supabase] Erro ao sincronizar fiscal", { payload, error });
+    console.error("[Fiscais Supabase] Erro ao sincronizar fiscal", {
+      payload,
+      code: error?.code || null,
+      message: error?.message || null,
+      details: error?.details || null,
+      hint: error?.hint || null,
+      error,
+    });
     throw wrapPersistenceError(error, context);
   }
 }
@@ -5038,12 +5045,12 @@ function documentForm(id) {
     async save(form) {
       const payload = normalizeDocumentFormPayload(form, item.filePath);
       validateDocumentPayload(payload);
-      const filePath = await uploadDocumentFile(form, item.filePath);
+      const uploadResult = await uploadDocumentFile(form, item.filePath);
       const previousStatus = item.status || "";
       const saved = {
         ...(id ? item : { id: crypto.randomUUID() }),
         ...payload,
-        filePath: filePath || payload.filePath,
+        filePath: uploadResult.path || payload.filePath,
       };
       saved.auditTrail = buildDocumentAuditTrail(item, saved, id ? "Documento atualizado" : "Documento cadastrado");
       try {
@@ -5051,6 +5058,7 @@ function documentForm(id) {
         upsert("documents", id || saved.id, saved);
         recordManualStatusHistory("documento", saved.id, previousStatus, saved.status, `Documento ${saved.type} salvo pelo formulario.`);
         await persistAutomaticStatusChanges(applyAutomaticStatusRules({ source: "Documento salvo" }));
+        if (uploadResult.warning) alert(uploadResult.warning);
       } catch (error) {
         throw wrapPersistenceError(error, {
           table: "public.documents",
@@ -5562,16 +5570,17 @@ function updateEmployeeOperationalStatus(id, action) {
 
 async function uploadDocumentFile(form, fallbackPath = "") {
   const file = form.get("documentFile");
-  if (!isOnlineMode() || !file || !file.name || file.size === 0) return fallbackPath;
+  if (!isOnlineMode() || !file || !file.name || file.size === 0) return { path: fallbackPath, warning: "" };
   const companyId = form.get("companyId") || "sem-empresa";
   const cleanName = file.name.replace(/[^\w.-]+/g, "_");
-  const path = `${companyId}/${crypto.randomUUID()}-${cleanName}`;
+  const objectPath = `${companyId}/${crypto.randomUUID()}-${cleanName}`;
+  const buckets = ["documents", "documentos"];
   const context = {
     table: "storage.objects",
-    operation: "upload bucket documents",
+    operation: "upload bucket documents/documentos",
     payload: {
-      bucket: "documents",
-      path,
+      bucketCandidates: buckets,
+      path: objectPath,
       fileName: file.name,
       fileSize: file.size,
       companyId,
@@ -5579,9 +5588,21 @@ async function uploadDocumentFile(form, fallbackPath = "") {
   };
   try {
     await ensureOnlineSession(context.table);
-    const { error } = await supabaseClient.storage.from("documents").upload(path, file, { upsert: false });
-    if (error) throw error;
-    return path;
+    for (const bucket of buckets) {
+      const { error } = await supabaseClient.storage.from(bucket).upload(objectPath, file, { upsert: false });
+      if (!error) return { path: objectPath, warning: "" };
+      const isBucketNotFound = String(error?.message || "").toLowerCase().includes("bucket not found");
+      if (!isBucketNotFound) {
+        throw wrapPersistenceError(error, {
+          ...context,
+          payload: { ...context.payload, bucketTried: bucket },
+        });
+      }
+    }
+    return {
+      path: fallbackPath,
+      warning: "Upload nao realizado: bucket de storage nao encontrado. Crie o bucket 'documents' (ou 'documentos') no Supabase Storage.",
+    };
   } catch (error) {
     throw wrapPersistenceError(error, context);
   }
@@ -5988,7 +6009,7 @@ function mapFiscalFromDb(fiscal) {
     setor: fiscal.setor,
     status: fiscal.status,
     ativo: fiscal.ativo,
-    usuarioEmail: fiscal.usuario_email,
+    usuarioEmail: fiscal.usuario_email || fiscal.email || null,
     usuarioId: fiscal.usuario_id,
     authUserId: fiscal.auth_user_id,
     dataFim: fiscal.data_fim,
@@ -6008,7 +6029,6 @@ function mapFiscalToDb(fiscal) {
     ativo: Boolean(item.status !== "inativo" && item.ativo !== false),
   };
   if (isNumericDbId(item.id)) payload.id = Number(item.id);
-  if (item.usuarioEmail) payload.usuario_email = item.usuarioEmail;
   if (isNumericDbId(item.usuarioId)) payload.usuario_id = Number(item.usuarioId);
   if (isUuid(item.authUserId)) payload.auth_user_id = item.authUserId;
   if ("email" in item) payload.email = item.email || null;
