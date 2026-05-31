@@ -5343,6 +5343,7 @@ function bindViewEvents() {
 
 function bindInputMasks(root = document) {
   root.querySelectorAll("[data-mask='cnpj']").forEach((input) => {
+    input.setAttribute("maxlength", "18");
     input.value = formatCnpj(input.value);
     input.addEventListener("input", () => {
       input.value = formatCnpj(input.value);
@@ -5987,7 +5988,16 @@ async function saveCompanyFromForm(form) {
   }
   try {
     recordManualStatusHistory("empresa", saved.id, previousStatus, saved.status, `Empresa ${saved.name} salva pelo formulario.`);
-    persistAutomaticStatusChanges(applyAutomaticStatusRules({ source: "Empresa salva", scope: { companyId: saved.id } }));
+    // Evita travar a UI no clique de salvar; recalculo operacional roda em segundo plano.
+    setTimeout(() => {
+      try {
+        const statusChanges = applyAutomaticStatusRules({ source: "Empresa salva", scope: { companyId: saved.id } });
+        persistAutomaticStatusChanges(statusChanges);
+        if (statusChanges.length) renderApp();
+      } catch (secondaryError) {
+        console.warn("Empresa salva, mas recalculo operacional assincrono falhou.", secondaryError);
+      }
+    }, 0);
   } catch (error) {
     console.warn("Empresa salva, mas uma rotina secundaria de historico/status falhou.", error);
   }
@@ -7085,12 +7095,19 @@ function isValidCnpj(value = "") {
   return first === Number(digits[12]) && second === Number(digits[13]);
 }
 
+const STRICT_COMPANY_CNPJ_CHECK_DIGITS = false;
+
 function validateCompanyRegistration({ id = null, cnpj = "", phone = "", cep = "" } = {}) {
   const cnpjDigits = onlyDigits(cnpj);
+  const cnpjFormatted = formatCnpj(cnpjDigits);
   const phoneDigits = onlyDigits(phone);
   const cepDigits = onlyDigits(cep);
-  if (cnpjDigits.length !== 14 || !isValidCnpj(cnpjDigits)) {
+
+  if (cnpjDigits.length !== 14) {
     return { ok: false, message: "CNPJ invalido. Use o formato 00.000.000/0000-00." };
+  }
+  if (STRICT_COMPANY_CNPJ_CHECK_DIGITS && !isValidCnpj(cnpjDigits)) {
+    return { ok: false, message: "CNPJ invalido. Verifique os digitos informados." };
   }
   const duplicated = state.companies.some((company) => !sameId(company.id, id) && onlyDigits(company.cnpj || "") === cnpjDigits);
   if (duplicated) {
@@ -7104,7 +7121,7 @@ function validateCompanyRegistration({ id = null, cnpj = "", phone = "", cep = "
   }
   return {
     ok: true,
-    cnpj: formatCnpj(cnpjDigits),
+    cnpj: cnpjFormatted,
     phone: formatPhone(phoneDigits),
     cep: cepDigits ? formatCep(cepDigits) : "",
   };
