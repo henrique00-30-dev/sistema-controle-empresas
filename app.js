@@ -2063,26 +2063,28 @@ function renderCompanyEditor(company = null) {
       <form id="companyEditorForm" class="form-grid company-form">
         <input type="hidden" name="id" value="${escapeAttr(company?.id || "")}" />
         ${inputField("name", "Nome da empresa", item.name, "required")}
-        ${inputField("cnpj", "CNPJ", item.cnpj, "required")}
+        ${inputField("cnpj", "CNPJ", item.cnpj, "required inputmode='numeric' maxlength='18' data-mask='cnpj' placeholder='00.000.000/0000-00'")}
         ${selectField("fiscalId", "Fiscal principal", item.fiscalId || "", fiscalOptions)}
         ${inputField("fiscal", "Fiscal do contrato", item.fiscal, "required")}
         ${formSection("Cadastro rapido de fiscal", [
           inputField("novoFiscalNome", "Nome do novo fiscal", ""),
           inputField("novoFiscalEmail", "E-mail do novo fiscal", "", "type='email'"),
           inputField("novoFiscalMatricula", "Matricula", ""),
-          inputField("novoFiscalTelefone", "Telefone", ""),
+          inputField("novoFiscalTelefone", "Telefone", "", "inputmode='numeric' maxlength='15' data-mask='phone' placeholder='(00) 00000-0000'"),
           inputField("novoFiscalSetor", "Setor", "Fiscalizacao"),
         ])}
         ${formSection("Fiscais adicionais/substitutos", [
           `<label class="wide">Selecione fiscais adicionais<select name="fiscaisAdicionais" multiple size="4">${activeFiscais.map((fiscal) => `<option value="${escapeAttr(fiscal.id)}" ${additionalFiscalIds.has(fiscal.id) ? "selected" : ""}>${escapeHtml(fiscal.nome)}${fiscal.status === "com_acesso" ? " - com acesso" : ""}</option>`).join("")}</select></label>`,
         ])}
-        ${inputField("responsible", "Responsavel", item.responsible, "required")}
-        ${inputField("phone", "Telefone", item.phone, "required")}
+        ${inputField("manager", "Gestor do contrato", item.manager || item.responsible, "required")}
+        ${inputField("costCenter", "Centro de custo padrao", item.costCenter || "", "required")}
+        ${inputField("phone", "Telefone", item.phone, "required inputmode='numeric' maxlength='15' data-mask='phone' placeholder='(00) 00000-0000'")}
+        ${inputField("cep", "CEP", item.cep || "", "inputmode='numeric' maxlength='9' data-mask='cep' placeholder='00000-000'")}
         ${inputField("email", "E-mail", item.email, "type='email' required")}
         ${inputField("startDate", "Data de inicio do contrato", item.startDate, "type='date' required")}
         ${inputField("endDate", "Data de fim do contrato", item.endDate, "type='date' required")}
         ${selectField("status", "Status da empresa", item.status || "Ativa", ["Ativa", "Pendente", "Bloqueada", "Inativa", "Desmobilizada"].map(option))}
-        ${inputField("contract", "Numero do contrato", item.contract)}
+        ${inputField("contract", "Numero do contrato", item.contract, "required")}
         <div class="form-actions wide">
           <button class="btn primary" type="submit">${icon("save")} Salvar</button>
           ${company ? `<button class="btn warning" type="button" data-demobilize="company" data-id="${company.id}">Desmobilizar contrato</button>` : ""}
@@ -2577,6 +2579,8 @@ function renderEmployees() {
 function renderEmployeeEditor(employee = null) {
   if (!can("create.employee") && !can("edit.employee", employee)) return "";
   const item = normalizeEmployee(employee || {});
+  const role = currentUser()?.role || "visitor";
+  const canEditOperationalLink = ["admin", "fiscal"].includes(role);
   const companyOptions = visibleCompanies().map((company) => ({ value: company.id, label: company.name }));
   const linkedCompany = state.companies.find((company) => sameId(company.id, item.companyId)) || state.companies[0];
   if (!companyOptions.length) {
@@ -2608,8 +2612,10 @@ function renderEmployeeEditor(employee = null) {
         ${formSection("Vinculo contratual", [
           inputField("role", "Funcao", item.role, "required"),
           selectField("companyId", "Empresa vinculada", item.companyId || state.companies[0]?.id, companyOptions),
-          inputField("contract", "Contrato vinculado", item.contract || linkedCompany?.contract || "", "required"),
-          inputField("costCenter", "Centro de custo", item.costCenter || employeeCostCenter(item, linkedCompany), "required"),
+          inputField("contract", "Contrato vinculado", item.contract || linkedCompany?.contract || "", `${canEditOperationalLink ? "" : "readonly"} required`),
+          inputField("costCenter", "Centro de custo", item.costCenter || employeeCostCenter(item, linkedCompany), canEditOperationalLink ? "required" : "required readonly"),
+          inputField("companyFiscal", "Fiscal da empresa", item.companyFiscal || linkedCompany?.fiscal || "", canEditOperationalLink ? "" : "readonly"),
+          inputField("contractManager", "Gestor do contrato", item.contractManager || linkedCompany?.manager || linkedCompany?.responsible || "", canEditOperationalLink ? "" : "readonly"),
         ])}
         ${formSection("Endereco", [
           inputField("cep", "CEP", item.cep, "required inputmode='numeric' maxlength='9' data-mask='cep' placeholder='00000-000'"),
@@ -5117,10 +5123,22 @@ function bindViewEvents() {
 }
 
 function bindInputMasks(root = document) {
+  root.querySelectorAll("[data-mask='cnpj']").forEach((input) => {
+    input.value = formatCnpj(input.value);
+    input.addEventListener("input", () => {
+      input.value = formatCnpj(input.value);
+    });
+  });
   root.querySelectorAll("[data-mask='cpf']").forEach((input) => {
     input.value = formatCpf(input.value);
     input.addEventListener("input", () => {
       input.value = formatCpf(input.value);
+    });
+  });
+  root.querySelectorAll("[data-mask='phone']").forEach((input) => {
+    input.value = formatPhone(input.value);
+    input.addEventListener("input", () => {
+      input.value = formatPhone(input.value);
     });
   });
   root.querySelectorAll("[data-mask='cep']").forEach((input) => {
@@ -5131,17 +5149,24 @@ function bindInputMasks(root = document) {
   });
 }
 
-function bindEmployeeCompanyContractSync() {
-  const form = document.querySelector("#employeeEditorForm");
-  if (!form) return;
-  const companySelect = form.querySelector("[name='companyId']");
-  const contractInput = form.querySelector("[name='contract']");
-  const costCenterInput = form.querySelector("[name='costCenter']");
-  companySelect?.addEventListener("change", () => {
-    const company = state.companies.find((item) => item.id === companySelect.value);
-    if (!company) return;
-    contractInput.value = company.contract || contractInput.value || "";
-    costCenterInput.value = company.costCenter || company.contract || costCenterInput.value || "";
+function bindEmployeeCompanyContractSync(root = document) {
+  root.querySelectorAll("form").forEach((form) => {
+    const companySelect = form.querySelector("[name='companyId']");
+    const contractInput = form.querySelector("[name='contract']");
+    if (!companySelect || !contractInput) return;
+    const costCenterInput = form.querySelector("[name='costCenter']");
+    const fiscalInput = form.querySelector("[name='companyFiscal']");
+    const managerInput = form.querySelector("[name='contractManager']");
+    const syncFromCompany = () => {
+      const company = state.companies.find((item) => sameId(item.id, companySelect.value));
+      if (!company) return;
+      contractInput.value = company.contract || contractInput.value || "";
+      if (costCenterInput) costCenterInput.value = company.costCenter || company.contract || costCenterInput.value || "";
+      if (fiscalInput) fiscalInput.value = company.fiscal || fiscalInput.value || "";
+      if (managerInput) managerInput.value = company.manager || company.responsible || managerInput.value || "";
+    };
+    companySelect.addEventListener("change", syncFromCompany);
+    syncFromCompany();
   });
 }
 
@@ -5165,6 +5190,8 @@ function openForm(type, id = null) {
     </form>
   `;
   document.body.appendChild(modal);
+  bindInputMasks(modal);
+  bindEmployeeCompanyContractSync(modal);
   if (type === "document") bindDocumentUpload(modal);
 
   modal.querySelectorAll("[data-close]").forEach((button) => {
@@ -5292,26 +5319,57 @@ function companyForm(id) {
     title: id ? "Editar empresa" : "Nova empresa",
     fields: [
       inputField("name", "Razao social", item.name, "required"),
-      inputField("cnpj", "CNPJ", item.cnpj, "required"),
-      inputField("contract", "Contrato", item.contract),
+      inputField("cnpj", "CNPJ", item.cnpj, "required inputmode='numeric' maxlength='18' data-mask='cnpj' placeholder='00.000.000/0000-00'"),
+      inputField("contract", "Numero do contrato", item.contract, "required"),
+      inputField("costCenter", "Centro de custo padrao", item.costCenter || "", "required"),
       inputField("fiscal", "Fiscal do contrato", item.fiscal, "required"),
-      inputField("responsible", "Responsavel", item.responsible || item.contact, "required"),
+      inputField("manager", "Gestor do contrato", item.manager || item.responsible || item.contact, "required"),
       inputField("email", "E-mail", item.email, "type='email'"),
-      inputField("phone", "Telefone", item.phone),
+      inputField("phone", "Telefone", item.phone, "required inputmode='numeric' maxlength='15' data-mask='phone' placeholder='(00) 00000-0000'"),
+      inputField("cep", "CEP", item.cep || "", "inputmode='numeric' maxlength='9' data-mask='cep' placeholder='00000-000'"),
       inputField("startDate", "Data de inicio", item.startDate, "type='date'"),
       inputField("endDate", "Data de fim", item.endDate, "type='date'"),
       selectField("status", "Status", item.status || "Ativa", ["Ativa", "Pendente", "Inativa", "Desmobilizada"].map(option)),
     ],
     save(form) {
+      const validation = validateCompanyRegistration({
+        id,
+        cnpj: form.get("cnpj"),
+        phone: form.get("phone"),
+        cep: form.get("cep"),
+      });
+      if (!validation.ok) {
+        alert(validation.message);
+        return;
+      }
+      const previous = state.companies.find((company) => sameId(company.id, id));
+      const isSupplier = currentUser()?.role === "supplier";
+      const manager = String(form.get("manager") || "").trim();
+      const costCenter = String(form.get("costCenter") || "").trim();
+      if (!String(form.get("contract") || "").trim()) {
+        alert("Informe o numero do contrato.");
+        return;
+      }
+      if (!costCenter) {
+        alert("Informe o centro de custo padrao da empresa.");
+        return;
+      }
+      if (!manager) {
+        alert("Informe o gestor do contrato.");
+        return;
+      }
       upsert("companies", id, {
         name: form.get("name"),
-        cnpj: form.get("cnpj"),
+        cnpj: validation.cnpj,
         contract: form.get("contract"),
-        fiscal: form.get("fiscal"),
-        responsible: form.get("responsible"),
-        contact: form.get("responsible"),
+        costCenter: isSupplier && previous ? previous.costCenter || costCenter : costCenter,
+        fiscal: isSupplier && previous ? previous.fiscal || form.get("fiscal") : form.get("fiscal"),
+        manager: isSupplier && previous ? previous.manager || previous.responsible || manager : manager,
+        responsible: isSupplier && previous ? previous.responsible || manager : manager,
+        contact: isSupplier && previous ? previous.contact || manager : manager,
         email: form.get("email"),
-        phone: form.get("phone"),
+        phone: validation.phone,
+        cep: validation.cep,
         startDate: form.get("startDate"),
         endDate: form.get("endDate"),
         risk: "Medio",
@@ -5323,6 +5381,9 @@ function companyForm(id) {
 
 function employeeForm(id) {
   const item = state.employees.find((employee) => sameId(employee.id, id)) || {};
+  const role = currentUser()?.role || "visitor";
+  const canEditOperationalLink = ["admin", "fiscal"].includes(role);
+  const linkedCompany = normalizeCompany(state.companies.find((company) => sameId(company.id, item.companyId)) || {});
   const docs = employeeDocsFor(item);
   const documentStatus = calculateDocumentStatus(item, docs);
   const hiringStatus = calculateHiringStatus(item, docs, documentStatus);
@@ -5332,7 +5393,11 @@ function employeeForm(id) {
       inputField("name", "Nome completo", item.name, "required"),
       selectField("companyId", "Empresa", item.companyId || state.companies[0]?.id, state.companies.map((company) => ({ value: company.id, label: company.name }))),
       inputField("role", "Cargo", item.role, "required"),
-      inputField("cpf", "CPF", item.cpf, "required"),
+      inputField("cpf", "CPF", item.cpf, "required inputmode='numeric' maxlength='14' data-mask='cpf' placeholder='000.000.000-00'"),
+      inputField("contract", "Numero do contrato", item.contract || linkedCompany.contract || "", `${canEditOperationalLink ? "" : "readonly"} required`),
+      inputField("costCenter", "Centro de custo", item.costCenter || linkedCompany.costCenter || linkedCompany.contract || "", canEditOperationalLink ? "required" : "required readonly"),
+      inputField("companyFiscal", "Fiscal da empresa", item.companyFiscal || linkedCompany.fiscal || "", canEditOperationalLink ? "" : "readonly"),
+      inputField("contractManager", "Gestor do contrato", item.contractManager || linkedCompany.manager || linkedCompany.responsible || "", canEditOperationalLink ? "" : "readonly"),
       inputField("asoValidity", "Validade de ASO", item.asoValidity || today(), "type='date'"),
       inputField("trainingValidity", "Validade de treinamento", item.trainingValidity || today(), "type='date'"),
       inputField("docStatus", "Status documental", documentStatus, "readonly"),
@@ -5341,13 +5406,30 @@ function employeeForm(id) {
       textAreaField("notes", "Observacoes", item.notes),
     ],
     save(form) {
-      const nextDocStatus = calculateDocumentStatus({ ...item, name: form.get("name"), companyId: form.get("companyId"), role: form.get("role"), cpf: form.get("cpf"), asoValidity: form.get("asoValidity"), trainingValidity: form.get("trainingValidity"), notes: form.get("notes") }, employeeDocsFor({ ...item, id: id || item.id }));
-      const nextHiringStatus = calculateHiringStatus({ ...item, name: form.get("name"), companyId: form.get("companyId"), role: form.get("role"), cpf: form.get("cpf"), asoValidity: form.get("asoValidity"), trainingValidity: form.get("trainingValidity"), notes: form.get("notes"), docStatus: nextDocStatus }, employeeDocsFor({ ...item, id: id || item.id }), nextDocStatus);
+      const validation = validateEmployeeRegistration({
+        id,
+        cpf: form.get("cpf"),
+      });
+      if (!validation.ok) {
+        alert(validation.message);
+        return;
+      }
+      const selectedCompany = normalizeCompany(state.companies.find((company) => sameId(company.id, form.get("companyId"))) || {});
+      const resolvedCostCenter = canEditOperationalLink ? form.get("costCenter") : selectedCompany.costCenter || selectedCompany.contract || "";
+      const resolvedFiscal = canEditOperationalLink ? form.get("companyFiscal") : selectedCompany.fiscal || "";
+      const resolvedManager = canEditOperationalLink ? form.get("contractManager") : selectedCompany.manager || selectedCompany.responsible || "";
+      const resolvedContract = form.get("contract") || selectedCompany.contract || "";
+      const nextDocStatus = calculateDocumentStatus({ ...item, name: form.get("name"), companyId: form.get("companyId"), role: form.get("role"), cpf: validation.cpf, asoValidity: form.get("asoValidity"), trainingValidity: form.get("trainingValidity"), notes: form.get("notes") }, employeeDocsFor({ ...item, id: id || item.id }));
+      const nextHiringStatus = calculateHiringStatus({ ...item, name: form.get("name"), companyId: form.get("companyId"), role: form.get("role"), cpf: validation.cpf, asoValidity: form.get("asoValidity"), trainingValidity: form.get("trainingValidity"), notes: form.get("notes"), docStatus: nextDocStatus }, employeeDocsFor({ ...item, id: id || item.id }), nextDocStatus);
       upsert("employees", id, {
         name: form.get("name"),
         companyId: form.get("companyId"),
         role: form.get("role"),
-        cpf: form.get("cpf"),
+        cpf: validation.cpf,
+        contract: resolvedContract,
+        costCenter: resolvedCostCenter,
+        companyFiscal: resolvedFiscal,
+        contractManager: resolvedManager,
         asoValidity: form.get("asoValidity"),
         trainingValidity: form.get("trainingValidity"),
         docStatus: nextDocStatus,
@@ -5558,27 +5640,61 @@ function upsert(collection, id, data) {
 
 async function saveCompanyFromForm(form) {
   const id = form.get("id") || null;
+  const validation = validateCompanyRegistration({
+    id,
+    cnpj: form.get("cnpj"),
+    phone: form.get("phone"),
+    cep: form.get("cep"),
+  });
+  if (!validation.ok) {
+    alert(validation.message);
+    return;
+  }
   const previous = state.companies.find((company) => sameId(company.id, id));
   const previousStatus = previous?.status || "";
   const quickFiscal = createQuickFiscalFromCompanyForm(form);
   const selectedFiscalId = quickFiscal?.id || optionalNull(form.get("fiscalId"));
-  const selectedFiscal = selectedFiscalId ? state.fiscais.find((fiscal) => fiscal.id === selectedFiscalId) : null;
+  const selectedFiscal = selectedFiscalId ? state.fiscais.find((fiscal) => sameId(fiscal.id, selectedFiscalId)) : null;
   const fiscalName = selectedFiscal?.nome || String(form.get("fiscal") || "").trim();
   const additionalFiscalIds = form.getAll("fiscaisAdicionais").filter(Boolean).filter((fiscalId) => fiscalId !== selectedFiscalId);
+  const manager = String(form.get("manager") || form.get("responsible") || "").trim();
+  const contractNumber = String(form.get("contract") || "").trim();
+  const costCenter = String(form.get("costCenter") || "").trim();
+  if (!contractNumber) {
+    alert("Informe o numero do contrato.");
+    return;
+  }
+  if (!costCenter) {
+    alert("Informe o centro de custo padrao da empresa.");
+    return;
+  }
+  if (!manager) {
+    alert("Informe o gestor do contrato.");
+    return;
+  }
+  const isSupplier = currentUser()?.role === "supplier";
+  const effectiveFiscalId = isSupplier && previous ? previous.fiscalId || null : selectedFiscalId;
+  const effectiveFiscal = isSupplier && previous ? previous.fiscal || fiscalName : fiscalName;
+  const effectiveAdditionalFiscais = isSupplier && previous ? previous.fiscaisAdicionais || [] : additionalFiscalIds;
+  const effectiveManager = isSupplier && previous ? previous.manager || previous.responsible || manager : manager;
+  const effectiveCostCenter = isSupplier && previous ? previous.costCenter || costCenter : costCenter;
   const saved = upsert("companies", id, {
     name: form.get("name"),
-    cnpj: form.get("cnpj"),
-    fiscal: fiscalName,
-    fiscalId: selectedFiscalId,
-    fiscaisAdicionais: additionalFiscalIds,
-    responsible: form.get("responsible"),
-    contact: form.get("responsible"),
-    phone: form.get("phone"),
+    cnpj: validation.cnpj,
+    fiscal: effectiveFiscal,
+    fiscalId: effectiveFiscalId,
+    fiscaisAdicionais: effectiveAdditionalFiscais,
+    manager: effectiveManager,
+    responsible: effectiveManager,
+    contact: effectiveManager,
+    costCenter: effectiveCostCenter,
+    phone: validation.phone,
+    cep: validation.cep,
     email: form.get("email"),
     startDate: form.get("startDate"),
     endDate: form.get("endDate"),
     status: form.get("status"),
-    contract: form.get("contract"),
+    contract: contractNumber,
     risk: "Medio",
   });
   if (quickFiscal) {
@@ -5734,21 +5850,54 @@ async function saveEmployeeFromForm(form) {
     alert("Selecione uma empresa vinculada para o funcionario.");
     return;
   }
-  const cpfDigits = onlyDigits(form.get("cpf"));
-  const cepDigits = onlyDigits(form.get("cep"));
-  if (cpfDigits.length !== 11) {
-    alert("CPF invalido. Informe exatamente 11 numeros.");
+  const validation = validateEmployeeRegistration({
+    id,
+    cpf: form.get("cpf"),
+  });
+  if (!validation.ok) {
+    alert(validation.message);
     return;
   }
+  const cpfDigits = validation.cpf;
+  const cepDigits = onlyDigits(form.get("cep"));
   if (cepDigits.length !== 8) {
     alert("CEP invalido. Informe exatamente 8 numeros.");
     return;
   }
   const existing = state.employees.find((employee) => sameId(employee.id, id));
   const previousStatus = existing?.status || "";
+  const linkedCompany = normalizeCompany(state.companies.find((company) => sameId(company.id, form.get("companyId"))) || {});
   const canEditFullEmployee =
     currentUser()?.role === "admin" ||
+    currentUser()?.role === "fiscal" ||
     (currentUser()?.role === "supplier" && (!existing || existing.companyId === currentUser()?.companyId));
+  const canEditOperationalLink = ["admin", "fiscal"].includes(currentUser()?.role);
+  const resolvedContract = String(form.get("contract") || linkedCompany.contract || "").trim();
+  const resolvedCostCenter = canEditOperationalLink
+    ? String(form.get("costCenter") || linkedCompany.costCenter || linkedCompany.contract || "").trim()
+    : String(linkedCompany.costCenter || linkedCompany.contract || "").trim();
+  const resolvedFiscal = canEditOperationalLink
+    ? String(form.get("companyFiscal") || linkedCompany.fiscal || "").trim()
+    : String(linkedCompany.fiscal || "").trim();
+  const resolvedManager = canEditOperationalLink
+    ? String(form.get("contractManager") || linkedCompany.manager || linkedCompany.responsible || "").trim()
+    : String(linkedCompany.manager || linkedCompany.responsible || "").trim();
+  if (!resolvedContract) {
+    alert("Contrato vinculado obrigatorio.");
+    return;
+  }
+  if (!resolvedCostCenter) {
+    alert("Centro de custo obrigatorio.");
+    return;
+  }
+  if (!resolvedFiscal) {
+    alert("Fiscal da empresa obrigatorio.");
+    return;
+  }
+  if (!resolvedManager) {
+    alert("Gestor do contrato obrigatorio.");
+    return;
+  }
   const payload = {
     name: form.get("name"),
     cpf: cpfDigits,
@@ -5758,8 +5907,10 @@ async function saveEmployeeFromForm(form) {
     fatherName: form.get("fatherName"),
     role: form.get("role"),
     companyId: form.get("companyId"),
-    contract: form.get("contract"),
-    costCenter: form.get("costCenter"),
+    contract: resolvedContract,
+    costCenter: resolvedCostCenter,
+    companyFiscal: resolvedFiscal,
+    contractManager: resolvedManager,
     cep: cepDigits,
     city: form.get("city"),
     district: form.get("district"),
@@ -6052,7 +6203,10 @@ function normalizeCompany(company) {
     fiscalId: company.fiscalId || company.fiscal_id || null,
     fiscaisAdicionais: company.fiscaisAdicionais || company.fiscais_adicionais || [],
     fiscal: fiscal?.nome || company.fiscal || "Nao informado",
+    manager: company.manager || company.gestorContrato || company.responsible || company.contact || "Nao informado",
     responsible: company.responsible || company.contact || "Nao informado",
+    costCenter: company.costCenter || company.centro_custo || "",
+    cep: company.cep || "",
     startDate: company.startDate || "",
     endDate: company.endDate || "",
     status: company.status || "Ativa",
@@ -6083,6 +6237,7 @@ function normalizeFiscal(fiscal = {}) {
 
 function normalizeEmployee(employee) {
   const meta = employeeMeta(employee);
+  const linkedCompany = normalizeCompany(state.companies.find((company) => sameId(company.id, employee.companyId || meta.companyId)) || {});
   const docs = employeeDocsFor(employee);
   const documentStatus = calculateDocumentStatus(employee, docs);
   const hiringStatus = calculateHiringStatus(employee, docs, documentStatus);
@@ -6095,8 +6250,10 @@ function normalizeEmployee(employee) {
     fatherName: employee.fatherName || employee.father_name || meta.fatherName || "",
     role: employee.role || "",
     companyId: employee.companyId || state.companies[0]?.id || "",
-    contract: employee.contract || meta.contract || "",
-    costCenter: employee.costCenter || employee.centroCusto || meta.costCenter || "",
+    contract: employee.contract || meta.contract || linkedCompany.contract || "",
+    costCenter: employee.costCenter || employee.centroCusto || meta.costCenter || linkedCompany.costCenter || linkedCompany.contract || "",
+    companyFiscal: employee.companyFiscal || meta.companyFiscal || linkedCompany.fiscal || "",
+    contractManager: employee.contractManager || meta.contractManager || linkedCompany.manager || linkedCompany.responsible || "",
     cep: formatCep(employee.cep || meta.cep || ""),
     city: employee.city || meta.city || "",
     district: employee.district || employee.bairro || meta.district || "",
@@ -6141,6 +6298,8 @@ function serializeEmployeeNotes(employee) {
     fatherName: item.fatherName || "",
     contract: item.contract || "",
     costCenter: item.costCenter || "",
+    companyFiscal: item.companyFiscal || "",
+    contractManager: item.contractManager || "",
     cep: onlyDigits(item.cep),
     city: item.city || "",
     district: item.district || "",
@@ -6287,12 +6446,14 @@ function mapCompanyFromDb(company) {
     companyCode: company.codigo_empresa,
     branchCode: company.codigo_filial,
     costCenter: company.centro_custo,
+    cep: company.cep || "",
     address: company.endereco,
     city: company.municipio,
     uf: company.uf,
     contact: company.contato_principal || company.responsible,
     legalResponsible: company.responsavel_legal,
     notes: company.observacoes,
+    manager: company.responsible,
     responsible: company.responsible,
     contact: company.responsible,
     phone: company.phone,
@@ -6392,6 +6553,8 @@ function mapEmployeeFromDb(employee) {
     status: employee.hiring_status,
     registration: employee.registration || employee.matricula,
     manager: employee.manager || employee.gestor || employee.responsavel,
+    contractManager: employee.contract_manager || employee.gestor_contrato || employee.manager || employee.gestor || employee.responsavel,
+    companyFiscal: employee.company_fiscal || employee.fiscal_empresa || "",
     exceptionReason: employee.exception_reason || employee.motivo,
     exceptionDeadline: employee.exception_deadline || employee.prazo,
   });
@@ -6615,6 +6778,88 @@ function formatCpf(value = "") {
 function formatCep(value = "") {
   const digits = onlyDigits(value).slice(0, 8);
   return digits.replace(/^(\d{5})(\d)/, "$1-$2");
+}
+
+function formatCnpj(value = "") {
+  const digits = onlyDigits(value).slice(0, 14);
+  return digits
+    .replace(/^(\d{2})(\d)/, "$1.$2")
+    .replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3")
+    .replace(/^(\d{2})\.(\d{3})\.(\d{3})(\d)/, "$1.$2.$3/$4")
+    .replace(/^(\d{2})\.(\d{3})\.(\d{3})\/(\d{4})(\d)/, "$1.$2.$3/$4-$5");
+}
+
+function formatPhone(value = "") {
+  const digits = onlyDigits(value).slice(0, 11);
+  if (!digits) return "";
+  if (digits.length <= 2) return `(${digits}`;
+  if (digits.length <= 6) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
+  if (digits.length <= 10) return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
+  return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+}
+
+function isValidCpf(value = "") {
+  const digits = onlyDigits(value);
+  if (digits.length !== 11 || /^(\d)\1+$/.test(digits)) return false;
+  const calcDigit = (slice, factor) => {
+    let total = 0;
+    for (let i = 0; i < slice.length; i += 1) total += Number(slice[i]) * (factor - i);
+    const remainder = (total * 10) % 11;
+    return remainder === 10 ? 0 : remainder;
+  };
+  const first = calcDigit(digits.slice(0, 9), 10);
+  const second = calcDigit(digits.slice(0, 10), 11);
+  return first === Number(digits[9]) && second === Number(digits[10]);
+}
+
+function isValidCnpj(value = "") {
+  const digits = onlyDigits(value);
+  if (digits.length !== 14 || /^(\d)\1+$/.test(digits)) return false;
+  const calcDigit = (base, factors) => {
+    const total = base.split("").reduce((sum, digit, index) => sum + Number(digit) * factors[index], 0);
+    const remainder = total % 11;
+    return remainder < 2 ? 0 : 11 - remainder;
+  };
+  const first = calcDigit(digits.slice(0, 12), [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+  const second = calcDigit(digits.slice(0, 12) + first, [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+  return first === Number(digits[12]) && second === Number(digits[13]);
+}
+
+function validateCompanyRegistration({ id = null, cnpj = "", phone = "", cep = "" } = {}) {
+  const cnpjDigits = onlyDigits(cnpj);
+  const phoneDigits = onlyDigits(phone);
+  const cepDigits = onlyDigits(cep);
+  if (cnpjDigits.length !== 14 || !isValidCnpj(cnpjDigits)) {
+    return { ok: false, message: "CNPJ invalido. Use o formato 00.000.000/0000-00." };
+  }
+  const duplicated = state.companies.some((company) => !sameId(company.id, id) && onlyDigits(company.cnpj || "") === cnpjDigits);
+  if (duplicated) {
+    return { ok: false, message: "CNPJ ja cadastrado para outra empresa." };
+  }
+  if (phoneDigits.length !== 11) {
+    return { ok: false, message: "Telefone incompleto. Use o formato (00) 00000-0000." };
+  }
+  if (cepDigits && cepDigits.length !== 8) {
+    return { ok: false, message: "CEP invalido. Use o formato 00000-000." };
+  }
+  return {
+    ok: true,
+    cnpj: formatCnpj(cnpjDigits),
+    phone: formatPhone(phoneDigits),
+    cep: cepDigits ? formatCep(cepDigits) : "",
+  };
+}
+
+function validateEmployeeRegistration({ id = null, cpf = "" } = {}) {
+  const cpfDigits = onlyDigits(cpf);
+  if (cpfDigits.length !== 11 || !isValidCpf(cpfDigits)) {
+    return { ok: false, message: "CPF invalido. Use o formato 000.000.000-00." };
+  }
+  const duplicated = state.employees.some((employee) => !sameId(employee.id, id) && onlyDigits(employee.cpf || "") === cpfDigits);
+  if (duplicated) {
+    return { ok: false, message: "CPF ja cadastrado para outro funcionario." };
+  }
+  return { ok: true, cpf: cpfDigits };
 }
 
 function escapeHtml(value = "") {
