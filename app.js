@@ -525,13 +525,13 @@ function isNumericDbId(value) {
   return typeof value === "number" || (typeof value === "string" && /^\d+$/.test(value));
 }
 
+function isUuid(value) {
+  return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
 function sameId(left, right) {
   if (left === null || left === undefined || right === null || right === undefined) return false;
   return String(left) === String(right);
-}
-
-function isUuid(value) {
-  return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
 function buildSupabaseDiagnostics(config = {}) {
@@ -1110,14 +1110,7 @@ async function syncFiscalRecord(fiscal) {
     state.fiscais = upsertById(state.fiscais, saved);
     return saved;
   } catch (error) {
-    console.error("[Fiscais Supabase] Erro ao sincronizar fiscal", {
-      payload,
-      code: error?.code || null,
-      message: error?.message || null,
-      details: error?.details || null,
-      hint: error?.hint || null,
-      error,
-    });
+    console.error("[Fiscais Supabase] Erro ao sincronizar fiscal", { payload, error });
     throw wrapPersistenceError(error, context);
   }
 }
@@ -1213,7 +1206,6 @@ async function createAccessForFiscal(fiscal) {
   await syncHistoryEvent(history);
   saveState();
   renderApp();
-  alert(`Acesso criado para ${updated.nome} (${updated.email}).`);
 }
 
 function renderPasswordRecovery() {
@@ -1586,8 +1578,8 @@ function resetTablePage(view = currentView) {
 }
 
 function sortValue(view, item, key) {
-  const company = item.companyId ? state.companies.find((entry) => entry.id === item.companyId) : item;
-  const employee = item.employeeId ? state.employees.find((entry) => entry.id === item.employeeId) : null;
+  const company = item.companyId ? state.companies.find((entry) => sameId(entry.id, item.companyId)) : item;
+  const employee = item.employeeId ? state.employees.find((entry) => sameId(entry.id, item.employeeId)) : null;
   const companyItem = company ? normalizeCompany(company) : {};
   const employeeItem = item.cpf || item.role ? normalizeEmployee(item) : employee ? normalizeEmployee(employee) : {};
   const statusValue = item.dueDate || item.type ? docStatus(item) : item.cpf || item.role || item.blockType === "Funcionario" ? normalizeEmployee(item).status : companyItem.status;
@@ -1616,8 +1608,8 @@ function sortItems(view, items) {
 
 function matchesQuickFilter(view, item, quick) {
   if (!quick || quick === "Todos") return true;
-  const company = item.companyId ? state.companies.find((entry) => entry.id === item.companyId) : item;
-  const employee = item.cpf || item.role ? item : item.employeeId ? state.employees.find((entry) => entry.id === item.employeeId) : null;
+  const company = item.companyId ? state.companies.find((entry) => sameId(entry.id, item.companyId)) : item;
+  const employee = item.cpf || item.role ? item : item.employeeId ? state.employees.find((entry) => sameId(entry.id, item.employeeId)) : null;
   const status = item.dueDate ? docStatus(item) : employee ? normalizeEmployee(employee).status : normalizeCompany(company).status;
   if (quick === "Ativas") return ["Ativa", "Ativo"].includes(status);
   if (quick === "Pendentes") return ["Pendente", "A vencer", "Reprovado", "Documentos pendente", "Aguardando exames", "Em treinamento", "Aguardando aprovacao do fiscal", "Ativo com pendencia"].includes(status);
@@ -1642,15 +1634,15 @@ function matchesQuickFilter(view, item, quick) {
 function applyOperationalFilters(view, items) {
   const config = tableConfig(view);
   return items.filter((item) => {
-    const company = item.companyId ? state.companies.find((entry) => entry.id === item.companyId) : item;
-    const employee = item.cpf || item.role ? item : item.employeeId ? state.employees.find((entry) => entry.id === item.employeeId) : null;
+    const company = item.companyId ? state.companies.find((entry) => sameId(entry.id, item.companyId)) : item;
+    const employee = item.cpf || item.role ? item : item.employeeId ? state.employees.find((entry) => sameId(entry.id, item.employeeId)) : null;
     const companyItem = company ? normalizeCompany(company) : {};
     const employeeItem = employee ? normalizeEmployee(employee) : {};
     const sector = item.type || employeeItem.role || contractUnit(companyItem);
     const costCenter = employeeCostCenter(employeeItem, companyItem);
     return (
       matchesQuickFilter(view, item, config.quick) &&
-      (config.company === "Todos" || item.companyId === config.company || item.id === config.company) &&
+      (config.company === "Todos" || sameId(item.companyId, config.company) || sameId(item.id, config.company)) &&
       (config.contract === "Todos" || companyItem.contract === config.contract) &&
       (config.sector === "Todos" || sector === config.sector) &&
       (config.costCenter === "Todos" || costCenter === config.costCenter)
@@ -1698,9 +1690,9 @@ function renderOperationalFilters(view, items, extra = {}) {
   const config = tableConfig(view);
   const companies = uniqueOptions(items.map((item) => item.companyId || item.id).map((id) => state.companies.find((company) => company.id === id)?.id || id));
   const companyLabels = new Map(state.companies.map((company) => [company.id, company.name]));
-  const contracts = uniqueOptions(items.map((item) => normalizeCompany(item.companyId ? state.companies.find((company) => company.id === item.companyId) : item).contract));
-  const sectors = uniqueOptions(items.map((item) => item.type || item.role || contractUnit(item.companyId ? state.companies.find((company) => company.id === item.companyId) : item)));
-  const costCenters = uniqueOptions(items.map((item) => employeeCostCenter(item, item.companyId ? state.companies.find((company) => company.id === item.companyId) : item)));
+  const contracts = uniqueOptions(items.map((item) => normalizeCompany(item.companyId ? state.companies.find((company) => sameId(company.id, item.companyId)) : item).contract));
+  const sectors = uniqueOptions(items.map((item) => item.type || item.role || contractUnit(item.companyId ? state.companies.find((company) => sameId(company.id, item.companyId)) : item)));
+  const costCenters = uniqueOptions(items.map((item) => employeeCostCenter(item, item.companyId ? state.companies.find((company) => sameId(company.id, item.companyId)) : item)));
   const quicks = extra.quicks || ["Todos", "Ativo", "Bloqueado", "Pendente", "Vencido", "Desmobilizado"];
   return `
     <div class="status-filter operational-filters" aria-label="Filtros rapidos">
@@ -2140,7 +2132,7 @@ function employeeUpdatedAt(employee = {}) {
 
 function employeeHasExpiredDocuments(employee = {}) {
   const item = normalizeEmployee(employee);
-  const docs = state.documents.filter((doc) => doc.employeeId === item.id);
+  const docs = state.documents.filter((doc) => sameId(doc.employeeId, item.id));
   return isPastDate(item.asoValidity) || isPastDate(item.trainingValidity) || docs.some((doc) => docStatus(doc) === "Vencido");
 }
 
@@ -2255,7 +2247,7 @@ function renderRecordFooter(title, rows, entityType, entityId) {
 
 function employeeActivityRows(employee) {
   const item = normalizeEmployee(employee);
-  const docs = state.documents.filter((doc) => doc.employeeId === item.id);
+  const docs = state.documents.filter((doc) => sameId(doc.employeeId, item.id));
   return [
     { title: "Status contratacao", detail: item.status, status: item.status },
     { title: "Status documental", detail: `${docs.length} documento(s) vinculados`, status: item.docStatus },
@@ -2366,7 +2358,7 @@ function companyRowActions(id) {
 }
 
 function renderEmployees() {
-  const editingEmployee = editingEmployeeId ? state.employees.find((employee) => employee.id === editingEmployeeId) : null;
+  const editingEmployee = editingEmployeeId ? state.employees.find((employee) => sameId(employee.id, editingEmployeeId)) : null;
   const baseItems = visibleEmployees();
   const filteredByText = filtered(baseItems, [
     (item) => item.name,
@@ -2374,8 +2366,8 @@ function renderEmployees() {
     (item) => employeeRegistration(item),
     (item) => item.role,
     (item) => companyName(item.companyId),
-    (item) => state.companies.find((company) => company.id === item.companyId)?.contract,
-    (item) => employeeCostCenter(item, state.companies.find((company) => company.id === item.companyId)),
+    (item) => state.companies.find((company) => sameId(company.id, item.companyId))?.contract,
+    (item) => employeeCostCenter(item, state.companies.find((company) => sameId(company.id, item.companyId))),
     (item) => normalizeEmployee(item).docStatus,
     (item) => normalizeEmployee(item).status,
   ]);
@@ -2404,7 +2396,7 @@ function renderEmployeeEditor(employee = null) {
   if (!can("create.employee") && !can("edit.employee", employee)) return "";
   const item = normalizeEmployee(employee || {});
   const companyOptions = visibleCompanies().map((company) => ({ value: company.id, label: company.name }));
-  const linkedCompany = state.companies.find((company) => company.id === item.companyId) || state.companies[0];
+  const linkedCompany = state.companies.find((company) => sameId(company.id, item.companyId)) || state.companies[0];
   if (!companyOptions.length) {
     return `
       <section class="panel company-editor">
@@ -2534,10 +2526,10 @@ function employeeVisualGroup(employee) {
 }
 
 function openEmployeeRecord(id) {
-  const employee = visibleEmployees().find((item) => item.id === id) || state.employees.find((item) => item.id === id);
+  const employee = visibleEmployees().find((item) => sameId(item.id, id)) || state.employees.find((item) => sameId(item.id, id));
   if (!employee) return;
   const item = normalizeEmployee(employee);
-  const company = state.companies.find((entry) => entry.id === item.companyId);
+  const company = state.companies.find((entry) => sameId(entry.id, item.companyId));
   const tabs = employeeRecordTabs();
   const defaultTab = tabs[0]?.[0] || "summary";
   const modal = document.createElement("div");
@@ -2610,6 +2602,12 @@ function openEmployeeRecord(id) {
     if (employeeAction) {
       event.stopPropagation();
       modal.remove();
+      const label = {
+        demobilize: "Desmobilizar",
+        inactivate: "Inativar",
+        block: "Bloquear",
+      }[employeeAction.dataset.employeeAction] || employeeAction.dataset.employeeAction;
+      console.log(label, employeeAction.dataset.id);
       updateEmployeeOperationalStatus(employeeAction.dataset.id, employeeAction.dataset.employeeAction);
       return;
     }
@@ -2640,9 +2638,9 @@ function employeeRecordTabs() {
 }
 
 function renderEmployeeRecordTab(employee, tab) {
-  const company = state.companies.find((item) => item.id === employee.companyId);
-  const companyDocs = state.documents.filter((doc) => doc.companyId === employee.companyId && !doc.employeeId);
-  const employeeDocs = state.documents.filter((doc) => doc.employeeId === employee.id);
+  const company = state.companies.find((item) => sameId(item.id, employee.companyId));
+  const companyDocs = state.documents.filter((doc) => sameId(doc.companyId, employee.companyId) && !doc.employeeId);
+  const employeeDocs = state.documents.filter((doc) => sameId(doc.employeeId, employee.id));
   const allDocs = [...employeeDocs, ...companyDocs];
   if (tab === "summary") {
     return `
@@ -2808,7 +2806,7 @@ function renderEmployeeWorkflow(employee) {
 function employeeWorkflowSteps(employee) {
   const item = normalizeEmployee(employee);
   const workflow = item.workflowActions || {};
-  const docs = state.documents.filter((doc) => doc.employeeId === item.id);
+  const docs = state.documents.filter((doc) => sameId(doc.employeeId, item.id));
   const exception = hasPendingApprovalException(item);
   const fiscalDocs = docs.filter((doc) => documentOperationalSector(doc) === "Fiscal");
   const medicineDocs = docs.filter((doc) => documentOperationalSector(doc) === "Medicina");
@@ -3122,7 +3120,7 @@ function applyAutomaticStatusRules({ syncRemote = false, source = "Motor automat
   state.employees.forEach((employee) => {
     const item = normalizeEmployee(employee);
     if (inactiveEmployeeStatuses.includes(item.status)) return;
-    const docs = state.documents.filter((doc) => doc.employeeId === item.id);
+    const docs = state.documents.filter((doc) => sameId(doc.employeeId, item.id));
     const expiredDocs = docs.filter((doc) => docStatus(doc) === "Vencido" || doc.status === "Reprovado");
     const pendingDocs = docs.filter((doc) => ["Pendente", "A vencer"].includes(docStatus(doc)));
     const workflowBase = item.status === "Bloqueado" && !expiredDocs.length ? { ...item, status: "Em analise" } : item;
@@ -3265,10 +3263,10 @@ function renderDocuments() {
     (item) => item.type,
     (item) => companyName(item.companyId),
     (item) => employeeName(item.employeeId),
-    (item) => state.employees.find((employee) => employee.id === item.employeeId)?.cpf,
-    (item) => employeeRegistration(state.employees.find((employee) => employee.id === item.employeeId) || {}),
-    (item) => state.companies.find((company) => company.id === item.companyId)?.contract,
-    (item) => employeeCostCenter(state.employees.find((employee) => employee.id === item.employeeId) || {}, state.companies.find((company) => company.id === item.companyId)),
+    (item) => state.employees.find((employee) => sameId(employee.id, item.employeeId))?.cpf,
+    (item) => employeeRegistration(state.employees.find((employee) => sameId(employee.id, item.employeeId)) || {}),
+    (item) => state.companies.find((company) => sameId(company.id, item.companyId))?.contract,
+    (item) => employeeCostCenter(state.employees.find((employee) => sameId(employee.id, item.employeeId)) || {}, state.companies.find((company) => sameId(company.id, item.companyId))),
     (item) => docStatus(item),
   ]);
   const items = sortItems("documents", applyOperationalFilters("documents", filteredItems));
@@ -4159,9 +4157,49 @@ function renderDocumentRow(doc) {
   `;
 }
 
-function openDocumentDetails(id) {
-  const doc = visibleDocuments().find((item) => item.id === id) || state.documents.find((item) => item.id === id);
-  if (!doc) return;
+function isStorageDocumentPath(path) {
+  const value = String(path || "").trim();
+  return Boolean(value) && !/^(https?:|blob:|data:)/i.test(value);
+}
+
+function documentDownloadName(doc = {}) {
+  const fallback = String(doc.filePath || doc.type || "documento").split("/").pop() || "documento";
+  return fallback.replace(/[?#].*$/, "");
+}
+
+async function resolveDocumentAccessUrl(doc, expiresIn = 60) {
+  const path = String(doc?.filePath || "").trim();
+  if (!path) return { url: "", source: "empty" };
+  if (!isStorageDocumentPath(path)) return { url: path, source: "direct" };
+  const { data, error } = await supabaseClient.storage.from("documents").createSignedUrl(path, expiresIn);
+  if (error) throw error;
+  return { url: data?.signedUrl || "", source: "storage" };
+}
+
+async function downloadDocumentFile(url, fileName) {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Falha ao baixar arquivo: HTTP ${response.status}`);
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = fileName || "documento";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  } finally {
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+  }
+}
+
+async function openDocumentDetails(id, popupHandle = null) {
+  const doc = visibleDocuments().find((item) => sameId(item.id, id)) || state.documents.find((item) => sameId(item.id, id));
+  if (!doc) {
+    console.error("[Documentos] Documento nao encontrado", { id });
+    alert("Nao foi possivel abrir a ficha do documento. Documento nao encontrado.");
+    return;
+  }
   const status = docStatus(doc);
   const modal = document.createElement("div");
   modal.className = "modal-backdrop";
@@ -4180,7 +4218,14 @@ function openDocumentDetails(id) {
       </div>
       <div class="modal-body document-detail-grid">
         <section class="document-preview-panel">
-          ${renderDocumentPreview(doc)}
+          <div class="document-preview-shell">
+            <div class="document-preview-actions">
+              <button class="btn secondary compact" type="button" data-document-open disabled>${icon("docs")} Abrir arquivo</button>
+              <button class="btn warning compact" type="button" data-document-download disabled>${icon("download")} Baixar arquivo</button>
+            </div>
+            <div class="document-preview-slot" data-document-preview-slot>${renderDocumentPreview(doc)}</div>
+            <div class="document-preview-hint muted" data-document-preview-hint>Preparando link seguro do documento...</div>
+          </div>
         </section>
         <section class="document-info-panel">
           <div class="detail-grid">
@@ -4204,8 +4249,86 @@ function openDocumentDetails(id) {
   `;
   document.body.appendChild(modal);
   modal.querySelectorAll("[data-close]").forEach((button) => button.addEventListener("click", () => modal.remove()));
+  const openButton = modal.querySelector("[data-document-open]");
+  const downloadButton = modal.querySelector("[data-document-download]");
+  const previewSlot = modal.querySelector("[data-document-preview-slot]");
+  const previewHint = modal.querySelector("[data-document-preview-hint]");
+  const setPreview = (url) => {
+    if (!previewSlot) return;
+    const lower = String(doc.filePath || "").toLowerCase();
+    if (lower.endsWith(".pdf")) {
+      previewSlot.innerHTML = `<iframe class="document-preview-frame" src="${escapeAttr(url)}" title="Preview PDF"></iframe>`;
+      return;
+    }
+    if (/\.(png|jpg|jpeg|webp|gif)$/i.test(lower)) {
+      previewSlot.innerHTML = `<img class="document-preview-image" src="${escapeAttr(url)}" alt="Preview do documento" />`;
+      return;
+    }
+    previewSlot.innerHTML = `<div class="document-preview-empty">${icon("docs")}<strong>Arquivo pronto para visualizacao</strong><span>${escapeHtml(doc.filePath || "Documento armazenado")}</span><small>Use os botoes acima para abrir ou baixar o arquivo.</small></div>`;
+  };
+  (async () => {
+    try {
+      const access = await resolveDocumentAccessUrl(doc, 60);
+      if (!access.url) {
+        if (previewHint) previewHint.textContent = "Nenhum arquivo vinculado ao documento.";
+        return;
+      }
+      if (previewHint) previewHint.textContent = access.source === "storage" ? "Link seguro gerado pelo Supabase Storage." : "Arquivo localizado via URL direta.";
+      setPreview(access.url);
+      if (openButton) {
+        openButton.disabled = false;
+        openButton.dataset.documentUrl = access.url;
+      }
+      if (downloadButton) {
+        downloadButton.disabled = false;
+        downloadButton.dataset.documentUrl = access.url;
+      }
+      if (popupHandle && !popupHandle.closed) {
+        popupHandle.location = access.url;
+        popupHandle.focus();
+      }
+    } catch (error) {
+      console.error("[Documentos] Falha ao preparar acesso ao arquivo", { id: doc.id, filePath: doc.filePath, error });
+      if (previewHint) previewHint.textContent = "Nao foi possivel gerar o link seguro do arquivo.";
+      if (previewSlot) previewSlot.innerHTML = `<div class="document-preview-empty">${icon("docs")}<strong>Arquivo sem preview seguro</strong><span>${escapeHtml(doc.filePath || "Caminho nao informado")}</span><small>Confira se o bucket documents e a policy de leitura estao disponiveis.</small></div>`;
+    }
+  })();
   modal.addEventListener("click", (event) => {
     if (event.target === modal) modal.remove();
+  });
+  modal.addEventListener("click", async (event) => {
+    const openFile = event.target.closest("[data-document-open]");
+    if (openFile) {
+      event.stopPropagation();
+      const url = openFile.dataset.documentUrl;
+      if (!url) {
+        alert("O link seguro do arquivo ainda nao esta pronto.");
+        return;
+      }
+      const popup = window.open(url, "_blank", "noopener,noreferrer");
+      if (!popup) {
+        const hint = modal.querySelector("[data-document-preview-hint]");
+        if (hint) {
+          hint.innerHTML = `Popup bloqueado. Use este link: <a href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">Abrir arquivo</a>`;
+        }
+      }
+      return;
+    }
+    const downloadFile = event.target.closest("[data-document-download]");
+    if (downloadFile) {
+      event.stopPropagation();
+      const url = downloadFile.dataset.documentUrl;
+      if (!url) {
+        alert("O link seguro do arquivo ainda nao esta pronto.");
+        return;
+      }
+      try {
+        await downloadDocumentFile(url, documentDownloadName(doc));
+      } catch (error) {
+        console.error("[Documentos] Falha ao baixar arquivo", { id: doc.id, filePath: doc.filePath, error });
+        alert(`Nao foi possivel baixar o arquivo. ${persistenceMessage(error)}`);
+      }
+    }
   });
 }
 
@@ -4539,13 +4662,6 @@ function bindViewEvents() {
         return;
       }
       if (button.dataset.create === "company") {
-        if (currentView === "contracts") {
-          currentView = "companies";
-          editingCompanyId = null;
-          searchTerm = "";
-          render();
-          return;
-        }
         editingCompanyId = null;
         renderApp();
         return;
@@ -4641,6 +4757,7 @@ function bindViewEvents() {
   document.querySelectorAll("[data-employee-record]").forEach((item) => {
     item.addEventListener("click", (event) => {
       event.stopPropagation();
+      console.log("Abrir FIT", item.dataset.employeeRecord);
       openEmployeeRecord(item.dataset.employeeRecord);
     });
   });
@@ -4648,7 +4765,9 @@ function bindViewEvents() {
   document.querySelectorAll("[data-document-detail]").forEach((item) => {
     item.addEventListener("click", (event) => {
       event.stopPropagation();
-      openDocumentDetails(item.dataset.documentDetail);
+      console.log("Ver ficha", item.dataset.documentDetail);
+      const popup = window.open("", "_blank", "noopener,noreferrer");
+      openDocumentDetails(item.dataset.documentDetail, popup);
     });
   });
 
@@ -4709,11 +4828,23 @@ function bindViewEvents() {
   });
 
   document.querySelectorAll("[data-employee-action]").forEach((button) => {
-    button.addEventListener("click", () => updateEmployeeOperationalStatus(button.dataset.id, button.dataset.employeeAction));
+    button.addEventListener("click", () => {
+      const label = {
+        demobilize: "Desmobilizar",
+        inactivate: "Inativar",
+        block: "Bloquear",
+      }[button.dataset.employeeAction] || button.dataset.employeeAction;
+      console.log(label, button.dataset.id);
+      updateEmployeeOperationalStatus(button.dataset.id, button.dataset.employeeAction);
+    });
   });
 
   document.querySelectorAll("[data-doc-status]").forEach((button) => {
-    button.addEventListener("click", () => updateDocumentStatus(button.dataset.id, button.dataset.docStatus));
+    button.addEventListener("click", () => {
+      const label = button.dataset.docStatus === "Aprovado" ? "Aprovar documento" : "Reprovar documento";
+      console.log(label, button.dataset.id);
+      updateDocumentStatus(button.dataset.id, button.dataset.docStatus);
+    });
   });
 
   document.querySelectorAll("[data-demobilize]").forEach((button) => {
@@ -4986,7 +5117,7 @@ function companyForm(id) {
 }
 
 function employeeForm(id) {
-  const item = state.employees.find((employee) => employee.id === id) || {};
+  const item = state.employees.find((employee) => sameId(employee.id, id)) || {};
   return {
     title: id ? "Editar funcionario" : "Novo funcionario",
     fields: [
@@ -5045,12 +5176,12 @@ function documentForm(id) {
     async save(form) {
       const payload = normalizeDocumentFormPayload(form, item.filePath);
       validateDocumentPayload(payload);
-      const uploadResult = await uploadDocumentFile(form, item.filePath);
+      const filePath = await uploadDocumentFile(form, item.filePath);
       const previousStatus = item.status || "";
       const saved = {
         ...(id ? item : { id: crypto.randomUUID() }),
         ...payload,
-        filePath: uploadResult.path || payload.filePath,
+        filePath: filePath || payload.filePath,
       };
       saved.auditTrail = buildDocumentAuditTrail(item, saved, id ? "Documento atualizado" : "Documento cadastrado");
       try {
@@ -5058,7 +5189,6 @@ function documentForm(id) {
         upsert("documents", id || saved.id, saved);
         recordManualStatusHistory("documento", saved.id, previousStatus, saved.status, `Documento ${saved.type} salvo pelo formulario.`);
         await persistAutomaticStatusChanges(applyAutomaticStatusRules({ source: "Documento salvo" }));
-        if (uploadResult.warning) alert(uploadResult.warning);
       } catch (error) {
         throw wrapPersistenceError(error, {
           table: "public.documents",
@@ -5206,9 +5336,9 @@ function userForm(id) {
 }
 
 function upsert(collection, id, data) {
-  if (id && state[collection].some((item) => item.id === id)) {
-    state[collection] = state[collection].map((item) => (item.id === id ? { ...item, ...data } : item));
-    return state[collection].find((item) => item.id === id);
+  if (id && state[collection].some((item) => sameId(item.id, id))) {
+    state[collection] = state[collection].map((item) => (sameId(item.id, id) ? { ...item, ...data } : item));
+    return state[collection].find((item) => sameId(item.id, id));
   } else {
     const item = { id: id || crypto.randomUUID(), ...data };
     state[collection].push(item);
@@ -5218,7 +5348,7 @@ function upsert(collection, id, data) {
 
 async function saveCompanyFromForm(form) {
   const id = form.get("id") || null;
-  const previous = state.companies.find((company) => company.id === id);
+  const previous = state.companies.find((company) => sameId(company.id, id));
   const previousStatus = previous?.status || "";
   const quickFiscal = createQuickFiscalFromCompanyForm(form);
   const selectedFiscalId = quickFiscal?.id || optionalNull(form.get("fiscalId"));
@@ -5369,14 +5499,9 @@ function inactivateFiscal(id) {
   recordFiscalHistory(fiscal, "Fiscal inativado", previousStatus, "inativo", `Motivo: ${motivo.trim()}${substitute ? `. Substituto: ${substitute.nome}.` : "."}`);
   if (substitute) recordFiscalHistory(substitute, "Substituicao de fiscal", "", substitute.status, `Fiscal ${substitute.nome} definido como substituto de ${fiscal.nome}.`);
   syncCollection("fiscais", fiscal).catch((error) => alert(`Nao foi possivel atualizar fiscal online: ${error.message}`));
-  Promise.all(
-    state.companies
-      .filter((company) => (company.fiscaisAdicionais || []).some((fiscalId) => sameId(fiscalId, fiscal.id)) || sameId(company.fiscalId, substitute?.id))
-      .map((company) => syncCollection("companies", company).catch((error) => console.warn("Nao foi possivel atualizar empresa online.", error))),
-  );
+  Promise.all(state.companies.filter((company) => (company.fiscaisAdicionais || []).some((fiscalId) => sameId(fiscalId, fiscal.id)) || sameId(company.fiscalId, substitute?.id)).map((company) => syncCollection("companies", company).catch((error) => console.warn("Nao foi possivel atualizar empresa online.", error))));
   saveState();
   renderApp();
-  alert(`Fiscal ${fiscal.nome} inativado com sucesso.`);
 }
 
 function recordFiscalHistory(entity, action, previousStatus, nextStatus, observation) {
@@ -5409,7 +5534,7 @@ async function saveEmployeeFromForm(form) {
     alert("CEP invalido. Informe exatamente 8 numeros.");
     return;
   }
-  const existing = state.employees.find((employee) => employee.id === id);
+  const existing = state.employees.find((employee) => sameId(employee.id, id));
   const previousStatus = existing?.status || "";
   const canEditFullEmployee =
     currentUser()?.role === "admin" ||
@@ -5447,8 +5572,8 @@ async function saveEmployeeFromForm(form) {
   try {
     const onlineSaved = await syncCollection("employees", saved);
     if (onlineSaved?.id && String(onlineSaved.id) !== String(saved.id)) {
-      state.employees = state.employees.map((employee) => (employee.id === saved.id ? { ...saved, ...onlineSaved } : employee));
-      state.documents = state.documents.map((doc) => (doc.employeeId === saved.id ? { ...doc, employeeId: onlineSaved.id } : doc));
+      state.employees = state.employees.map((employee) => (sameId(employee.id, saved.id) ? { ...saved, ...onlineSaved } : employee));
+      state.documents = state.documents.map((doc) => (sameId(doc.employeeId, saved.id) ? { ...doc, employeeId: onlineSaved.id } : doc));
       saved.id = onlineSaved.id;
     }
   } catch (error) {
@@ -5486,7 +5611,7 @@ function buildEmployeeAddressFromForm(form) {
 }
 
 function updateEmployeeOperationalStatus(id, action) {
-  const employee = state.employees.find((item) => item.id === id);
+  const employee = state.employees.find((item) => sameId(item.id, id));
   if (!employee) return;
   if (!can("updateHiringStatus", employee)) {
     alert("Seu perfil nao possui permissao para alterar o status deste funcionario.");
@@ -5570,17 +5695,16 @@ function updateEmployeeOperationalStatus(id, action) {
 
 async function uploadDocumentFile(form, fallbackPath = "") {
   const file = form.get("documentFile");
-  if (!isOnlineMode() || !file || !file.name || file.size === 0) return { path: fallbackPath, warning: "" };
+  if (!isOnlineMode() || !file || !file.name || file.size === 0) return fallbackPath;
   const companyId = form.get("companyId") || "sem-empresa";
   const cleanName = file.name.replace(/[^\w.-]+/g, "_");
-  const objectPath = `${companyId}/${crypto.randomUUID()}-${cleanName}`;
-  const buckets = ["documents", "documentos"];
+  const path = `${companyId}/${crypto.randomUUID()}-${cleanName}`;
   const context = {
     table: "storage.objects",
-    operation: "upload bucket documents/documentos",
+    operation: "upload bucket documents",
     payload: {
-      bucketCandidates: buckets,
-      path: objectPath,
+      bucket: "documents",
+      path,
       fileName: file.name,
       fileSize: file.size,
       companyId,
@@ -5588,29 +5712,22 @@ async function uploadDocumentFile(form, fallbackPath = "") {
   };
   try {
     await ensureOnlineSession(context.table);
-    for (const bucket of buckets) {
-      const { error } = await supabaseClient.storage.from(bucket).upload(objectPath, file, { upsert: false });
-      if (!error) return { path: objectPath, warning: "" };
-      const isBucketNotFound = String(error?.message || "").toLowerCase().includes("bucket not found");
-      if (!isBucketNotFound) {
-        throw wrapPersistenceError(error, {
-          ...context,
-          payload: { ...context.payload, bucketTried: bucket },
-        });
-      }
-    }
-    return {
-      path: fallbackPath,
-      warning: "Upload nao realizado: bucket de storage nao encontrado. Crie o bucket 'documents' (ou 'documentos') no Supabase Storage.",
-    };
+    const { error } = await supabaseClient.storage.from("documents").upload(path, file, { upsert: false });
+    if (error) throw error;
+    return path;
   } catch (error) {
     throw wrapPersistenceError(error, context);
   }
 }
 
 function updateDocumentStatus(id, status) {
-  const doc = state.documents.find((item) => item.id === id);
-  if (!doc || !can("approveDocuments", doc)) return;
+  const doc = state.documents.find((item) => sameId(item.id, id));
+  if (!doc) {
+    console.error("[Documentos] Documento nao encontrado para atualizar status", { id, status });
+    alert("Nao foi possivel alterar o status. Documento nao encontrado.");
+    return;
+  }
+  if (!can("approveDocuments", doc)) return;
   const previous = structuredClone(doc);
   const previousStatus = doc.status || "";
   doc.status = status;
@@ -5643,6 +5760,7 @@ function updateDocumentStatus(id, status) {
   persistAutomaticStatusChanges(applyAutomaticStatusRules({ source: "Status documental atualizado" }));
   saveState();
   render();
+  alert(`Documento ${status.toLowerCase()} com sucesso.`);
 }
 
 function demobilizeCompany(id) {
@@ -5696,7 +5814,7 @@ function removeItem(type, id) {
     return;
   }
   if (type === "employee") {
-    state.documents = state.documents.map((doc) => (doc.employeeId === id ? { ...doc, employeeId: "" } : doc));
+    state.documents = state.documents.map((doc) => (sameId(doc.employeeId, id) ? { ...doc, employeeId: "" } : doc));
     if (editingEmployeeId === id) editingEmployeeId = null;
   }
   if (type === "user" && id === state.session) {
@@ -6009,7 +6127,7 @@ function mapFiscalFromDb(fiscal) {
     setor: fiscal.setor,
     status: fiscal.status,
     ativo: fiscal.ativo,
-    usuarioEmail: fiscal.usuario_email || fiscal.email || null,
+    usuarioEmail: fiscal.usuario_email,
     usuarioId: fiscal.usuario_id,
     authUserId: fiscal.auth_user_id,
     dataFim: fiscal.data_fim,
