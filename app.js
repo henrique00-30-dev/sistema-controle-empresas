@@ -2000,42 +2000,27 @@ function renderDocCard(doc) {
 
 function renderCompanies() {
   const baseItems = visibleCompanies();
-  const activeCompanies = baseItems.filter((company) => ["Ativa", "Ativo", "Liberado", "Aprovado"].some((status) => statusMatches(normalizeCompany(company).status, status)));
-  const inactiveCompanies = baseItems.filter((company) => ["Inativa", "Inativo", "Desmobilizada", "Desmobilizado"].some((status) => statusMatches(normalizeCompany(company).status, status)));
   const filteredItems = filtered(baseItems, [
     (item) => item.name,
     (item) => companyTradeName(item),
     (item) => item.cnpj,
-    (item) => companyCode(item),
-    (item) => item.fiscal,
-    (item) => item.responsible || item.contact,
-    (item) => item.contract,
-    (item) => contractUnit(item),
+    (item) => companyPrimaryContract(item),
     (item) => employeeCostCenter({}, item),
+    (item) => item.fiscal,
+    (item) => item.manager || item.responsible || item.contact,
     (item) => normalizeCompany(item).status,
   ]);
   const items = sortItems("companies", applyOperationalFilters("companies", filteredItems));
   const { pageItems, totalPages } = paginateItems("companies", items);
-  const editingCompany = editingCompanyId
-    ? state.companies.find((company) => sameId(company.id, editingCompanyId))
-    : currentUser()?.role === "supplier"
-      ? visibleCompanies()[0]
-      : null;
   return `
-    ${sectionHead("Empresas", "Carteira operacional de empresas terceirizadas, fiscais, contratos e pendencias.", "Nova empresa", "company")}
-    ${renderCompanyEditor(editingCompany)}
-    ${renderFiscalRegistry()}
-    <div class="status-filter operational-filters" aria-label="Separacao de empresas">
-      <button class="${tableConfig("companies").quick === "Ativas" ? "active" : ""}" type="button" data-quick-view="companies" data-quick-filter="Ativas">Empresas ativas <span class="mini-pill">${activeCompanies.length}</span></button>
-      <button class="${tableConfig("companies").quick === "Desmobilizado" ? "active" : ""}" type="button" data-quick-view="companies" data-quick-filter="Desmobilizado">Empresas inativas/desmobilizadas <span class="mini-pill">${inactiveCompanies.length}</span></button>
-    </div>
+    ${sectionHead("Empresas", "Visao geral operacional com listagem, filtros e acesso rapido para ficha da empresa.", "Nova empresa", "company")}
     ${toolbar("Buscar por razao social, nome fantasia, CNPJ, codigo, contrato, fiscal ou status")}
     ${renderOperationalFilters("companies", baseItems, { quicks: ["Todos", "Ativas", "Pendentes", "Bloqueadas", "Contrato vencido", "Documentos vencidos", "Sem fiscal vinculado"], exportKey: "empresas" })}
     <section class="panel table-wrap">
       <table>
-        <thead><tr>${sortableHeader("companies", "ID/Codigo", "id")}${sortableHeader("companies", "Razao social", "name")}<th>Nome fantasia</th><th>CNPJ</th><th>Codigo da empresa</th><th>Contrato principal</th><th>Fiscal responsavel</th>${sortableHeader("companies", "Status", "status")}<th>Vencimento do contrato</th><th>Documentos pendentes</th><th>Funcionarios vinculados</th><th>Acoes</th></tr></thead>
+        <thead><tr>${sortableHeader("companies", "Razao social", "name")}<th>Nome fantasia</th><th>CNPJ</th><th>Contrato principal</th><th>Centro de custo</th><th>Fiscal responsavel</th><th>Gestor do contrato</th>${sortableHeader("companies", "Status", "status")}<th>Pendencias</th><th>Funcionarios vinculados</th><th>Acoes</th></tr></thead>
         <tbody>
-          ${pageItems.length ? pageItems.map(renderCompanyRow).join("") : emptyRow(12)}
+          ${pageItems.length ? pageItems.map(renderCompanyRow).join("") : emptyRow(11)}
         </tbody>
       </table>
       ${renderPagination("companies", items.length, totalPages)}
@@ -2050,32 +2035,22 @@ function renderCompanyEditor(company = null) {
   const item = normalizeCompany(company || {});
   const activeFiscais = state.fiscais.map(normalizeFiscal).filter((fiscal) => fiscal.status !== "inativo");
   const fiscalOptions = [{ value: "", label: "Selecione um fiscal" }].concat(activeFiscais.map((fiscal) => ({ value: fiscal.id, label: `${fiscal.nome}${fiscal.matricula ? ` - ${fiscal.matricula}` : ""}` })));
-  const additionalFiscalIds = new Set(item.fiscaisAdicionais || []);
   return `
     <section class="panel company-editor">
       <div class="editor-head">
         <div>
           <h2>${company ? "Editar cadastro da empresa" : "Cadastro de empresa"}</h2>
-          <span class="muted">${company ? "Atualize os dados contratuais e salve as alteracoes." : "Preencha os dados para registrar uma empresa terceirizada."}</span>
+          <span class="muted">${company ? "Atualize os dados gerais e contratuais da empresa." : "Preencha os dados para registrar uma empresa terceirizada."}</span>
         </div>
-        ${company ? `<button class="btn secondary" type="button" data-new-company>${icon("plus")} Novo cadastro</button>` : ""}
+        ${company ? `<button class="btn secondary" type="button" data-company-open-new>${icon("plus")} Nova empresa</button>` : ""}
       </div>
       <form id="companyEditorForm" class="form-grid company-form">
         <input type="hidden" name="id" value="${escapeAttr(company?.id || "")}" />
-        ${inputField("name", "Nome da empresa", item.name, "required")}
+        ${inputField("name", "Razao social", item.name, "required")}
+        ${inputField("tradeName", "Nome fantasia", companyTradeName(item) === item.name ? "" : companyTradeName(item))}
         ${inputField("cnpj", "CNPJ", item.cnpj, "required inputmode='numeric' maxlength='18' data-mask='cnpj' placeholder='00.000.000/0000-00'")}
         ${selectField("fiscalId", "Fiscal principal", item.fiscalId || "", fiscalOptions)}
         ${inputField("fiscal", "Fiscal do contrato", item.fiscal, "required")}
-        ${formSection("Cadastro rapido de fiscal", [
-          inputField("novoFiscalNome", "Nome do novo fiscal", ""),
-          inputField("novoFiscalEmail", "E-mail do novo fiscal", "", "type='email'"),
-          inputField("novoFiscalMatricula", "Matricula", ""),
-          inputField("novoFiscalTelefone", "Telefone", "", "inputmode='numeric' maxlength='15' data-mask='phone' placeholder='(00) 00000-0000'"),
-          inputField("novoFiscalSetor", "Setor", "Fiscalizacao"),
-        ])}
-        ${formSection("Fiscais adicionais/substitutos", [
-          `<label class="wide">Selecione fiscais adicionais<select name="fiscaisAdicionais" multiple size="4">${activeFiscais.map((fiscal) => `<option value="${escapeAttr(fiscal.id)}" ${additionalFiscalIds.has(fiscal.id) ? "selected" : ""}>${escapeHtml(fiscal.nome)}${fiscal.status === "com_acesso" ? " - com acesso" : ""}</option>`).join("")}</select></label>`,
-        ])}
         ${inputField("manager", "Gestor do contrato", item.manager || item.responsible, "required")}
         ${inputField("costCenter", "Centro de custo padrao", item.costCenter || "", "required")}
         ${inputField("phone", "Telefone", item.phone, "required inputmode='numeric' maxlength='15' data-mask='phone' placeholder='(00) 00000-0000'")}
@@ -2085,6 +2060,8 @@ function renderCompanyEditor(company = null) {
         ${inputField("endDate", "Data de fim do contrato", item.endDate, "type='date' required")}
         ${selectField("status", "Status da empresa", item.status || "Ativa", ["Ativa", "Pendente", "Bloqueada", "Inativa", "Desmobilizada"].map(option))}
         ${inputField("contract", "Numero do contrato", item.contract, "required")}
+        ${inputField("companyCode", "Codigo da empresa", companyCode(item) === item.id ? "" : companyCode(item))}
+        ${inputField("branchCode", "Codigo filial", companyBranchCode(item) === "Nao informado" ? "" : companyBranchCode(item))}
         <div class="form-actions wide">
           <button class="btn primary" type="submit">${icon("save")} Salvar</button>
           ${company ? `<button class="btn warning" type="button" data-demobilize="company" data-id="${company.id}">Desmobilizar contrato</button>` : ""}
@@ -2512,15 +2489,14 @@ function renderCompanyRow(company) {
   const item = normalizeCompany(company);
   return `
     <tr>
-      <td><button class="link-button" type="button" data-company-detail="${company.id}">${escapeHtml(companyCode(item))}</button></td>
       <td><button class="link-button strong" type="button" data-company-detail="${company.id}">${escapeHtml(item.name)}</button><br><span class="muted">${item.email || "E-mail nao informado"}</span></td>
       <td>${companyTradeName(item)}</td>
       <td>${item.cnpj}</td>
-      <td>${companyCode(item)}</td>
       <td>${companyPrimaryContract(item)}</td>
+      <td>${employeeCostCenter({}, item)}</td>
       <td>${item.fiscal}</td>
+      <td>${item.manager || item.responsible || "Nao informado"}</td>
       <td>${statusBadge(item.status)}</td>
-      <td>${formatDate(item.endDate)}${isPastDate(item.endDate) ? `<br>${statusBadge("Vencido")}` : ""}</td>
       <td><strong>${companyPendingDocumentsCount(company.id)}</strong></td>
       <td><strong>${companyEmployeeCount(company.id)}</strong></td>
       <td>${companyRowActions(company.id)}</td>
@@ -2529,14 +2505,9 @@ function renderCompanyRow(company) {
 }
 
 function companyRowActions(id) {
-  const company = state.companies.find((item) => sameId(item.id, id));
-  const canEditCompany = can("edit.company", company);
   return `
     <div class="actions wrap">
       <button class="btn secondary compact" type="button" data-company-detail="${id}">${icon("company")} Ver detalhes</button>
-      ${canEditCompany ? `<button class="btn secondary compact" type="button" data-edit="company" data-id="${id}">${icon("edit")} Editar</button>` : ""}
-      ${canEditCompany ? `<button class="btn warning compact" type="button" data-demobilize="company" data-id="${id}">Desmobilizar</button>` : ""}
-      ${!canEditCompany ? `<span class="mini-pill">Somente leitura</span>` : ""}
     </div>
   `;
 }
@@ -3735,6 +3706,58 @@ function renderContractOperationalSummary(company) {
   `;
 }
 
+function openCompanyEditorModal(id = null) {
+  const company = id ? state.companies.find((item) => sameId(item.id, id)) : null;
+  if (!can("create.company") && !can("edit.company", company)) return;
+  const modal = document.createElement("div");
+  modal.className = "modal-backdrop company-editor-backdrop";
+  modal.innerHTML = `
+    <section class="modal company-detail-modal">
+      <div class="modal-head">
+        <div>
+          <span class="eyebrow">Cadastro de empresa</span>
+          <h2>${company ? "Editar empresa" : "Nova empresa"}</h2>
+        </div>
+        <button class="btn icon" type="button" data-close title="Fechar">${icon("close")}</button>
+      </div>
+      <div class="modal-body">
+        ${renderCompanyEditor(company)}
+      </div>
+    </section>
+  `;
+  document.body.appendChild(modal);
+  bindInputMasks(modal);
+  const form = modal.querySelector("#companyEditorForm");
+  if (form) {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const submit = event.currentTarget.querySelector("button[type='submit']");
+      if (submit?.disabled) return;
+      if (submit) submit.disabled = true;
+      try {
+        const saved = await saveCompanyFromForm(new FormData(event.currentTarget));
+        if (saved) modal.remove();
+      } finally {
+        if (submit) submit.disabled = false;
+      }
+    });
+  }
+  modal.querySelectorAll("[data-close]").forEach((button) => button.addEventListener("click", () => modal.remove()));
+  modal.querySelector("[data-company-open-new]")?.addEventListener("click", () => {
+    modal.remove();
+    openCompanyEditorModal(null);
+  });
+  modal.querySelector("[data-demobilize='company']")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    const companyId = event.currentTarget.dataset.id;
+    modal.remove();
+    demobilizeCompany(companyId);
+  });
+  modal.addEventListener("click", (event) => {
+    if (event.target === modal) modal.remove();
+  });
+}
+
 function openCompanyDetails(id) {
   const company = visibleCompanies().find((item) => sameId(item.id, id)) || state.companies.find((item) => sameId(item.id, id));
   if (!company) return;
@@ -3769,11 +3792,12 @@ function openCompanyDetails(id) {
         ${[
           ["general", "Dados Gerais"],
           ["contracts", "Contratos"],
-          ["people", "Funcionarios"],
-          ["docs", "Documentos Obrigatorios"],
-          ["safety", "Seguranca do Trabalho"],
+          ["people", "Funcionarios / FIT"],
+          ["docs", "Documentos"],
           ["medicine", "Medicina Ocupacional"],
-          ["fiscalization", "Fiscalizacao"],
+          ["ehs", "EHS / SSMA"],
+          ["patrimonial", "Seguranca Patrimonial"],
+          ["managers", "Fiscais e Gestores"],
           ["history", "Historico"],
         ]
           .map(([tab, label], index) => `<button class="${index === 0 ? "active" : ""}" type="button" data-company-tab="${tab}">${label}</button>`)
@@ -3789,10 +3813,8 @@ function openCompanyDetails(id) {
     const recordEdit = event.target.closest("[data-record-edit]");
     if (recordEdit) {
       event.stopPropagation();
-      editingCompanyId = recordEdit.dataset.id;
       modal.remove();
-      currentView = "companies";
-      renderApp();
+      openCompanyEditorModal(recordEdit.dataset.id);
       return;
     }
     const demobilize = event.target.closest("[data-demobilize='company']");
@@ -3817,11 +3839,9 @@ function openCompanyDetails(id) {
 
 function bindCompanyDetailEvents(modal, company) {
   modal.querySelector("[data-company-contract-new]")?.addEventListener("click", () => {
-    alert("A estrutura atual possui um contrato por cadastro de empresa. Para cadastrar novo contrato sem alterar o banco, atualize os campos de contrato no cadastro da empresa.");
-    editingCompanyId = company.id;
+    alert("A estrutura atual possui um contrato por cadastro de empresa. Para atualizar dados contratuais, edite esta empresa.");
     modal.remove();
-    currentView = "companies";
-    renderApp();
+    openCompanyEditorModal(company.id);
   });
   modal.querySelector("[data-company-contract-open]")?.addEventListener("click", () => openContractDetails(company.id));
   modal.querySelector("[data-company-contract-close]")?.addEventListener("click", () => {
@@ -3838,6 +3858,26 @@ function bindCompanyDetailEvents(modal, company) {
   modal.querySelectorAll("[data-doc-status]").forEach((button) => button.addEventListener("click", (event) => {
     event.stopPropagation();
     updateDocumentStatus(button.dataset.id, button.dataset.docStatus);
+  }));
+  modal.querySelector("#fiscalQuickForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await saveFiscalFromForm(new FormData(event.currentTarget));
+    modal.querySelector(".company-tab-content").innerHTML = renderCompanyTab(company, "managers");
+    bindCompanyDetailEvents(modal, company);
+  });
+  modal.querySelectorAll("[data-fiscal-access]").forEach((button) => button.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    const fiscal = state.fiscais.find((item) => sameId(item.id, button.dataset.fiscalAccess));
+    if (!fiscal) return;
+    await createAccessForFiscal(fiscal);
+    modal.querySelector(".company-tab-content").innerHTML = renderCompanyTab(company, "managers");
+    bindCompanyDetailEvents(modal, company);
+  }));
+  modal.querySelectorAll("[data-fiscal-inactivate]").forEach((button) => button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    inactivateFiscal(button.dataset.fiscalInactivate);
+    modal.querySelector(".company-tab-content").innerHTML = renderCompanyTab(company, "managers");
+    bindCompanyDetailEvents(modal, company);
   }));
 }
 
@@ -3880,6 +3920,7 @@ function renderCompanyTab(company, tab) {
         ${detailCard("Codigo da empresa", companyCode(item))}
         ${detailCard("Codigo filial", companyBranchCode(item))}
         ${detailCard("Centro de custo", employeeCostCenter({}, item))}
+        ${detailCard("CEP", item.cep || "Nao informado")}
         ${detailCard("Endereco", companyAddress(item))}
         ${detailCard("Municipio/UF", [item.city || item.municipio, item.uf].filter(Boolean).join("/") || "Nao informado")}
         ${detailCard("Telefone", item.phone || "Nao informado")}
@@ -3940,11 +3981,11 @@ function renderCompanyTab(company, tab) {
     return `
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Matricula/ID</th><th>Nome</th><th>CPF</th><th>Funcao</th><th>Status documental</th><th>Status contratacao</th><th>ASO</th><th>Treinamento</th><th>Acoes</th></tr></thead>
+          <thead><tr><th>Matricula/ID</th><th>Nome</th><th>CPF</th><th>Funcao</th><th>Contrato</th><th>Status documental</th><th>Status contratacao</th><th>ASO</th><th>Treinamento</th><th>Acoes</th></tr></thead>
           <tbody>${employees.length ? employees.map((employee) => {
             const normalized = normalizeEmployee(employee);
-            return `<tr><td>${employeeRegistration(normalized)}</td><td><strong>${normalized.name}</strong></td><td>${normalized.cpf}</td><td>${normalized.role}</td><td>${statusBadge(normalized.docStatus)}</td><td>${statusBadge(normalized.status)}</td><td>${formatDate(normalized.asoValidity)}</td><td>${formatDate(normalized.trainingValidity)}</td><td><button class="btn secondary compact" type="button" data-employee-record="${employee.id}">${icon("users")} Abrir FIT</button></td></tr>`;
-          }).join("") : emptyRow(9)}</tbody>
+            return `<tr><td>${employeeRegistration(normalized)}</td><td><strong>${normalized.name}</strong></td><td>${normalized.cpf}</td><td>${normalized.role}</td><td>${normalized.contract || item.contract || "Nao informado"}</td><td>${statusBadge(normalized.docStatus)}</td><td>${statusBadge(normalized.status)}</td><td>${formatDate(normalized.asoValidity)}</td><td>${formatDate(normalized.trainingValidity)}</td><td><button class="btn secondary compact" type="button" data-employee-record="${employee.id}">${icon("users")} Abrir funcionario</button></td></tr>`;
+          }).join("") : emptyRow(10)}</tbody>
         </table>
       </div>
     `;
@@ -3959,43 +4000,71 @@ function renderCompanyTab(company, tab) {
       </div>
     `;
   }
-  if (tab === "safety" || tab === "medicine") {
-    const safety = tab === "safety";
-    const names = safety ? ["PGR", "PPR", "PPRA", "PCMAT"] : ["PCMSO", "PCA"];
-    const related = documents.filter((doc) => names.some((name) => String(doc.type || "").toLowerCase().includes(name.toLowerCase())) || (safety ? documentOperationalSector(doc) === "EHS" : documentOperationalSector(doc) === "Medicina"));
+  if (tab === "medicine") {
+    const medicineDocs = documents.filter((doc) => documentOperationalSector(doc) === "Medicina" || /pcmso|pca|aso|exame/i.test(doc.type || ""));
+    const asoDates = employees.map((employee) => normalizeEmployee(employee).asoValidity).filter(Boolean);
+    const maxAsoDate = asoDates.sort().at(-1) || null;
     return `
       <div class="detail-grid">
-        ${names.map((name) => detailCard(name, statusBadge(related.some((doc) => String(doc.type || "").toLowerCase().includes(name.toLowerCase())) ? "Aprovado" : "Pendente"))).join("")}
-        ${detailCard("Anexos", related.length)}
-        ${detailCard("Observacoes", safety ? "Controles de seguranca do trabalho e programas legais." : "Controles de medicina ocupacional e programas medicos.")}
+        ${detailCard("PCMSO", statusBadge(medicineDocs.some((doc) => /pcmso/i.test(doc.type || "")) ? "Aprovado" : "Pendente"))}
+        ${detailCard("PCA", statusBadge(medicineDocs.some((doc) => /pca/i.test(doc.type || "")) ? "Aprovado" : "Pendente"))}
+        ${detailCard("ASO / validade", maxAsoDate ? formatDate(maxAsoDate) : "Nao informado")}
+        ${detailCard("Anexos de medicina", medicineDocs.length)}
       </div>
-      ${renderEmployeeDocsTable(related, safety ? "Documentos de seguranca do trabalho" : "Documentos de medicina ocupacional")}
+      ${renderEmployeeDocsTable(medicineDocs, "Documentos de medicina ocupacional")}
     `;
   }
-  if (tab === "fiscalization") {
+  if (tab === "ehs") {
+    const ehsDocs = documents.filter((doc) => documentOperationalSector(doc) === "EHS" || /pgr|ltcat|treinamento|nr-|epi|ppra|pcmat|ppr/i.test(doc.type || ""));
+    return `
+      <div class="detail-grid">
+        ${detailCard("PGR", statusBadge(ehsDocs.some((doc) => /pgr/i.test(doc.type || "")) ? "Aprovado" : "Pendente"))}
+        ${detailCard("LTCAT", statusBadge(ehsDocs.some((doc) => /ltcat/i.test(doc.type || "")) ? "Aprovado" : "Pendente"))}
+        ${detailCard("Treinamentos", statusBadge(ehsDocs.some((doc) => /treinamento|nr-|epi/i.test(doc.type || "")) ? "Aprovado" : "Pendente"))}
+        ${detailCard("Anexos de seguranca", ehsDocs.length)}
+      </div>
+      ${renderEmployeeDocsTable(ehsDocs, "Documentos de EHS / SSMA")}
+    `;
+  }
+  if (tab === "patrimonial") {
+    const patrimonialDocs = documents.filter((doc) => documentOperationalSector(doc) === "Patrimonial" || /patrimonial|cracha|acesso|liberacao/i.test(doc.type || ""));
+    return `
+      <div class="detail-grid">
+        ${detailCard("Liberacao patrimonial", statusBadge(patrimonialDocs.some((doc) => statusMatches(docStatus(doc), "Aprovado")) ? "Aprovado" : "Pendente"))}
+        ${detailCard("Cracha / acesso", statusBadge(patrimonialDocs.some((doc) => /cracha|acesso/i.test(doc.type || "")) ? "Aprovado" : "Pendente"))}
+        ${detailCard("Observacoes", item.notes || item.observacoes || "Sem observacoes")}
+        ${detailCard("Anexos patrimoniais", patrimonialDocs.length)}
+      </div>
+      ${renderEmployeeDocsTable(patrimonialDocs, "Documentos de seguranca patrimonial")}
+    `;
+  }
+  if (tab === "managers") {
     const fiscalIds = [item.fiscalId, ...(item.fiscaisAdicionais || [])].filter(Boolean);
     const linkedFiscais = fiscalIds.map((id) => state.fiscais.find((fiscal) => sameId(fiscal.id, id))).filter(Boolean).map(normalizeFiscal);
-    const pendingDocs = documents.filter((doc) => ["Pendente", "Reprovado", "Vencido", "A vencer"].includes(docStatus(doc)));
     return `
       <div class="detail-grid">
-        ${detailCard("Fiscal principal", item.fiscal || "Nao informado")}
-        ${detailCard("Fiscais vinculados", linkedFiscais.length ? linkedFiscais.map((fiscal) => fiscal.nome).join(", ") : "Nao informado")}
-        ${detailCard("Gestor responsavel", item.responsible || "Nao informado")}
-        ${detailCard("Pendencias fiscais", pendingDocs.filter((doc) => documentOperationalSector(doc) === "Fiscal").length)}
-        ${detailCard("Observacoes", item.notes || item.observacoes || "Sem observacoes")}
-        ${detailCard("Aprovacoes/Reprovacoes", documents.filter((doc) => ["Aprovado", "Reprovado"].includes(docStatus(doc))).length)}
+        ${detailCard("Fiscal responsavel da empresa", item.fiscal || "Nao informado")}
+        ${detailCard("Fiscais substitutos", linkedFiscais.length ? linkedFiscais.map((fiscal) => fiscal.nome).join(", ") : "Nao informado")}
+        ${detailCard("Gestor do contrato", item.manager || item.responsible || "Nao informado")}
+        ${detailCard("Status da fiscalizacao", statusBadge(companyHasNoFiscal(item) ? "Pendente" : "Aprovado"))}
       </div>
-      ${renderHistoryTimeline("empresa", company.id)}
+      ${renderFiscalRegistry()}
     `;
   }
-  return `
-    ${renderHistoryTimeline("empresa", company.id, [
+  if (tab === "history") {
+    return renderHistoryTimeline("empresa", company.id, [
       `<div class="item-card"><strong>Empresa cadastrada</strong><span class="muted">${item.name} - ${item.cnpj}</span></div>`,
       `<div class="item-card"><strong>Contrato atual</strong><span class="muted">${item.contract || "Nao informado"} - ${formatDate(item.startDate)} ate ${formatDate(item.endDate)}</span></div>`,
       `<div class="item-card"><strong>Funcionarios vinculados</strong><span class="muted">${employees.length} funcionario(s)</span></div>`,
       `<div class="item-card"><strong>Documentos vinculados</strong><span class="muted">${documents.length} documento(s)</span></div>`,
-    ])}
-  `;
+    ]);
+  }
+  return renderHistoryTimeline("empresa", company.id, [
+    `<div class="item-card"><strong>Empresa cadastrada</strong><span class="muted">${item.name} - ${item.cnpj}</span></div>`,
+    `<div class="item-card"><strong>Contrato atual</strong><span class="muted">${item.contract || "Nao informado"} - ${formatDate(item.startDate)} ate ${formatDate(item.endDate)}</span></div>`,
+    `<div class="item-card"><strong>Funcionarios vinculados</strong><span class="muted">${employees.length} funcionario(s)</span></div>`,
+    `<div class="item-card"><strong>Documentos vinculados</strong><span class="muted">${documents.length} documento(s)</span></div>`,
+  ]);
 }
 
 function closeCompanyContract(id) {
@@ -5028,8 +5097,7 @@ function bindViewEvents() {
         return;
       }
       if (button.dataset.create === "company") {
-        editingCompanyId = null;
-        renderApp();
+        openCompanyEditorModal(null);
         return;
       }
       if (button.dataset.create === "employee") {
@@ -5176,8 +5244,7 @@ function bindViewEvents() {
   document.querySelectorAll("[data-edit]").forEach((button) => {
     button.addEventListener("click", () => {
       if (button.dataset.edit === "company") {
-        editingCompanyId = button.dataset.id;
-        renderApp();
+        openCompanyEditorModal(button.dataset.id);
         return;
       }
       if (button.dataset.edit === "employee") {
@@ -5217,10 +5284,7 @@ function bindViewEvents() {
     button.addEventListener("click", () => demobilizeCompany(button.dataset.id));
   });
 
-  document.querySelector("[data-new-company]")?.addEventListener("click", () => {
-    editingCompanyId = null;
-    renderApp();
-  });
+  document.querySelector("[data-new-company]")?.addEventListener("click", () => openCompanyEditorModal(null));
 
   document.querySelector("[data-new-employee]")?.addEventListener("click", () => {
     editingEmployeeId = null;
@@ -5803,7 +5867,7 @@ async function saveCompanyFromForm(form) {
   });
   if (!validation.ok) {
     alert(validation.message);
-    return;
+    return false;
   }
   const previous = state.companies.find((company) => sameId(company.id, id));
   const isNewCompany = !previous;
@@ -5812,21 +5876,24 @@ async function saveCompanyFromForm(form) {
   const selectedFiscalId = quickFiscal?.id || optionalNull(form.get("fiscalId"));
   const selectedFiscal = selectedFiscalId ? state.fiscais.find((fiscal) => sameId(fiscal.id, selectedFiscalId)) : null;
   const fiscalName = selectedFiscal?.nome || String(form.get("fiscal") || "").trim();
-  const additionalFiscalIds = form.getAll("fiscaisAdicionais").filter(Boolean).filter((fiscalId) => fiscalId !== selectedFiscalId);
+  const additionalFiscalFieldExists = form.has("fiscaisAdicionais");
+  const additionalFiscalIds = additionalFiscalFieldExists
+    ? form.getAll("fiscaisAdicionais").filter(Boolean).filter((fiscalId) => fiscalId !== selectedFiscalId)
+    : previous?.fiscaisAdicionais || [];
   const manager = String(form.get("manager") || form.get("responsible") || "").trim();
   const contractNumber = String(form.get("contract") || "").trim();
   const costCenter = String(form.get("costCenter") || "").trim();
   if (!contractNumber) {
     alert("Informe o numero do contrato.");
-    return;
+    return false;
   }
   if (!costCenter) {
     alert("Informe o centro de custo padrao da empresa.");
-    return;
+    return false;
   }
   if (!manager) {
     alert("Informe o gestor do contrato.");
-    return;
+    return false;
   }
   const isSupplier = currentUser()?.role === "supplier";
   const effectiveFiscalId = isSupplier && previous ? previous.fiscalId || null : selectedFiscalId;
@@ -5836,7 +5903,10 @@ async function saveCompanyFromForm(form) {
   const effectiveCostCenter = isSupplier && previous ? previous.costCenter || costCenter : costCenter;
   const saved = upsert("companies", id, {
     name: form.get("name"),
+    tradeName: optionalText(form.get("tradeName")) || previous?.tradeName || previous?.nomeFantasia || null,
     cnpj: validation.cnpj,
+    companyCode: optionalText(form.get("companyCode")) || previous?.companyCode || previous?.codigoEmpresa || null,
+    branchCode: optionalText(form.get("branchCode")) || previous?.branchCode || previous?.codigoFilial || null,
     fiscal: effectiveFiscal,
     fiscalId: effectiveFiscalId,
     fiscaisAdicionais: effectiveAdditionalFiscais,
@@ -5913,7 +5983,7 @@ async function saveCompanyFromForm(form) {
       error,
     });
     alert(`Nao foi possivel salvar empresa online: ${persistenceMessage(error)}`);
-    return;
+    return false;
   }
   try {
     recordManualStatusHistory("empresa", saved.id, previousStatus, saved.status, `Empresa ${saved.name} salva pelo formulario.`);
@@ -5924,6 +5994,7 @@ async function saveCompanyFromForm(form) {
   saveState();
   editingCompanyId = null;
   render();
+  return true;
 }
 
 function createQuickFiscalFromCompanyForm(form) {
