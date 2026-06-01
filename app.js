@@ -200,6 +200,7 @@ const defaultData = {
     },
   ],
   historico: [],
+  empresaFiscais: [],
 };
 
 const employeeSeed = [
@@ -324,6 +325,7 @@ function migrateState(data) {
   data.documents ||= [];
   data.fiscais ||= [];
   data.historico ||= data.history || [];
+  data.empresaFiscais ||= [];
   ensureFiscalBase(data);
 
   data.users = data.users.map((user) =>
@@ -722,12 +724,13 @@ function validateAuthenticatedProfile(profile, email, source) {
 }
 
 async function loadRemoteData() {
-  const [companies, employees, documents, usuarios, fiscais] = await Promise.all([
+  const [companies, employees, documents, usuarios, fiscais, empresaFiscais] = await Promise.all([
     supabaseClient.from("companies").select("*").order("name"),
     supabaseClient.from("employees").select("*").order("name"),
     supabaseClient.from("documents").select("*").order("due_date"),
     fetchUsersForAccessControl(),
     fetchFiscaisForCompanies(),
+    fetchEmpresaFiscaisForScope(),
   ]);
 
   for (const result of [companies, employees, documents, usuarios]) {
@@ -739,6 +742,11 @@ async function loadRemoteData() {
   state.documents = documents.data.map(mapDocumentFromDb);
   state.users = usuarios.data.map(mapUserFromDb);
   state.fiscais = (fiscais.data || []).map(mapFiscalFromDb);
+  state.empresaFiscais = (empresaFiscais.data || []).map((row) => ({
+    empresaId: row.empresa_id,
+    fiscalId: row.fiscal_id,
+    ativo: row.ativo,
+  }));
   ensureFiscalBase(state);
   state.historico = await loadRemoteHistory();
 }
@@ -753,6 +761,15 @@ async function fetchFiscaisForCompanies() {
   if (result.error) {
     console.warn("Tabela public.fiscais indisponivel. Execute supabase-operational-tables.sql para ativar fiscais, employees, historico e empresa_fiscais.", result.error);
     return { data: state.fiscais || [], error: null };
+  }
+  return result;
+}
+
+async function fetchEmpresaFiscaisForScope() {
+  const result = await supabaseClient.from("empresa_fiscais").select("empresa_id,fiscal_id,ativo");
+  if (result.error) {
+    console.warn("Tabela public.empresa_fiscais indisponivel. O escopo fiscal usara os vinculos diretos em companies/fiscais.", result.error);
+    return { data: state.empresaFiscais || [], error: null };
   }
   return result;
 }
@@ -1064,7 +1081,7 @@ function icon(name) {
 }
 
 function currentUser() {
-  return state.users.find((user) => user.id === state.session);
+  return state.users.find((user) => sameId(user.id, state.session));
 }
 
 function render() {
@@ -1175,6 +1192,10 @@ function replaceFiscalId(previousId, nextId) {
 }
 
 async function createAccessForFiscal(fiscal) {
+  if (!["admin", "fiscal"].includes(currentUser()?.role || "visitor") || !canAccessFiscal(fiscal)) {
+    alert("Seu perfil nao possui permissao para criar acesso deste fiscal.");
+    return;
+  }
   if (!isOnlineMode()) {
     alert("Acesso ao sistema exige Supabase Auth online configurado.");
     return;
@@ -1752,6 +1773,151 @@ function canView(view) {
   return ROLE_PERMISSIONS[currentUser()?.role || "visitor"].view.includes(view);
 }
 
+function fiscalLinkIsActive(link = {}) {
+  if (link.ativo === null || link.ativo === undefined) return true;
+  return Boolean(link.ativo);
+}
+
+function getCurrentUserFiscalIds(user = currentUser()) {
+  if (!user) return new Set();
+  const normalizedEmail = normalizeSearchValue(user.email || "");
+  return new Set(
+    (state.fiscais || [])
+      .map(normalizeFiscal)
+      .filter((fiscal) => {
+        if (isNumericDbId(fiscal.usuarioId) && sameId(fiscal.usuarioId, user.id)) return true;
+        if (fiscal.authUserId && user.authUserId && sameId(fiscal.authUserId, user.authUserId)) return true;
+        if (normalizedEmail) {
+          if (normalizeSearchValue(fiscal.usuarioEmail || "") === normalizedEmail) return true;
+          if (normalizeSearchValue(fiscal.email || "") === normalizedEmail) return true;
+        }
+        return false;
+      })
+      .map((fiscal) => String(fiscal.id)),
+  );
+}
+
+function getScopedFiscalIdsFromAccessibleCompanies() {
+  const fiscalIds = new Set();
+  for (const company of visibleCompanies()) {
+    const normalized = normalizeCompany(company);
+    if (normalized.fiscalId) fiscalIds.add(String(normalized.fiscalId));
+    for (const extraId of normalized.fiscaisAdicionais || []) {
+      if (extraId) fiscalIds.add(String(extraId));
+    }
+  }
+  return fiscalIds;
+}
+
+function getAccessibleCompanyIdsForCurrentUser() {
+  const user = currentUser();
+  const role = user?.role || "visitor";
+  const allCompanyIds = new Set((state.companies || []).map((company) => String(company.id)));
+  if (!allCompanyIds.size) return new Set();
+  if (role === "admin") return allCompanyIds;
+  if (role === "supplier") {
+    if (user?.companyId && allCompanyIds.has(String(user.companyId))) return new Set([String(user.companyId)]);
+    return new Set();
+  }
+  if (role === "fiscal") {
+    const accessible = new Set();
+    if (user?.companyId && allCompanyIds.has(String(user.companyId))) accessible.add(String(user.companyId));
+    const fiscalIds = getCurrentUserFiscalIds(user);
+    const normalizedUserEmail = normalizeSearchValue(user.email || "");
+    const normalizedUserName = normalizeSearchValue(user.name || "");
+    for (const company of state.companies || []) {
+      const normalizedCompany = normalizeCompany(company);
+      const companyId = String(company.id);
+      if (!allCompanyIds.has(companyId)) continue;
+      const primaryFiscalId = normalizedCompany.fiscalId ? String(normalizedCompany.fiscalId) : "";
+      const additionalIds = (normalizedCompany.fiscaisAdicionais || []).map((id) => String(id));
+      const fiscalNameToken = normalizeSearchValue(normalizedCompany.fiscal || "");
+      const nameMatches = normalizedUserName && fiscalNameToken && fiscalNameToken === normalizedUserName;
+      const emailMatches = normalizedUserEmail && fiscalNameToken && fiscalNameToken === normalizedUserEmail;
+      if (fiscalIds.has(primaryFiscalId) || additionalIds.some((id) => fiscalIds.has(id)) || nameMatches || emailMatches) {
+        accessible.add(companyId);
+      }
+    }
+    for (const link of state.empresaFiscais || []) {
+      const fiscalId = String(link.fiscalId || "");
+      const companyId = String(link.empresaId || "");
+      if (!fiscalLinkIsActive(link)) continue;
+      if (!allCompanyIds.has(companyId)) continue;
+      if (fiscalIds.has(fiscalId)) accessible.add(companyId);
+    }
+    return accessible;
+  }
+  return allCompanyIds;
+}
+
+function canAccessCompany(companyOrId) {
+  const role = currentUser()?.role || "visitor";
+  if (role === "admin") return true;
+  const companyId = typeof companyOrId === "object" ? companyOrId?.id : companyOrId;
+  if (companyId === null || companyId === undefined || companyId === "") return false;
+  return getAccessibleCompanyIdsForCurrentUser().has(String(companyId));
+}
+
+function canAccessContract(contractOrCompany) {
+  const companyId =
+    typeof contractOrCompany === "object"
+      ? contractOrCompany?.companyId || contractOrCompany?.company_id || contractOrCompany?.id
+      : contractOrCompany;
+  return canAccessCompany(companyId);
+}
+
+function canAccessEmployee(employeeOrId) {
+  const employee =
+    typeof employeeOrId === "object"
+      ? employeeOrId
+      : state.employees.find((item) => sameId(item.id, employeeOrId));
+  if (!employee) return false;
+  return canAccessCompany(employee.companyId);
+}
+
+function canAccessDocument(documentOrId) {
+  const doc =
+    typeof documentOrId === "object"
+      ? documentOrId
+      : state.documents.find((item) => sameId(item.id, documentOrId));
+  if (!doc) return false;
+  if (!canAccessCompany(doc.companyId)) return false;
+  if (doc.employeeId) return canAccessEmployee(doc.employeeId);
+  return true;
+}
+
+function canAccessApproval(approvalOrDocument) {
+  return canAccessDocument(approvalOrDocument);
+}
+
+function canAccessHistory(event = {}) {
+  const entityType = String(event.entityType || event.entidade_tipo || "").toLowerCase();
+  const entityId = event.entityId || event.entidade_id;
+  if (!entityType || entityId === null || entityId === undefined) return true;
+  if (["empresa", "company", "companies", "contrato", "contract", "contracts"].includes(entityType)) return canAccessCompany(entityId);
+  if (["funcionario", "employee", "employees"].includes(entityType)) return canAccessEmployee(entityId);
+  if (["documento", "document", "documents"].includes(entityType)) return canAccessDocument(entityId);
+  if (["fiscal", "fiscais"].includes(entityType)) {
+    const targetFiscalId = String(entityId);
+    return visibleCompanies().some((company) => {
+      const normalized = normalizeCompany(company);
+      const fiscalIds = [normalized.fiscalId, ...(normalized.fiscaisAdicionais || [])].filter(Boolean).map((id) => String(id));
+      return fiscalIds.includes(targetFiscalId);
+    });
+  }
+  return true;
+}
+
+function canAccessFiscal(fiscalOrId) {
+  const fiscalId = typeof fiscalOrId === "object" ? fiscalOrId?.id : fiscalOrId;
+  if (!fiscalId) return false;
+  const role = currentUser()?.role || "visitor";
+  if (role === "admin") return true;
+  if (role !== "fiscal") return false;
+  if (getCurrentUserFiscalIds().has(String(fiscalId))) return true;
+  return getScopedFiscalIdsFromAccessibleCompanies().has(String(fiscalId));
+}
+
 function can(permission, item = null) {
   const user = currentUser();
   const role = user?.role || "visitor";
@@ -1760,18 +1926,18 @@ function can(permission, item = null) {
 
   if (action === "users" && subject === "view") return canView("users");
   if (action === "reports") return permissions.reports;
-  if (action === "approveDocuments") return permissions.approveDocuments && canApproveDocumentSector(item);
+  if (action === "approveDocuments") return permissions.approveDocuments && canAccessDocument(item) && canApproveDocumentSector(item);
   if (action === "updateHiringStatus") return permissions.updateHiringStatus;
   if (action === "addObservations") return permissions.addObservations;
 
   if (["create", "edit", "delete"].includes(action)) {
     if (subject === "document" && action === "edit" && permissions.approvalSectors?.length && role !== "admin") {
-      return canApproveDocumentSector(item);
+      return canAccessDocument(item) && canApproveDocumentSector(item);
     }
     if (permissions[action].includes(subject)) return true;
-    if (subject === "company" && permissions[action].includes("companyOwn")) return sameId(item?.id, user?.companyId);
-    if (subject === "employee" && permissions[action].includes("employeeOwn")) return item?.companyId === user?.companyId;
-    if (subject === "document" && permissions[action].includes("documentOwn")) return item?.companyId === user?.companyId;
+    if (subject === "company" && permissions[action].includes("companyOwn")) return canAccessCompany(item);
+    if (subject === "employee" && permissions[action].includes("employeeOwn")) return canAccessEmployee(item);
+    if (subject === "document" && permissions[action].includes("documentOwn")) return canAccessDocument(item);
   }
 
   return false;
@@ -1789,19 +1955,15 @@ function allowedEmployeeTabs() {
 }
 
 function visibleCompanies() {
-  const user = currentUser();
-  if (["supplier", "fiscal"].includes(user?.role) && user.companyId) return state.companies.filter((company) => sameId(company.id, user.companyId));
-  return state.companies;
+  return state.companies.filter((company) => canAccessCompany(company));
 }
 
 function visibleEmployees() {
-  const allowedCompanies = new Set(visibleCompanies().map((company) => company.id));
-  return state.employees.filter((employee) => allowedCompanies.has(employee.companyId));
+  return state.employees.filter((employee) => canAccessEmployee(employee));
 }
 
 function visibleDocuments() {
-  const allowedCompanies = new Set(visibleCompanies().map((company) => company.id));
-  const docs = state.documents.filter((doc) => allowedCompanies.has(doc.companyId));
+  const docs = state.documents.filter((doc) => canAccessDocument(doc));
   const sectors = ROLE_PERMISSIONS[currentUser()?.role || "visitor"].approvalSectors || [];
   if (["medicina", "ehs", "patrimonial"].includes(currentUser()?.role)) return docs.filter((doc) => sectors.includes(documentOperationalSector(doc)));
   return docs;
@@ -2086,7 +2248,7 @@ function renderCompanyEditor(company = null) {
         ${inputField("branchCode", "Codigo filial", companyBranchCode(item) === "Nao informado" ? "" : companyBranchCode(item))}
         <div class="form-actions wide">
           <button class="btn primary" type="submit">${icon("save")} Salvar</button>
-          ${company ? `<button class="btn warning" type="button" data-demobilize="company" data-id="${company.id}">Desmobilizar contrato</button>` : ""}
+          ${company && currentUser()?.role !== "supplier" ? `<button class="btn warning" type="button" data-demobilize="company" data-id="${company.id}">Desmobilizar contrato</button>` : ""}
         </div>
       </form>
     </section>
@@ -2338,7 +2500,7 @@ function historyEventsFor(entityType, entityId) {
     documento: ["documento", "document", "documents"],
   }[entityType] || [entityType];
   return (state.historico || [])
-    .filter((event) => aliases.includes(event.entityType || event.entidade_tipo) && String(event.entityId || event.entidade_id) === String(entityId))
+    .filter((event) => canAccessHistory(event) && aliases.includes(event.entityType || event.entidade_tipo) && String(event.entityId || event.entidade_id) === String(entityId))
     .sort((a, b) => String(b.createdAt || b.criado_em || "").localeCompare(String(a.createdAt || a.criado_em || "")));
 }
 
@@ -2402,7 +2564,7 @@ function renderHistoryEvents(events = []) {
 }
 
 function companyTopicHistoryEvents(company, topic) {
-  const events = state.historico || [];
+  const events = (state.historico || []).filter((event) => canAccessHistory(event));
   const companyId = String(company.id);
   const employeeIds = new Set(state.employees.filter((employee) => sameId(employee.companyId, company.id)).map((employee) => String(employee.id)));
   const companyDocs = state.documents.filter((doc) => sameId(doc.companyId, company.id));
@@ -2453,7 +2615,7 @@ function renderCompanyTabHistory(company, topic, title = "Historico da area") {
 function renderRecordActionBar(type, item) {
   const isEmployee = type === "employee";
   const canEditRecord = isEmployee ? can("edit.employee", item) : can("edit.company", item);
-  const canStatus = isEmployee ? can("updateHiringStatus", item) : can("edit.company", item);
+  const canStatus = isEmployee ? can("updateHiringStatus", item) : can("edit.company", item) && currentUser()?.role !== "supplier";
   return `
     <div class="record-action-bar">
       <button class="btn secondary compact" type="button" data-close>${icon("arrow")} Voltar</button>
@@ -2541,7 +2703,14 @@ function formatDateTime(value) {
 }
 
 function renderFiscalRegistry() {
-  const fiscais = filtered((state.fiscais || []).map(normalizeFiscal), [
+  const role = currentUser()?.role || "visitor";
+  const canManageFiscais = ["admin", "fiscal"].includes(role);
+  const scopedFiscalIds = getScopedFiscalIdsFromAccessibleCompanies();
+  const allFiscais = (state.fiscais || []).map(normalizeFiscal);
+  const scopedFiscais = role === "admin"
+    ? allFiscais
+    : allFiscais.filter((fiscal) => scopedFiscalIds.has(String(fiscal.id)) || normalizeSearchValue(fiscal.email || "") === normalizeSearchValue(currentUser()?.email || ""));
+  const fiscais = filtered(scopedFiscais, [
     (fiscal) => fiscal.nome,
     (fiscal) => fiscal.email,
     (fiscal) => fiscal.matricula,
@@ -2557,15 +2726,21 @@ function renderFiscalRegistry() {
           <span class="muted">Fiscais podem ser responsaveis por empresas mesmo sem usuario/login no sistema.</span>
         </div>
       </div>
-      <form id="fiscalQuickForm" class="form-grid company-form">
-        ${inputField("nome", "Nome do fiscal", "", "required")}
-        ${inputField("email", "E-mail", "", "type='email'")}
-        ${inputField("matricula", "Matricula", "")}
-        ${inputField("telefone", "Telefone", "")}
-        ${inputField("setor", "Setor", "Fiscalizacao")}
-        ${selectField("status", "Status", "sem_acesso", fiscalStatuses.map((status) => ({ value: status, label: fiscalStatusLabel(status) })))}
-        <div class="form-actions wide"><button class="btn secondary" type="submit">${icon("plus")} Cadastrar fiscal</button></div>
-      </form>
+      ${
+        canManageFiscais
+          ? `
+            <form id="fiscalQuickForm" class="form-grid company-form">
+              ${inputField("nome", "Nome do fiscal", "", "required")}
+              ${inputField("email", "E-mail", "", "type='email'")}
+              ${inputField("matricula", "Matricula", "")}
+              ${inputField("telefone", "Telefone", "")}
+              ${inputField("setor", "Setor", "Fiscalizacao")}
+              ${selectField("status", "Status", "sem_acesso", fiscalStatuses.map((status) => ({ value: status, label: fiscalStatusLabel(status) })))}
+              <div class="form-actions wide"><button class="btn secondary" type="submit">${icon("plus")} Cadastrar fiscal</button></div>
+            </form>
+          `
+          : `<div class="item-card"><span class="muted">Somente leitura para este perfil.</span></div>`
+      }
       <table>
         <thead><tr><th>Fiscal</th><th>Contato</th><th>Setor</th><th>Status</th><th>Acesso</th><th>Acoes</th></tr></thead>
         <tbody>
@@ -2580,8 +2755,8 @@ function renderFiscalRegistry() {
                   <td>${escapeHtml(fiscal.usuarioEmail || "Sem acesso")}</td>
                   <td>
                     <div class="actions wrap">
-                      ${fiscal.status !== "com_acesso" && fiscal.status !== "inativo" ? `<button class="btn primary compact" type="button" data-fiscal-access="${fiscal.id}">${icon("users")} Criar acesso ao sistema</button>` : ""}
-                      ${fiscal.status !== "inativo" ? `<button class="btn warning compact" type="button" data-fiscal-inactivate="${fiscal.id}">Inativar</button>` : `<span class="mini-pill">Inativo</span>`}
+                      ${canManageFiscais && fiscal.status !== "com_acesso" && fiscal.status !== "inativo" ? `<button class="btn primary compact" type="button" data-fiscal-access="${fiscal.id}">${icon("users")} Criar acesso ao sistema</button>` : ""}
+                      ${canManageFiscais && fiscal.status !== "inativo" ? `<button class="btn warning compact" type="button" data-fiscal-inactivate="${fiscal.id}">Inativar</button>` : `<span class="mini-pill">${fiscal.status === "inativo" ? "Inativo" : "Somente leitura"}</span>`}
                     </div>
                   </td>
                 </tr>
@@ -2901,8 +3076,8 @@ function employeeVisualGroup(employee) {
 }
 
 function openEmployeeRecord(id) {
-  const employee = visibleEmployees().find((item) => sameId(item.id, id)) || state.employees.find((item) => sameId(item.id, id));
-  if (!employee) return;
+  const employee = visibleEmployees().find((item) => sameId(item.id, id));
+  if (!employee || !canAccessEmployee(employee)) return;
   const item = normalizeEmployee(employee);
   const company = state.companies.find((entry) => sameId(entry.id, item.companyId));
   const tabs = employeeRecordTabs();
@@ -3758,8 +3933,8 @@ function renderContracts() {
 }
 
 function openContractDetails(id) {
-  const company = visibleCompanies().find((item) => sameId(item.id, id)) || state.companies.find((item) => sameId(item.id, id));
-  if (!company) return;
+  const company = visibleCompanies().find((item) => sameId(item.id, id));
+  if (!company || !canAccessContract(company)) return;
   contractDetailState[company.id] ||= { employeeSearch: "", employeeStatus: "Todos" };
   const modal = document.createElement("div");
   modal.className = "modal-backdrop contract-detail-backdrop";
@@ -3874,8 +4049,8 @@ function openCompanyEditorModal(id = null) {
 }
 
 function openCompanyDetails(id) {
-  const company = visibleCompanies().find((item) => sameId(item.id, id)) || state.companies.find((item) => sameId(item.id, id));
-  if (!company) return;
+  const company = visibleCompanies().find((item) => sameId(item.id, id));
+  if (!company || !canAccessCompany(company)) return;
   const item = normalizeCompany(company);
   const employees = state.employees.filter((employee) => sameId(employee.companyId, company.id));
   const pendencies = companyPendingDocumentsCount(company.id);
@@ -4708,8 +4883,8 @@ async function downloadDocumentFile(url, fileName) {
 }
 
 async function openDocumentDetails(id, popupHandle = null) {
-  const doc = visibleDocuments().find((item) => sameId(item.id, id)) || state.documents.find((item) => sameId(item.id, id));
-  if (!doc) {
+  const doc = visibleDocuments().find((item) => sameId(item.id, id));
+  if (!doc || !canAccessDocument(doc)) {
     console.error("[Documentos] Documento nao encontrado", { id });
     alert("Nao foi possivel abrir a ficha do documento. Documento nao encontrado.");
     return;
@@ -5512,6 +5687,12 @@ function bindEmployeeCompanyContractSync(root = document) {
 }
 
 function openForm(type, id = null) {
+  if (type === "document") {
+    const doc = id ? state.documents.find((item) => sameId(item.id, id)) : null;
+    if (id && (!doc || !canAccessDocument(doc) || !can("edit.document", doc))) return;
+    if (!id && !can("create.document")) return;
+  }
+  if (type === "user" && !canView("users")) return;
   const config = formConfig(type, id);
   const modal = document.createElement("div");
   modal.className = "modal-backdrop";
@@ -5786,7 +5967,7 @@ function documentForm(id) {
   const item = state.documents.find((doc) => sameId(doc.id, id)) || {};
   const comments = documentSectorComments(item);
   const companyOptions = visibleCompanies().map((company) => ({ value: company.id, label: company.name }));
-  const employeeSource = currentUser()?.role === "supplier" ? visibleEmployees() : state.employees;
+  const employeeSource = currentUser()?.role === "admin" ? state.employees : visibleEmployees();
   const employees = [{ value: "", label: "Documento da empresa" }].concat(
     employeeSource.map((employee) => ({ value: employee.id, label: `${employee.name} - ${companyName(employee.companyId)}` })),
   );
@@ -5870,6 +6051,14 @@ function validateDocumentPayload(payload) {
       payload,
     });
   }
+  if (!canAccessCompany(payload.companyId)) {
+    throw new PersistenceError("Falha em public.documents: sua permissao nao permite usar esta empresa no documento.", {
+      table: "public.documents",
+      operation: "validacao de escopo",
+      hint: "company_id fora do escopo do usuario logado.",
+      payload,
+    });
+  }
   if (payload.employeeId) {
     const employee = state.employees.find((item) => sameId(item.id, payload.employeeId));
     if (!employee) {
@@ -5877,6 +6066,14 @@ function validateDocumentPayload(payload) {
         table: "public.documents",
         operation: "validacao de foreign key",
         hint: "employee_id nao encontrado em public.employees.",
+        payload,
+      });
+    }
+    if (!canAccessEmployee(employee)) {
+      throw new PersistenceError("Falha em public.documents: funcionario fora do escopo do usuario logado.", {
+        table: "public.documents",
+        operation: "validacao de escopo",
+        hint: "employee_id fora do escopo permitido para o perfil atual.",
         payload,
       });
     }
@@ -5981,6 +6178,15 @@ function upsert(collection, id, data) {
 
 async function saveCompanyFromForm(form) {
   const id = form.get("id") || null;
+  const existingCompany = id ? state.companies.find((company) => sameId(company.id, id)) : null;
+  if (id && (!existingCompany || !canAccessCompany(existingCompany) || !can("edit.company", existingCompany))) {
+    alert("Seu perfil nao possui permissao para editar esta empresa.");
+    return false;
+  }
+  if (!id && !can("create.company")) {
+    alert("Seu perfil nao possui permissao para criar empresa.");
+    return false;
+  }
   const validation = validateCompanyRegistration({
     id,
     cnpj: form.get("cnpj"),
@@ -5991,7 +6197,7 @@ async function saveCompanyFromForm(form) {
     alert(validation.message);
     return false;
   }
-  const previous = state.companies.find((company) => sameId(company.id, id));
+  const previous = existingCompany;
   const isNewCompany = !previous;
   const previousStatus = previous?.status || "";
   const quickFiscal = createQuickFiscalFromCompanyForm(form);
@@ -6149,6 +6355,10 @@ function createQuickFiscalFromCompanyForm(form) {
 }
 
 async function saveFiscalFromForm(form) {
+  if (!["admin", "fiscal"].includes(currentUser()?.role || "visitor")) {
+    alert("Somente administrador ou fiscal pode cadastrar fiscais.");
+    return;
+  }
   const fiscal = normalizeFiscal({
     id: crypto.randomUUID(),
     nome: form.get("nome"),
@@ -6179,6 +6389,10 @@ async function saveFiscalFromForm(form) {
 function inactivateFiscal(id) {
   const fiscal = state.fiscais.find((item) => sameId(item.id, id));
   if (!fiscal) return;
+  if (!["admin", "fiscal"].includes(currentUser()?.role || "visitor") || !canAccessFiscal(fiscal)) {
+    alert("Seu perfil nao possui permissao para inativar este fiscal.");
+    return;
+  }
   const motivo = prompt(`Informe o motivo obrigatorio para inativar ${fiscal.nome}:`);
   if (!motivo || !motivo.trim()) {
     alert("Motivo obrigatorio. Fiscal nao foi inativado.");
@@ -6226,8 +6440,21 @@ function recordFiscalHistory(entity, action, previousStatus, nextStatus, observa
 
 async function saveEmployeeFromForm(form) {
   const id = form.get("id") || null;
+  const existingEmployee = id ? state.employees.find((employee) => sameId(employee.id, id)) : null;
+  if (id && (!existingEmployee || !canAccessEmployee(existingEmployee) || !can("edit.employee", existingEmployee))) {
+    alert("Seu perfil nao possui permissao para editar este funcionario.");
+    return;
+  }
+  if (!id && !can("create.employee")) {
+    alert("Seu perfil nao possui permissao para cadastrar funcionario.");
+    return;
+  }
   if (!form.get("companyId")) {
     alert("Selecione uma empresa vinculada para o funcionario.");
+    return;
+  }
+  if (!canAccessCompany(form.get("companyId"))) {
+    alert("Empresa fora do escopo do perfil logado.");
     return;
   }
   const validation = validateEmployeeRegistration({
@@ -6244,14 +6471,14 @@ async function saveEmployeeFromForm(form) {
     alert("CEP invalido. Informe exatamente 8 numeros.");
     return;
   }
-  const existing = state.employees.find((employee) => sameId(employee.id, id));
+  const existing = existingEmployee;
   const isNewEmployee = !existing;
   const previousStatus = existing?.status || "";
   const linkedCompany = normalizeCompany(state.companies.find((company) => sameId(company.id, form.get("companyId"))) || {});
   const canEditFullEmployee =
     currentUser()?.role === "admin" ||
     currentUser()?.role === "fiscal" ||
-    (currentUser()?.role === "supplier" && (!existing || existing.companyId === currentUser()?.companyId));
+    (currentUser()?.role === "supplier" && (!existing || sameId(existing.companyId, currentUser()?.companyId)));
   const canEditOperationalLink = ["admin", "fiscal"].includes(currentUser()?.role);
   const resolvedContract = String(form.get("contract") || linkedCompany.contract || "").trim();
   const resolvedCostCenter = canEditOperationalLink
@@ -6366,6 +6593,10 @@ function buildEmployeeAddressFromForm(form) {
 function updateEmployeeOperationalStatus(id, action) {
   const employee = state.employees.find((item) => sameId(item.id, id));
   if (!employee) return;
+  if (!canAccessEmployee(employee)) {
+    alert("Seu perfil nao possui acesso a este funcionario.");
+    return;
+  }
   if (!can("updateHiringStatus", employee)) {
     alert("Seu perfil nao possui permissao para alterar o status deste funcionario.");
     return;
@@ -6481,6 +6712,10 @@ function updateDocumentStatus(id, status) {
     alert("Nao foi possivel alterar o status. Documento nao encontrado.");
     return;
   }
+  if (!canAccessDocument(doc)) {
+    alert("Seu perfil nao possui acesso a este documento.");
+    return;
+  }
   if (!can("approveDocuments", doc)) return;
   const isRejection = status === "Reprovado";
   let rejectionReason = "";
@@ -6531,6 +6766,10 @@ function updateDocumentStatus(id, status) {
 function demobilizeCompany(id) {
   const company = state.companies.find((item) => sameId(item.id, id));
   if (!company) return;
+  if (!canAccessCompany(company) || !can("edit.company", company) || currentUser()?.role === "supplier") {
+    alert("Seu perfil nao possui permissao para desmobilizar este contrato.");
+    return;
+  }
   if (!confirm(`Deseja desmobilizar o contrato da empresa ${company.name}?`)) return;
   const previousStatus = company.status || "";
   company.status = "Desmobilizada";
@@ -7076,7 +7315,9 @@ function fiscalStatusLabel(status) {
 }
 
 function companyName(id) {
-  return state.companies.find((company) => sameId(company.id, id))?.name || "Nao informado";
+  const company = state.companies.find((item) => sameId(item.id, id));
+  if (!company || !canAccessCompany(company)) return "Nao informado";
+  return company.name || "Nao informado";
 }
 
 function fiscalNames(ids = []) {
@@ -7088,7 +7329,9 @@ function fiscalNames(ids = []) {
 }
 
 function employeeName(id) {
-  return state.employees.find((employee) => sameId(employee.id, id))?.name || "Nao informado";
+  const employee = state.employees.find((item) => sameId(item.id, id));
+  if (!employee || !canAccessEmployee(employee)) return "Nao informado";
+  return employee.name || "Nao informado";
 }
 
 function docStatus(doc) {
