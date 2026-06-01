@@ -841,7 +841,7 @@ function mapSyncedRow(collection, row) {
 
 async function syncUserRecord(user) {
   const isNewUser = !user.id || user.isNew === true;
-  const authResult = isNewUser ? await createAuthUserForUsuario(user) : { ok: true, skipped: true };
+  const authResult = isNewUser ? await createAuthUserForUsuario(user) : { ok: true, skipped: true, mode: user.creationMode || "test" };
   const payload = mapUserToDb(user, { includeId: Boolean(!isNewUser && user.id) });
   const context = {
     table: "public.usuarios",
@@ -895,9 +895,13 @@ async function syncUserRecord(user) {
 
 async function createAuthUserForUsuario(user) {
   if (!isOnlineMode()) return { ok: true, skipped: true };
+  const mode = user.creationMode === "real" ? "real" : "test";
+  const email = optionalText(user.email);
+  const tempPassword = mode === "real" ? generateTemporaryPassword() : optionalText(user.password);
+  if (!email) return { ok: true, skipped: true, reason: "sem email", mode };
   const authPayload = {
-    email: optionalText(user.email),
-    password: optionalText(user.password),
+    email,
+    password: tempPassword,
     options: {
       data: {
         nome: optionalText(user.name),
@@ -905,16 +909,21 @@ async function createAuthUserForUsuario(user) {
       },
     },
   };
-  if (!authPayload.email || !authPayload.password) return { ok: true, skipped: true, reason: "sem email ou senha" };
+  if (!authPayload.password) return { ok: true, skipped: true, reason: "sem senha", mode };
   const previousSession = await supabaseClient.auth.getSession().catch(() => null);
   const previous = previousSession?.data?.session;
   const { data, error } = await supabaseClient.auth.signUp(authPayload);
   const signedUserId = data?.user?.id || null;
   await restoreSupabaseSession(previous);
+  const inviteContext = { ok: true, invited: false, mode };
   if (error) {
     if (isAuthDuplicateError(error)) {
       logAuthUserError(authPayload, error, "warn");
-      return { ok: true, duplicate: true, error, previousSession: previous };
+      if (mode === "real") {
+        await sendFirstAccessInviteEmail(email);
+        inviteContext.invited = true;
+      }
+      return { ok: true, duplicate: true, error, previousSession: previous, ...inviteContext };
     }
     logAuthUserError(authPayload, error);
     throw new PersistenceError(`Erro Auth: ${friendlyAuthError(error)}`, { table: "supabase.auth", operation: "signUp", payload: { email: authPayload.email, perfil: authPayload.options.data.perfil } }, error);
@@ -922,9 +931,33 @@ async function createAuthUserForUsuario(user) {
   if (data?.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
     const duplicateInfo = new Error("E-mail ja cadastrado no Supabase Auth.");
     logAuthUserError(authPayload, duplicateInfo, "warn");
-    return { ok: true, duplicate: true, userId: signedUserId, session: data?.session || null, previousSession: previous };
+    if (mode === "real") {
+      await sendFirstAccessInviteEmail(email);
+      inviteContext.invited = true;
+    }
+    return { ok: true, duplicate: true, userId: signedUserId, session: data?.session || null, previousSession: previous, ...inviteContext };
   }
-  return { ok: true, userId: signedUserId, session: data?.session || null, previousSession: previous };
+  if (mode === "real") {
+    await sendFirstAccessInviteEmail(email);
+    inviteContext.invited = true;
+  }
+  return { ok: true, userId: signedUserId, session: data?.session || null, previousSession: previous, ...inviteContext };
+}
+
+function generateTemporaryPassword() {
+  return `Tmp#${Math.random().toString(36).slice(2, 7)}${Date.now().toString().slice(-4)}`;
+}
+
+async function sendFirstAccessInviteEmail(email) {
+  const redirectTo = `${window.location.origin}${window.location.pathname}`;
+  const { error } = await supabaseClient.auth.resetPasswordForEmail(email, { redirectTo });
+  if (error) {
+    throw new PersistenceError(`Erro ao enviar convite: ${error.message || "falha no resetPasswordForEmail."}`, {
+      table: "supabase.auth",
+      operation: "resetPasswordForEmail",
+      payload: { email, redirectTo },
+    }, error);
+  }
 }
 
 async function restoreSupabaseSession(session) {
@@ -948,15 +981,18 @@ async function findUsuarioByEmail(email) {
 }
 
 async function recordUserCreationHistory(user, authResult, updatedExisting) {
+  const isRealInvite = authResult?.mode === "real" && authResult?.invited;
   const history = createHistoryEvent({
     entityType: "usuario",
     entityId: user.id,
     action: updatedExisting ? "Usuario atualizado" : "Usuario criado",
     previousStatus: "",
     nextStatus: user.active ? "Ativo" : "Inativo",
-    observation: authResult?.duplicate
-      ? `Usuario ${user.email} salvo em public.usuarios. O e-mail ja existia no Supabase Auth.`
-      : `Usuario ${user.email} salvo em public.usuarios.`,
+    observation: isRealInvite
+      ? `Usuario ${user.email} salvo em public.usuarios. Convite de primeiro acesso enviado por e-mail.`
+      : authResult?.duplicate
+        ? `Usuario ${user.email} salvo em public.usuarios. O e-mail ja existia no Supabase Auth.`
+        : `Usuario ${user.email} salvo em public.usuarios.`,
   });
   state.historico = upsertById(state.historico, history);
   await syncHistoryEvent(history);
@@ -1325,6 +1361,7 @@ function renderLogin() {
             <input name="password" type="password" autocomplete="current-password" required />
           </label>
           <button class="btn primary" type="submit">${icon("logout")} Entrar</button>
+          <button class="btn secondary" type="button" id="forgotPasswordButton">Esqueci minha senha</button>
         </form>
         <div class="login-note">
           ${
@@ -1422,6 +1459,27 @@ function renderLogin() {
     });
     alert("Login online bloqueado. Confira supabase-config.js e o console do navegador para ver o projeto Supabase usado.");
     submit.disabled = false;
+  });
+
+  document.querySelector("#forgotPasswordButton")?.addEventListener("click", async () => {
+    if (!isOnlineMode()) {
+      alert("Recuperacao de senha disponivel somente no modo online.");
+      return;
+    }
+    const emailInput = document.querySelector("#loginForm [name='email']");
+    const email = String(emailInput?.value || "").trim().toLowerCase();
+    if (!isValidEmail(email)) {
+      alert("Informe um e-mail valido para enviar o link de recuperacao.");
+      emailInput?.focus();
+      return;
+    }
+    try {
+      await sendFirstAccessInviteEmail(email);
+      alert("Link de recuperacao enviado para o e-mail informado.");
+    } catch (error) {
+      console.error("[Login Supabase] Falha ao enviar recuperacao de senha", error);
+      alert(`Nao foi possivel enviar o link de recuperacao.\n\n${persistenceMessage(error)}`);
+    }
   });
 }
 
@@ -5181,9 +5239,10 @@ function renderReportTable(title, subtitle, exportKey, columns, rows) {
 }
 
 function renderUserRow(user) {
+  const userTypeBadge = user.creationMode === "test" ? `<span class="mini-pill">Usuario de teste</span>` : "";
   return `
     <tr>
-      <td><strong>${user.name}</strong></td>
+      <td><strong>${user.name}</strong>${userTypeBadge ? `<br>${userTypeBadge}` : ""}</td>
       <td>${user.email}</td>
       <td>${roleName(user.role)}</td>
       <td>${statusBadge(user.active ? "Ativo" : "Inativo")}</td>
@@ -5714,6 +5773,7 @@ function openForm(type, id = null) {
   document.body.appendChild(modal);
   bindInputMasks(modal);
   bindEmployeeCompanyContractSync(modal);
+  bindUserCreationMode(modal, type, id);
   if (type === "document") bindDocumentUpload(modal);
 
   modal.querySelectorAll("[data-close]").forEach((button) => {
@@ -5740,6 +5800,33 @@ function openForm(type, id = null) {
   });
 }
 
+function bindUserCreationMode(root, type, id = null) {
+  if (type !== "user") return;
+  const form = root.querySelector("#modalForm");
+  if (!form) return;
+  const creationRadios = Array.from(form.querySelectorAll("input[name='creationMode']"));
+  const passwordField = form.querySelector("[data-user-password-field]");
+  const passwordInput = form.querySelector("[name='password']");
+  const hint = form.querySelector("[data-user-creation-hint]");
+  if (!creationRadios.length || !passwordField || !passwordInput) return;
+  const sync = () => {
+    const selected = creationRadios.find((radio) => radio.checked)?.value || "test";
+    const isReal = selected === "real";
+    passwordField.style.display = isReal ? "none" : "";
+    passwordInput.disabled = isReal;
+    if (isReal) {
+      passwordInput.required = false;
+      passwordInput.value = "";
+      if (hint) hint.textContent = "Modo real: o sistema enviara convite de primeiro acesso para o e-mail informado.";
+      return;
+    }
+    passwordInput.required = !id;
+    if (hint) hint.textContent = "Modo teste: senha temporaria definida pelo administrador, sem envio de convite.";
+  };
+  creationRadios.forEach((radio) => radio.addEventListener("change", sync));
+  sync();
+}
+
 function formConfig(type, id) {
   const maps = {
     company: companyForm,
@@ -5763,6 +5850,26 @@ function selectField(name, label, value, options) {
 
 function textAreaField(name, label, value = "") {
   return `<label class="wide">${label}<textarea name="${name}">${escapeHtml(value)}</textarea></label>`;
+}
+
+function radioGroupField(name, label, selectedValue, options) {
+  return `
+    <fieldset class="wide radio-fieldset">
+      <legend>${label}</legend>
+      <div class="radio-group">
+        ${options
+          .map(
+            (option) => `
+              <label>
+                <input type="radio" name="${name}" value="${escapeAttr(option.value)}" ${String(option.value) === String(selectedValue) ? "checked" : ""} />
+                <span>${escapeHtml(option.label)}</span>
+              </label>
+            `,
+          )
+          .join("")}
+      </div>
+    </fieldset>
+  `;
 }
 
 function formSection(title, fields) {
@@ -6106,12 +6213,20 @@ function validateDocumentPayload(payload) {
 
 function userForm(id) {
   const item = state.users.find((user) => sameId(user.id, id)) || {};
+  const creationMode = item.creationMode === "real" ? "real" : "test";
   return {
     title: id ? "Editar usuario" : "Novo usuario",
     fields: [
+      !id
+        ? radioGroupField("creationMode", "Tipo de criacao", creationMode, [
+            { value: "test", label: "Usuario de teste" },
+            { value: "real", label: "Usuario real / enviar convite" },
+          ])
+        : `<div class="wide item-card"><strong>Modo de criacao</strong><span class="muted">Edicao de usuario existente.</span></div>`,
+      !id ? `<div class="wide item-card"><span class="muted" data-user-creation-hint>Modo teste: senha temporaria definida pelo administrador, sem envio de convite.</span></div>` : "",
       inputField("name", "Nome", item.name, "required"),
       inputField("email", "E-mail", item.email, "type='email' required"),
-      inputField("password", "Senha", item.password || "", "required"),
+      `<div class="wide" data-user-password-field>${inputField("password", "Senha temporaria", "", id ? "" : "minlength='6' required")}</div>`,
       selectField("role", "Perfil", item.role || "fiscal", [
         { value: "admin", label: "Administrador" },
         { value: "fiscal", label: "Fiscal" },
@@ -6129,16 +6244,27 @@ function userForm(id) {
     ],
     async save(form) {
       const email = String(form.get("email") || "").trim().toLowerCase();
+      const creationType = id ? (item.creationMode || "test") : (form.get("creationMode") === "real" ? "real" : "test");
       const localExisting = state.users.find((user) => user.id !== id && String(user.email || "").trim().toLowerCase() === email);
       if (localExisting && id) {
         alert("E-mail ja cadastrado. Edite o usuario existente ou informe outro e-mail.");
+        return;
+      }
+      if (!isValidEmail(email)) {
+        alert("Informe um e-mail valido para criar o usuario.");
+        return;
+      }
+      const rawPassword = String(form.get("password") || "");
+      if (!id && creationType === "test" && rawPassword.length < 6) {
+        alert("Senha temporaria obrigatoria com no minimo 6 caracteres para usuario de teste.");
         return;
       }
       const payload = {
         id: id || null,
         name: String(form.get("name") || "").trim(),
         email,
-        password: optionalNull(form.get("password")),
+        password: creationType === "test" ? optionalNull(rawPassword) : null,
+        creationMode: creationType,
         role: form.get("role"),
         companyId: optionalNull(form.get("companyId")),
         setor: optionalNull(item.setor),
@@ -6152,7 +6278,11 @@ function userForm(id) {
           const saved = await syncUserRecord(payload);
           state.users = state.users.filter((user) => sameId(user.id, id) || String(user.email || "").trim().toLowerCase() !== saved.email);
           upsert("users", saved.id, { ...payload, ...saved, isNew: false });
-          alert(id ? "Usuario atualizado com sucesso." : "Usuario criado com sucesso.");
+          if (!id && creationType === "real") {
+            alert("Convite enviado para o e-mail informado.");
+          } else {
+            alert(id ? "Usuario atualizado com sucesso." : "Usuario criado com sucesso.");
+          }
         } catch (error) {
           const message = id ? "Erro ao atualizar usuario" : "Erro ao criar usuario";
           throw new PersistenceError(`${message}: ${persistenceMessage(error)}`, error?.context || { table: "public.usuarios", operation: "salvar usuario", payload: mapUserToDb(payload, { includeId: Boolean(id) }) }, error);
@@ -7399,6 +7529,10 @@ function optionalNull(value = "") {
 function optionalText(value = "") {
   const text = String(value ?? "").trim();
   return text ? text : null;
+}
+
+function isValidEmail(value = "") {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
 }
 
 function formatCpf(value = "") {
