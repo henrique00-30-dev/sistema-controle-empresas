@@ -286,6 +286,8 @@ let isLoading = Boolean(supabaseClient);
 let authNotice = "";
 let darkMode = localStorage.getItem("sctempresas.theme") !== "light";
 let sidebarCollapsed = localStorage.getItem("sctempresas.sidebar") === "collapsed";
+let recoveryFlowActive = false;
+let authStateSubscription = null;
 
 applyAutomaticStatusRules({ source: "Inicializacao local" });
 
@@ -643,6 +645,27 @@ async function boot() {
   }
 
   try {
+    bindAuthStateListener();
+    const params = recoveryParams();
+    if (isRecoveryIntent(params)) {
+      recoveryFlowActive = true;
+      if (params.code && typeof supabaseClient.auth.exchangeCodeForSession === "function") {
+        const { error: exchangeError } = await supabaseClient.auth.exchangeCodeForSession(params.code);
+        if (exchangeError) {
+          console.warn("[Recuperacao de senha] Falha ao trocar code por sessao.", exchangeError);
+        } else {
+          clearRecoveryUrl(false);
+        }
+      } else if (params.accessToken && params.refreshToken) {
+        const { error: recoverySessionError } = await supabaseClient.auth.setSession({
+          access_token: params.accessToken,
+          refresh_token: params.refreshToken,
+        });
+        if (recoverySessionError) {
+          console.warn("[Recuperacao de senha] Falha ao definir sessao de recuperacao.", recoverySessionError);
+        }
+      }
+    }
     const {
       data: { session },
     } = await supabaseClient.auth.getSession();
@@ -652,7 +675,7 @@ async function boot() {
       email: session?.user?.email || null,
       userId: session?.user?.id || null,
     });
-    if (session?.user) {
+    if (session?.user && !recoveryFlowActive) {
       await hydrateSupabaseSession(session.user);
     } else {
       state.session = null;
@@ -828,6 +851,19 @@ async function syncCollection(collection, item) {
   }
 }
 
+function bindAuthStateListener() {
+  if (!supabaseClient || authStateSubscription) return;
+  const { data } = supabaseClient.auth.onAuthStateChange((event) => {
+    if (event === "PASSWORD_RECOVERY") {
+      recoveryFlowActive = true;
+      state.session = null;
+      isLoading = false;
+      render();
+    }
+  });
+  authStateSubscription = data?.subscription || null;
+}
+
 function mapSyncedRow(collection, row) {
   if (!row) return null;
   const mapper = {
@@ -877,6 +913,14 @@ async function syncUserRecord(user) {
     }
     if (error) throw error;
     const savedRow = data || existing || (await findUsuarioByEmail(payload.email));
+    if (!savedRow) {
+      throw new PersistenceError("Usuario autenticado no Supabase Auth, mas nao foi possivel confirmar gravacao em public.usuarios.", {
+        table: "public.usuarios",
+        operation: "confirmacao pos upsert",
+        payload: dbPayload,
+        hint: "Verifique RLS/select em public.usuarios para o perfil logado.",
+      });
+    }
     if (authResult?.userId && savedRow?.email) {
       const { error: authLinkError } = await supabaseClient
         .from("usuarios")
@@ -884,7 +928,7 @@ async function syncUserRecord(user) {
         .eq("email", savedRow.email);
       if (authLinkError) console.warn("[Usuarios Supabase] auth_user_id nao foi vinculado; seguindo por email/public.usuarios.id.", authLinkError);
     }
-    const saved = mapUserFromDb(savedRow || { ...payload, id: user.id || crypto.randomUUID() });
+    const saved = mapUserFromDb(savedRow);
     await recordUserCreationHistory(saved, authResult, Boolean(existing?.id));
     return saved;
   } catch (error) {
@@ -937,6 +981,17 @@ async function createAuthUserForUsuario(user) {
     }
     return { ok: true, duplicate: true, userId: signedUserId, session: data?.session || null, previousSession: previous, ...inviteContext };
   }
+  if (mode === "test" && !data?.session) {
+    throw new PersistenceError(
+      "Usuario de teste criado sem sessao imediata. O projeto Supabase pode exigir confirmacao de e-mail para login por senha.",
+      {
+        table: "supabase.auth",
+        operation: "signUp test mode",
+        payload: { email: authPayload.email, mode },
+        hint: "Para login imediato de usuarios de teste, desative confirmacao obrigatoria de e-mail no Supabase Auth.",
+      },
+    );
+  }
   if (mode === "real") {
     await sendFirstAccessInviteEmail(email);
     inviteContext.invited = true;
@@ -949,7 +1004,7 @@ function generateTemporaryPassword() {
 }
 
 async function sendFirstAccessInviteEmail(email) {
-  const redirectTo = `${window.location.origin}${window.location.pathname}`;
+  const redirectTo = `${window.location.origin}${window.location.pathname}?type=recovery`;
   const { error } = await supabaseClient.auth.resetPasswordForEmail(email, { redirectTo });
   if (error) {
     throw new PersistenceError(`Erro ao enviar convite: ${error.message || "falha no resetPasswordForEmail."}`, {
@@ -1143,18 +1198,25 @@ function recoveryParams() {
     accessToken: hash.get("access_token") || query.get("access_token"),
     refreshToken: hash.get("refresh_token") || query.get("refresh_token"),
     type: hash.get("type") || query.get("type"),
+    code: hash.get("code") || query.get("code"),
   };
+}
+
+function isRecoveryIntent(params = recoveryParams()) {
+  if (!isOnlineMode()) return false;
+  return params.type === "recovery" || Boolean(params.accessToken) || Boolean(params.refreshToken) || Boolean(params.code);
 }
 
 function isPasswordRecoveryRoute() {
   const params = recoveryParams();
-  return isOnlineMode() && params.type === "recovery" && Boolean(params.accessToken);
+  return isOnlineMode() && (recoveryFlowActive || isRecoveryIntent(params));
 }
 
-function clearRecoveryUrl() {
+function clearRecoveryUrl(resetRecoveryFlag = true) {
   if (window.history?.replaceState) {
     window.history.replaceState({}, document.title, window.location.pathname);
   }
+  if (resetRecoveryFlag) recoveryFlowActive = false;
 }
 
 async function syncFiscalRecord(fiscal) {
@@ -1294,10 +1356,10 @@ function renderPasswordRecovery() {
         </div>
         <form class="login-form" id="recoveryForm">
           <label>Nova senha
-            <input name="password" type="password" autocomplete="new-password" minlength="6" required />
+            <input name="password" type="password" autocomplete="new-password" minlength="8" required />
           </label>
           <label>Confirmar nova senha
-            <input name="confirmPassword" type="password" autocomplete="new-password" minlength="6" required />
+            <input name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required />
           </label>
           <button class="btn primary" type="submit">${icon("save")} Atualizar senha</button>
         </form>
@@ -1312,6 +1374,10 @@ function renderPasswordRecovery() {
     const password = String(form.get("password") || "");
     const confirmPassword = String(form.get("confirmPassword") || "");
     const submit = event.currentTarget.querySelector("button[type='submit']");
+    if (password.length < 8) {
+      alert("A nova senha deve ter no minimo 8 caracteres.");
+      return;
+    }
     if (password !== confirmPassword) {
       alert("As senhas nao conferem.");
       return;
@@ -1319,11 +1385,24 @@ function renderPasswordRecovery() {
     submit.disabled = true;
     try {
       const params = recoveryParams();
-      const { error: sessionError } = await supabaseClient.auth.setSession({
-        access_token: params.accessToken,
-        refresh_token: params.refreshToken || params.accessToken,
-      });
-      if (sessionError) throw new PersistenceError(`Erro ao validar link de recuperacao: ${sessionError.message}`, { table: "supabase.auth", operation: "setSession recovery" }, sessionError);
+      if (params.accessToken && params.refreshToken) {
+        const { error: sessionError } = await supabaseClient.auth.setSession({
+          access_token: params.accessToken,
+          refresh_token: params.refreshToken,
+        });
+        if (sessionError) throw new PersistenceError(`Erro ao validar link de recuperacao: ${sessionError.message}`, { table: "supabase.auth", operation: "setSession recovery" }, sessionError);
+      } else if (params.code && typeof supabaseClient.auth.exchangeCodeForSession === "function") {
+        const { error: exchangeError } = await supabaseClient.auth.exchangeCodeForSession(params.code);
+        if (exchangeError) throw new PersistenceError(`Erro ao trocar codigo de recuperacao: ${exchangeError.message}`, { table: "supabase.auth", operation: "exchangeCodeForSession recovery" }, exchangeError);
+      } else {
+        const {
+          data: { session },
+          error: getSessionError,
+        } = await supabaseClient.auth.getSession();
+        if (getSessionError || !session) {
+          throw new PersistenceError("Nao foi possivel validar a sessao de recuperacao. Solicite um novo link.", { table: "supabase.auth", operation: "getSession recovery" }, getSessionError || null);
+        }
+      }
       const { error } = await supabaseClient.auth.updateUser({ password });
       if (error) throw new PersistenceError(`Erro ao atualizar senha: ${error.message}`, { table: "supabase.auth", operation: "updateUser password" }, error);
       await supabaseClient.auth.signOut().catch((signOutError) => console.warn("[Recuperacao de senha] Nao foi possivel encerrar sessao apos redefinir senha.", signOutError));
@@ -1441,6 +1520,8 @@ function renderLogin() {
           perfil: profile.role,
           nome: profile.name,
         });
+        recoveryFlowActive = false;
+        clearRecoveryUrl(false);
         authNotice = "";
         currentView = "dashboard";
         render();
