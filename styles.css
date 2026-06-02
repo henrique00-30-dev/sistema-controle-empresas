@@ -433,7 +433,8 @@ textarea {
 .nav button {
   position: relative;
   border: 0;
-  background: transparent;
+  background: rgba(245, 241, 234, 0.035);
+  border: 1px solid rgba(214, 161, 95, 0.1);
   color: #cbd5e1;
   border-radius: 14px;
   padding: 10px 11px;
@@ -450,6 +451,7 @@ textarea {
 .nav button.active {
   background: linear-gradient(135deg, rgba(143, 38, 56, 0.32), rgba(214, 161, 95, 0.1));
   color: #fff;
+  border-color: rgba(214, 161, 95, 0.3);
 }
 
 .nav button.active::before {
@@ -862,6 +864,65 @@ textarea {
   display: grid;
   grid-template-columns: 1.35fr 0.75fr;
   gap: 16px;
+}
+
+.quick-launch-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.launch-card {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  text-align: left;
+  min-height: 138px;
+  padding: 16px;
+  border: 1px solid rgba(214, 161, 95, 0.18);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at top right, rgba(214, 161, 95, 0.08), transparent 10rem),
+    rgba(245, 241, 234, 0.035);
+  color: var(--text);
+  box-shadow: var(--shadow-soft);
+  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+
+.launch-card:hover,
+.launch-card:focus-visible {
+  transform: translateY(-2px);
+  border-color: rgba(214, 161, 95, 0.42);
+  background:
+    radial-gradient(circle at top right, rgba(214, 161, 95, 0.14), transparent 10rem),
+    rgba(245, 241, 234, 0.05);
+  outline: none;
+}
+
+.launch-icon {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: rgba(143, 38, 56, 0.2);
+  color: #f5f1ea;
+}
+
+.launch-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.launch-card strong {
+  font-size: 0.98rem;
+  line-height: 1.15;
+}
+
+.launch-card span {
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.35;
 }
 
 .bi-card {
@@ -2633,6 +2694,7 @@ tr:last-child td {
   .kpi-grid,
   .alert-grid,
   .dashboard-grid,
+  .quick-launch-grid,
   .detail-grid,
   .detail-grid.compact,
   .approval-card-grid,
@@ -2677,6 +2739,7 @@ tr:last-child td {
   .kpi-grid,
   .alert-grid,
   .dashboard-grid,
+  .quick-launch-grid,
   .contract-summary-grid,
   .detail-grid,
   .detail-grid.compact,

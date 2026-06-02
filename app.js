@@ -1573,33 +1573,29 @@ function renderApp() {
       items: [
         ["dashboard", "Dashboard", "dashboard"],
         ["companies", "Empresas", "company"],
-        ["contracts", "Contratos", "contracts"],
         ["employees", "Funcionarios", "users"],
         ["documents", "Documentos", "docs"],
-        ["workflow", "Workflow Docs", "workflow"],
-        ["thirdparty", "Gestao de Terceiros", "factory"],
-        ["compliance", "Conformidade", "shield"],
       ],
     },
     {
       title: "Controle",
       items: [
         ["approvals", "Aprovacoes", "approve"],
-        ["blocks", "Bloqueios", "block"],
+        ["requests", "Solicitacoes", "workflow"],
         ["reports", "Relatorios", "reports"],
       ],
     },
     {
-      title: "Sistema",
+      title: "Gestao",
       items: [
-        ["integrations", "Integracoes", "integrations"],
-        ["settings", "Configuracoes", "settings"],
+        ["administration", "Administracao", "settings"],
       ],
     },
   ];
-  if (canView("users")) groups[2].items.unshift(["users", "Usuarios", "users"]);
   const views = groups.flatMap((group) => group.items).filter(([id]) => canView(id));
-  if (!canView(currentView)) currentView = views[0]?.[0] || "dashboard";
+  const hiddenViews = ["contracts", "workflow", "thirdparty", "compliance", "blocks", "users", "integrations", "settings"].filter((id) => canView(id));
+  const availableViews = [...new Set([...views, ...hiddenViews])];
+  if (!availableViews.includes(currentView)) currentView = views[0]?.[0] || availableViews[0] || "dashboard";
 
   app.innerHTML = `
     <section class="app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}">
@@ -1645,7 +1641,7 @@ function renderApp() {
         <header class="topbar">
           <div class="topbar-title">
             <h1>${viewTitle()}</h1>
-            <span class="muted">${currentView === "dashboard" ? "Monitoramento de terceiros e contratos" : "Monitoramento operacional"}</span>
+            <span class="muted">${currentView === "dashboard" ? "Leitura operacional rapida" : "Estrutura V2 por ficha e sub-abas"}</span>
           </div>
           <div class="top-actions">
             <div class="global-search">
@@ -1707,13 +1703,15 @@ function viewTitle() {
     contracts: "Contratos",
     employees: "Funcionarios",
     documents: "Documentos",
+    approvals: "Aprovacoes",
+    requests: "Solicitacoes",
+    administration: "Administracao",
+    reports: "Relatorios",
     workflow: "Workflow de documentos",
     thirdparty: "Gestao de terceiros",
     compliance: "Conformidade",
-    approvals: "Aprovacoes",
     blocks: "Bloqueios",
     users: "Usuarios e perfis",
-    reports: "Relatorios",
     integrations: "Integracoes",
     settings: "Configuracoes",
   }[currentView];
@@ -1726,13 +1724,15 @@ function renderView() {
     contracts: renderContracts,
     employees: renderEmployees,
     documents: renderDocuments,
+    approvals: renderApprovals,
+    requests: renderRequests,
+    administration: renderAdministration,
+    reports: renderReports,
     workflow: renderDocumentWorkflow,
     thirdparty: renderThirdPartyManagement,
     compliance: renderCompliance,
-    approvals: renderApprovals,
     blocks: renderBlocks,
     users: renderUsers,
-    reports: renderReports,
     integrations: renderIntegrations,
     settings: renderSettings,
   }[currentView]();
@@ -1909,6 +1909,8 @@ function filterSelect(field, view, label, value, options, labels = new Map()) {
 }
 
 function canView(view) {
+  if (view === "requests") return Boolean(currentUser());
+  if (view === "administration") return currentUser()?.role === "admin";
   return ROLE_PERMISSIONS[currentUser()?.role || "visitor"].view.includes(view);
 }
 
@@ -2177,7 +2179,7 @@ function renderDashboard() {
         <span class="eyebrow">Monitoramento operacional</span>
         <h2>Dashboard Operacional</h2>
         <div class="hero-command-row">
-          <span>${companies.length} fornecedores</span>
+          <span>${companies.length} empresas monitoradas</span>
           <span>${documents.length} documentos rastreados</span>
           <span>${employees.length} funcionarios monitorados</span>
         </div>
@@ -5292,6 +5294,97 @@ function renderReports() {
         return [item.contract || "Nao informado", item.name, contractUnit(item), formatDate(item.endDate), statusBadge(item.status)];
       }))}
       ${renderReportTable("Bloqueios", "Restricoes de funcionarios e contratos.", "bloqueios", ["Tipo", "Registro", "Empresa", "Motivo", "Status"], blockRows.map((item) => [item.tipo, item.registro, item.empresa, item.motivo, statusBadge(item.status)]))}
+    </div>
+  `;
+}
+
+function renderRequests() {
+  const requestCards = [
+    ["Pendentes", "Pedidos aguardando analise", "warn"],
+    ["Aprovadas", "Solicitacoes autorizadas", "success"],
+    ["Rejeitadas", "Pedidos negados com registro", "danger"],
+    ["Executadas", "Solicitacoes concluidas", "info"],
+  ];
+  const requestBands = ["Desmobilizacao", "Encerramento", "Arquivamento", "Acesso"];
+  const requestRows = [
+    ["Desmobilizacao de funcionario", "Empresa A", "Pendente"],
+    ["Arquivamento de documento", "Empresa B", "Em analise"],
+    ["Encerramento de contrato", "Empresa C", "Pendente"],
+  ];
+  return `
+    <section class="hero-panel compact-hero">
+      <div>
+        <span class="eyebrow">Central operacional</span>
+        <h2>Solicitacoes</h2>
+        <p>Estrutura visual para pedidos formais e acompanhamento do fluxo, sem implementar regras nesta fase.</p>
+        <div class="hero-command-row">
+          ${requestBands.map((band) => `<span>${band}</span>`).join("")}
+        </div>
+      </div>
+    </section>
+    <div class="stats-grid">
+      ${requestCards.map(([label, helper, tone]) => `<div class="stat-card ${tone}"><span>${label}</span><strong>0</strong><small>${helper}</small></div>`).join("")}
+    </div>
+    <div class="dashboard-grid">
+      <section class="bi-card wide">
+        <div class="bi-head"><div><span class="eyebrow">Fila operacional</span><h2>Solicitacoes em estrutura</h2></div><span class="mini-pill">Preparado</span></div>
+        <div class="item-list dense-list">
+          ${requestRows.map(([title, company, status]) => `<div class="item-card"><div class="item-row"><strong>${title}</strong>${statusBadge(status)}</div><span class="muted">${company} - estrutura de fluxo sem regras ativadas nesta fase.</span></div>`).join("")}
+        </div>
+      </section>
+      <section class="bi-card">
+        <div class="bi-head"><div><span class="eyebrow">Historico</span><h2>Eventos da central</h2></div><span class="mini-pill">0</span></div>
+        <div class="empty">Sem processamento de solicitacoes nesta fase. A estrutura foi preparada para a V2.</div>
+      </section>
+    </div>
+  `;
+}
+
+function renderAdministration() {
+  const hubs = [
+    ["users", "Usuarios e perfis", "Gerencie acessos, perfis e convites.", "users"],
+    ["integrations", "Integracoes", "Pontos de conexao com servicos externos.", "integrations"],
+    ["settings", "Configuracoes", "Parametros operacionais do portal.", "settings"],
+  ].filter(([view]) => canView(view));
+  return `
+    <section class="hero-panel compact-hero">
+      <div>
+        <span class="eyebrow">Administracao</span>
+        <h2>Base de gestao do portal</h2>
+        <p>Entrada para usuarios, integracoes e configuracoes gerais, organizada como central administrativa.</p>
+      </div>
+    </section>
+    <div class="enterprise-strip">
+      <div><span>Usuarios</span><strong>Convites e perfis</strong></div>
+      <div><span>Integracoes</span><strong>Conexoes externas</strong></div>
+      <div><span>Parametros</span><strong>Configuracao geral</strong></div>
+      <div><span>Auditoria</span><strong>Base para rastreio</strong></div>
+    </div>
+    <div class="dashboard-grid">
+      <section class="bi-card wide">
+        <div class="bi-head"><div><span class="eyebrow">Acesso rapido</span><h2>Subareas administrativas</h2></div></div>
+        <div class="quick-launch-grid">
+          ${hubs
+            .map(
+              ([view, title, helper, iconName]) => `
+                <button class="launch-card" type="button" data-view="${view}">
+                  <div class="launch-icon">${icon(iconName)}</div>
+                  <strong>${title}</strong>
+                  <span>${helper}</span>
+                </button>
+              `,
+            )
+            .join("") || `<div class="empty">Nenhuma subarea disponivel para o perfil atual.</div>`}
+        </div>
+      </section>
+      <section class="bi-card">
+        <div class="bi-head"><div><span class="eyebrow">Estrutura</span><h2>Ficha administrativa</h2></div></div>
+        <div class="item-list dense-list">
+          <div class="item-card"><strong>Usuarios</strong><span class="muted">Tela dedicada a perfis, acessos e status.</span></div>
+          <div class="item-card"><strong>Integracoes</strong><span class="muted">Espaco para conexoes futuras e monitoramento.</span></div>
+          <div class="item-card"><strong>Configuracoes</strong><span class="muted">Painel de parametros e preferencia do portal.</span></div>
+        </div>
+      </section>
     </div>
   `;
 }
