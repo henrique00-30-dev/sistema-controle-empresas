@@ -2903,6 +2903,8 @@ function renderFiscalRegistry() {
     (fiscal) => fiscalStatusLabel(fiscal.status),
     (fiscal) => fiscal.usuarioEmail,
   ]);
+  const linkedCompaniesLabel = (fiscal) => fiscalLinkedCompanies(fiscal).map((company) => company.name).join(", ") || "Sem vinculo";
+  const linkedContractsLabel = (fiscal) => fiscalLinkedContracts(fiscal).join(", ") || "Sem contrato";
   return `
     <section class="panel table-wrap">
       <div class="modal-head">
@@ -2927,7 +2929,7 @@ function renderFiscalRegistry() {
           : `<div class="item-card"><span class="muted">Somente leitura para este perfil.</span></div>`
       }
       <table>
-        <thead><tr><th>Fiscal</th><th>Contato</th><th>Setor</th><th>Status</th><th>Acesso</th><th>Acoes</th></tr></thead>
+        <thead><tr><th>Fiscal</th><th>Contato</th><th>Setor</th><th>Empresas vinculadas</th><th>Contratos vinculados</th><th>Status</th><th>Acesso</th><th>Acoes</th></tr></thead>
         <tbody>
           ${
             fiscais.length
@@ -2936,6 +2938,8 @@ function renderFiscalRegistry() {
                   <td><strong>${escapeHtml(fiscal.nome)}</strong><br><span class="muted">${escapeHtml(fiscal.matricula || "Sem matricula")}</span></td>
                   <td>${escapeHtml(fiscal.email || "Sem e-mail")}<br><span class="muted">${escapeHtml(fiscal.telefone || "Sem telefone")}</span></td>
                   <td>${escapeHtml(fiscal.setor || "Nao informado")}</td>
+                  <td>${escapeHtml(linkedCompaniesLabel(fiscal))}</td>
+                  <td>${escapeHtml(linkedContractsLabel(fiscal))}</td>
                   <td>${statusBadge(fiscalStatusLabel(fiscal.status))}</td>
                   <td>${escapeHtml(fiscal.usuarioEmail || "Sem acesso")}</td>
                   <td>
@@ -2946,7 +2950,7 @@ function renderFiscalRegistry() {
                   </td>
                 </tr>
               `).join("")
-              : emptyRow(6)
+              : emptyRow(8)
           }
         </tbody>
       </table>
@@ -5572,7 +5576,7 @@ function userLastAccessLabel(user = {}) {
 
 function fiscalLinkedCompanies(fiscal = {}) {
   const item = normalizeFiscal(fiscal);
-  return state.companies
+  return visibleCompanies()
     .filter((company) => {
       const normalized = normalizeCompany(company);
       const fiscalIds = [normalized.fiscalId, ...(normalized.fiscaisAdicionais || [])].filter(Boolean).map((id) => String(id));
@@ -6841,7 +6845,15 @@ function companyForm(id, context = {}) {
       inputField("cnpj", "CNPJ", item.cnpj, "required inputmode='numeric' maxlength='18' data-mask='cnpj' placeholder='00.000.000/0000-00'"),
       inputField("contract", "Numero do contrato", item.contract, "required"),
       inputField("costCenter", "Centro de custo padrao", item.costCenter || "", "required"),
-      inputField("fiscal", "Fiscal do contrato", item.fiscal, "required"),
+      formSection("Fiscal responsavel", [
+        selectField("fiscalId", "Fiscal principal cadastrado", item.fiscalId || "", [{ value: "", label: "Selecione um fiscal" }].concat(state.fiscais.map(normalizeFiscal).filter((fiscal) => fiscal.status !== "inativo").map((fiscal) => ({ value: fiscal.id, label: `${fiscal.nome}${fiscal.matricula ? ` - ${fiscal.matricula}` : ""}` })))),
+        inputField("fiscal", "Fiscal do contrato", item.fiscal, "required"),
+        inputField("novoFiscalNome", "Nome do fiscal novo", ""),
+        inputField("novoFiscalEmail", "E-mail do fiscal novo", "", "type='email'"),
+        inputField("novoFiscalTelefone", "Telefone do fiscal novo", ""),
+        inputField("novoFiscalMatricula", "Matricula do fiscal novo", ""),
+        inputField("novoFiscalSetor", "Setor do fiscal novo", "Fiscalizacao"),
+      ]),
       inputField("manager", "Gestor do contrato", item.manager || item.responsible || item.contact, "required"),
       inputField("email", "E-mail", item.email, "type='email'"),
       inputField("phone", "Telefone", item.phone, "required inputmode='numeric' maxlength='15' data-mask='phone' placeholder='(00) 00000-0000'"),
@@ -7469,19 +7481,30 @@ async function saveCompanyFromForm(form) {
 }
 
 function createQuickFiscalFromCompanyForm(form) {
+  if (currentUser()?.role === "supplier") return null;
+  if (optionalNull(form.get("fiscalId"))) return null;
   const nome = String(form.get("novoFiscalNome") || "").trim();
-  if (!nome) return null;
+  const email = normalizeEmail(optionalText(form.get("novoFiscalEmail")));
+  if (!nome && !email) return null;
+  const fiscals = (state.fiscais || []).map(normalizeFiscal);
+  const existingFiscal = email
+    ? fiscals.find((fiscal) => normalizeEmail(fiscal.email) === email)
+    : nome
+      ? fiscals.find((fiscal) => normalizeSearchValue(fiscal.nome) === normalizeSearchValue(nome))
+      : null;
   const fiscal = normalizeFiscal({
-    id: crypto.randomUUID(),
-    nome,
-    email: optionalText(form.get("novoFiscalEmail")),
-    matricula: optionalText(form.get("novoFiscalMatricula")),
-    telefone: optionalText(form.get("novoFiscalTelefone")),
-    setor: optionalText(form.get("novoFiscalSetor")) || "Fiscalizacao",
-    status: "sem_acesso",
-    usuarioEmail: null,
-    usuarioId: null,
-    createdAt: new Date().toISOString(),
+    ...(existingFiscal || {}),
+    id: existingFiscal?.id || crypto.randomUUID(),
+    nome: nome || existingFiscal?.nome || "",
+    email: email || existingFiscal?.email || "",
+    matricula: optionalText(form.get("novoFiscalMatricula")) || existingFiscal?.matricula || "",
+    telefone: optionalText(form.get("novoFiscalTelefone")) || existingFiscal?.telefone || "",
+    setor: optionalText(form.get("novoFiscalSetor")) || existingFiscal?.setor || "Fiscalizacao",
+    status: existingFiscal?.status || "sem_acesso",
+    usuarioEmail: existingFiscal?.usuarioEmail || null,
+    usuarioId: existingFiscal?.usuarioId || null,
+    authUserId: existingFiscal?.authUserId || null,
+    createdAt: existingFiscal?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   });
   state.fiscais = upsertById(state.fiscais || [], fiscal);
@@ -7493,15 +7516,27 @@ async function saveFiscalFromForm(form) {
     alert("Somente administrador ou fiscal pode cadastrar fiscais.");
     return;
   }
+  const nome = String(form.get("nome") || "").trim();
+  const email = normalizeEmail(optionalText(form.get("email")));
+  const fiscals = (state.fiscais || []).map(normalizeFiscal);
+  const existingFiscal = email
+    ? fiscals.find((fiscal) => normalizeEmail(fiscal.email) === email)
+    : nome
+      ? fiscals.find((fiscal) => normalizeSearchValue(fiscal.nome) === normalizeSearchValue(nome))
+      : null;
   const fiscal = normalizeFiscal({
-    id: crypto.randomUUID(),
-    nome: form.get("nome"),
-    email: form.get("email"),
-    matricula: form.get("matricula"),
-    telefone: form.get("telefone"),
-    setor: form.get("setor"),
-    status: form.get("status") || "sem_acesso",
-    createdAt: new Date().toISOString(),
+    ...(existingFiscal || {}),
+    id: existingFiscal?.id || crypto.randomUUID(),
+    nome: nome || existingFiscal?.nome || "",
+    email: email || existingFiscal?.email || "",
+    matricula: optionalText(form.get("matricula")) || existingFiscal?.matricula || "",
+    telefone: optionalText(form.get("telefone")) || existingFiscal?.telefone || "",
+    setor: optionalText(form.get("setor")) || existingFiscal?.setor || "Fiscalizacao",
+    status: form.get("status") || existingFiscal?.status || "sem_acesso",
+    usuarioEmail: existingFiscal?.usuarioEmail || null,
+    usuarioId: existingFiscal?.usuarioId || null,
+    authUserId: existingFiscal?.authUserId || null,
+    createdAt: existingFiscal?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   });
   if (!fiscal.nome) {
