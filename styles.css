@@ -2382,6 +2382,37 @@ tr:last-child td {
   gap: 8px;
 }
 
+.employee-flow-summary {
+  display: grid;
+  gap: 12px;
+  margin: 14px 0;
+}
+
+.employee-flow-summary > .item-card {
+  padding: 16px;
+}
+
+.employee-patrimonial-form {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(245, 241, 234, 0.03);
+}
+
+.employee-request-section,
+.employee-history-section {
+  display: grid;
+  gap: 12px;
+}
+
+.employee-request-section .table-wrap,
+.employee-history-section .table-wrap {
+  margin-top: 0;
+}
+
 .approval-card-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(180px, 1fr));

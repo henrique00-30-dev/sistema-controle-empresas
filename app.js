@@ -2668,6 +2668,22 @@ function historyEventsFor(entityType, entityId) {
     .sort((a, b) => String(b.createdAt || b.criado_em || "").localeCompare(String(a.createdAt || a.criado_em || "")));
 }
 
+function historyEventProfile(event = {}) {
+  const direct = event.userProfile || event.perfil || event.profile || event.role || "";
+  if (direct) return direct;
+  const eventUserId = String(event.userId || event.usuario_id || "");
+  if (eventUserId) {
+    const matched = state.users.find((user) => sameId(user.id, eventUserId));
+    if (matched) return roleName(matched.role || matched.perfil || matched.profile || "visitor");
+  }
+  const eventUserName = normalizeSearchValue(event.userName || event.usuario_nome || "");
+  if (eventUserName) {
+    const matchedByName = state.users.find((user) => normalizeSearchValue(user.name || user.nome || "") === eventUserName);
+    if (matchedByName) return roleName(matchedByName.role || matchedByName.perfil || matchedByName.profile || "visitor");
+  }
+  return "Nao informado";
+}
+
 function renderHistoryTimeline(entityType, entityId, fallbackItems = []) {
   const events = historyEventsFor(entityType, entityId);
   const rows = events.length
@@ -2681,7 +2697,7 @@ function renderHistoryTimeline(entityType, entityId, fallbackItems = []) {
                 <strong>${escapeHtml(event.action || event.acao || "Alteracao registrada")}</strong>
                 <span class="muted">${formatDateTime(event.createdAt || event.criado_em)} - ${escapeHtml(event.userName || event.usuario_nome || "Sistema")}</span>
               </div>
-              <span class="mini-pill">${escapeHtml(event.userProfile || event.perfil || currentUser()?.role || "perfil")}</span>
+              <span class="mini-pill">${escapeHtml(historyEventProfile(event))}</span>
             </div>
             <div class="detail-grid compact">
               ${detailCard("Campo alterado", escapeHtml(event.field || event.campo || "status/registro"))}
@@ -2711,7 +2727,7 @@ function renderHistoryEvents(events = []) {
                   <strong>${escapeHtml(event.action || event.acao || "Alteracao registrada")}</strong>
                   <span class="muted">${formatDateTime(event.createdAt || event.criado_em)} - ${escapeHtml(event.userName || event.usuario_nome || "Sistema")}</span>
                 </div>
-                <span class="mini-pill">${escapeHtml(event.userProfile || event.perfil || currentUser()?.role || "perfil")}</span>
+                <span class="mini-pill">${escapeHtml(historyEventProfile(event))}</span>
               </div>
               <div class="detail-grid compact">
                 ${detailCard("Campo alterado", escapeHtml(event.field || event.campo || "status/registro"))}
@@ -3096,6 +3112,7 @@ function workflowDisplayStatus(status = "") {
 function workflowDisplayClass(status = "") {
   const token = statusToken(status);
   if (token.includes("concluido")) return "ok";
+  if (token.includes("bloqueado por etapa anterior")) return "warn";
   if (token.includes("reprovado") || token.includes("revisao solicitada") || token.includes("revalidacao solicitada") || token.includes("em revalidacao") || token.includes("em avaliacao") || token.includes("enviado para") || token.includes("rascunho pelo fornecedor") || token.includes("em analise")) return "analysis";
   return "warn";
 }
@@ -3108,12 +3125,15 @@ function employeeWorkflowReason(employee, step) {
   if (statusMatches(step.status, "Em avaliação", "Enviado para Fiscal", "Enviado para Medicina", "Enviado para EHS", "Enviado para Patrimonial", "Rascunho pelo Fornecedor")) {
     return "Aguardando avaliacao do setor responsavel.";
   }
+  if (statusMatches(step.status, "Bloqueado por etapa anterior")) {
+    return "Aguardando conclusao da etapa anterior.";
+  }
   if (String(step.status || "").startsWith("Aguardando")) {
     return "Aguardando aprovacao da etapa anterior.";
   }
   if (step.id === "liberacao") return statusMatches(step.status, "Aprovado") ? "Fluxo completo concluido." : "Aguardando conclusao das etapas anteriores.";
   const stepDocs = state.documents.filter((doc) => sameId(doc.employeeId, normalized.id) && documentOperationalSector(doc) === step.sector);
-  const issueDoc = stepDocs.find((doc) => statusMatches(docStatus(doc), "Reprovado", "Vencido", "Pendente", "Em analise", "A vencer"));
+  const issueDoc = stepDocs.find((doc) => statusMatches(docStatus(doc), "Reprovado", "Revisão solicitada", "Revalidação solicitada", "Vencido", "Pendente", "Em analise", "A vencer"));
   if (!issueDoc) return "";
   const docReason = extractOperationalReasonText(documentVisibleNotes(issueDoc));
   if (docReason) return docReason;
@@ -3140,31 +3160,31 @@ function employeeOperationalStages(employee) {
     {
       key: "documentation",
       label: "Documentacao",
-      status: workflowDisplayStatus(documentStep.status),
+      status: workflowStepPresentationStatus(documentStep, documentStep.status, 0, workflowSteps),
       reason: employeeWorkflowReason(normalized, { ...documentStep, id: "fiscal", sector: "Fiscal" }),
     },
     {
       key: "medicine",
       label: "Medicina",
-      status: workflowDisplayStatus(medicineStep.status),
+      status: workflowStepPresentationStatus(medicineStep, medicineStep.status, 1, workflowSteps),
       reason: employeeWorkflowReason(normalized, { ...medicineStep, id: "medicina", sector: "Medicina" }),
     },
     {
       key: "ehs",
       label: "EHS/SSMA",
-      status: workflowDisplayStatus(ehsStep.status),
+      status: workflowStepPresentationStatus(ehsStep, ehsStep.status, 2, workflowSteps),
       reason: employeeWorkflowReason(normalized, { ...ehsStep, id: "ehs", sector: "EHS" }),
     },
     {
       key: "patrimonial",
       label: "Patrimonial",
-      status: workflowDisplayStatus(patrimonialStep.status),
+      status: workflowStepPresentationStatus(patrimonialStep, patrimonialStep.status, 3, workflowSteps),
       reason: employeeWorkflowReason(normalized, { ...patrimonialStep, id: "patrimonial", sector: "Patrimonial" }),
     },
     {
       key: "released",
       label: "Liberado",
-      status: workflowDisplayStatus(liberacaoStep.status),
+      status: workflowStepPresentationStatus(liberacaoStep, liberacaoStep.status, 4, workflowSteps),
       reason: employeeWorkflowReason(normalized, { ...liberacaoStep, id: "liberacao", sector: "Fiscal" }),
     },
   ];
@@ -3251,7 +3271,9 @@ function openEmployeeRecord(id) {
   const employee = visibleEmployees().find((item) => sameId(item.id, id));
   if (!employee || !canAccessEmployee(employee)) return;
   const item = normalizeEmployee(employee);
-  const company = state.companies.find((entry) => sameId(entry.id, item.companyId));
+  const company = normalizeCompany(state.companies.find((entry) => sameId(entry.id, item.companyId)) || {});
+  const contractSource = normalizeCompany(state.companies.find((entry) => sameId(entry.id, item.contractSourceId || item.companyId)) || company);
+  const currentStage = employeeCurrentOperationalStage(item);
   const tabs = employeeRecordTabs();
   const defaultTab = tabs[0]?.[0] || "summary";
   const modal = document.createElement("div");
@@ -3266,11 +3288,15 @@ function openEmployeeRecord(id) {
           <h2>${item.name}</h2>
           <div class="employee-record-meta">
             <span>CPF ${item.cpf || "Nao informado"}</span>
+            <span>Empresa ${company.name || "Empresa nao informada"}</span>
+            <span>Contrato ${item.contract || contractSource.contract || company.contract || "Nao informado"}</span>
+            <span>CC ${item.costCenter || employeeCostCenter(item, contractSource || company)}</span>
+            <span>Fiscal ${item.companyFiscal || contractSource.fiscal || company.fiscal || "Nao informado"}</span>
+            <span>Gestor ${item.contractManager || contractSource.manager || contractSource.responsible || company.manager || company.responsible || "Nao informado"}</span>
+            <span>Servico ${item.serviceType || contractSource.serviceType || contractSource.risk || company.serviceType || company.risk || "Nao informado"}</span>
+            <span>Unidade ${item.unitSector || contractSource.unitSector || contractUnit(contractSource || company) || "Nao informado"}</span>
             <span>Matricula ${employeeRegistration(item)}</span>
-            <span>${company?.name || "Empresa nao informada"}</span>
-            <span>Contrato ${item.contract || company?.contract || "Nao informado"}</span>
             <span>${item.role || "Funcao nao informada"}</span>
-            <span>CC ${item.costCenter || employeeCostCenter(item, company)}</span>
             <span>Atualizado ${formatDateTime(employeeUpdatedAt(item))}</span>
           </div>
         </div>
@@ -3278,6 +3304,7 @@ function openEmployeeRecord(id) {
           ${statusBadge(item.status)}
           ${statusBadge(item.docStatus)}
           ${statusBadge(employeeActiveState(item))}
+          ${statusBadge(currentStage)}
         </div>
         <button class="btn icon" type="button" data-close title="Fechar">${icon("close")}</button>
       </div>
@@ -3335,6 +3362,19 @@ function openEmployeeRecord(id) {
     }
     if (event.target === modal) modal.remove();
   });
+  modal.addEventListener("submit", async (event) => {
+    const form = event.target.closest("[data-employee-patrimonial-form]");
+    if (!form) return;
+    event.preventDefault();
+    const submit = form.querySelector("button[type='submit']");
+    if (submit?.disabled) return;
+    if (submit) submit.disabled = true;
+    try {
+      await saveEmployeePatrimonialFields(item.id, new FormData(form));
+    } finally {
+      if (submit) submit.disabled = false;
+    }
+  });
   modal.querySelectorAll("[data-employee-tab]").forEach((button) => {
     button.addEventListener("click", () => {
       modal.querySelectorAll("[data-employee-tab]").forEach((item) => item.classList.remove("active"));
@@ -3348,71 +3388,101 @@ function employeeRecordTabs() {
   const allTabs = [
     ["summary", "Resumo"],
     ["personal", "Dados Pessoais"],
+    ["contracts", "Vínculo / Contrato"],
     ["docs", "Documentos Pessoais"],
-    ["medicine", "Medicina Ocupacional"],
-    ["ehs", "Seguranca do Trabalho/EHS"],
-    ["patrimonial", "Patrimonial"],
-    ["contracts", "Contratos/Vinculos"],
-    ["history", "Historico"],
+    ["medicine", "Medicina"],
+    ["ehs", "EHS / SSMA"],
+    ["patrimonial", "Segurança Patrimonial"],
+    ["requests", "Solicitações"],
+    ["history", "Histórico"],
   ];
-  const allowed = new Set(["summary", "contracts", "history", ...allowedEmployeeTabs()]);
+  const allowed = new Set(["summary", "contracts", "requests", "history", ...allowedEmployeeTabs()]);
   return allTabs.filter(([tab]) => allowed.has(tab));
 }
 
 function renderEmployeeRecordTab(employee, tab) {
-  const company = state.companies.find((item) => sameId(item.id, employee.companyId));
-  const companyDocs = state.documents.filter((doc) => sameId(doc.companyId, employee.companyId) && !doc.employeeId);
-  const employeeDocs = state.documents.filter((doc) => sameId(doc.employeeId, employee.id));
+  const normalized = normalizeEmployee(employee);
+  const company = normalizeCompany(state.companies.find((item) => sameId(item.id, normalized.companyId)) || {});
+  const contractSource = normalizeCompany(state.companies.find((item) => sameId(item.id, normalized.contractSourceId || normalized.companyId)) || company);
+  const companyDocs = state.documents.filter((doc) => sameId(doc.companyId, normalized.companyId) && !doc.employeeId);
+  const employeeDocs = state.documents.filter((doc) => sameId(doc.employeeId, normalized.id));
   const allDocs = [...employeeDocs, ...companyDocs];
   if (tab === "summary") {
-    const stages = employeeOperationalStages(employee);
+    const stages = employeeOperationalStages(normalized);
     return `
       <div class="detail-grid">
-        ${detailCard("Status geral", statusBadge(employee.status))}
-        ${detailCard("Status documental", statusBadge(employee.docStatus))}
-        ${detailCard("Empresa", company?.name || "Nao informado")}
-        ${detailCard("Contrato", employee.contract || company?.contract || "Nao informado")}
-        ${detailCard("Funcao", employee.role || "Nao informado")}
-        ${detailCard("Centro de custo", employee.costCenter || employeeCostCenter(employee, company))}
-        ${detailCard("ASO", `${formatDate(employee.asoValidity)} ${isPastDate(employee.asoValidity) ? statusBadge("Vencido") : ""}`)}
-        ${detailCard("Treinamento", `${formatDate(employee.trainingValidity)} ${isPastDate(employee.trainingValidity) ? statusBadge("Vencido") : ""}`)}
+        ${detailCard("CPF", normalized.cpf || "Nao informado")}
+        ${detailCard("Empresa", company.name || "Nao informado")}
+        ${detailCard("Contrato", normalized.contract || contractSource.contract || company.contract || "Nao informado")}
+        ${detailCard("Centro de custo", normalized.costCenter || employeeCostCenter(normalized, contractSource || company))}
+        ${detailCard("Fiscal responsavel", normalized.companyFiscal || contractSource.fiscal || company.fiscal || "Nao informado")}
+        ${detailCard("Gestor do contrato", normalized.contractManager || contractSource.manager || contractSource.responsible || company.manager || company.responsible || "Nao informado")}
+        ${detailCard("Tipo de servico", normalized.serviceType || contractSource.serviceType || contractSource.risk || company.serviceType || company.risk || "Nao informado")}
+        ${detailCard("Unidade / setor", normalized.unitSector || contractSource.unitSector || contractUnit(contractSource || company) || "Nao informado")}
+        ${detailCard("Status documental", statusBadge(normalized.docStatus))}
+        ${detailCard("Status contratacao", statusBadge(normalized.status))}
+        ${detailCard("Etapa atual", employeeCurrentOperationalStage(normalized))}
+        ${detailCard("Ultima atualizacao", formatDateTime(employeeUpdatedAt(normalized)) || "Nao informado")}
       </div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Etapa</th><th>Status</th><th>Motivo/Pendencia</th></tr></thead>
-          <tbody>
-            ${stages.map((stage) => `<tr><td><strong>${stage.label}</strong></td><td><span class="status ${workflowDisplayClass(stage.status)}">${stage.status}</span></td><td>${escapeHtml(stage.reason || "Sem pendencia.")}</td></tr>`).join("")}
-          </tbody>
-        </table>
+      <div class="employee-flow-summary">
+        <div class="item-card">
+          <strong>Fluxo operacional</strong>
+          ${renderEmployeeWorkflowInline(normalized)}
+        </div>
+        <div class="item-card">
+          <strong>Resumo das etapas</strong>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Etapa</th><th>Status</th><th>Motivo/Pendencia</th></tr></thead>
+              <tbody>${stages.map((stage) => `<tr><td><strong>${stage.label}</strong></td><td><span class="status ${workflowDisplayClass(stage.status)}">${stage.status}</span></td><td>${escapeHtml(stage.reason || "Sem pendencia.")}</td></tr>`).join("")}</tbody>
+            </table>
+          </div>
+        </div>
       </div>
-      ${renderEmployeeApprovalCards(employee)}
-      <div class="employee-workflow large">${renderEmployeeWorkflow(employee)}</div>
+      ${renderEmployeeApprovalCards(normalized)}
     `;
   }
   if (tab === "personal") {
     return `
       <div class="detail-grid">
-        ${detailCard("Nome", employee.name)}
-        ${detailCard("CPF", employee.cpf || "Nao informado")}
-        ${detailCard("Matricula", employeeRegistration(employee))}
-        ${detailCard("Data de nascimento", formatDate(employee.birthDate))}
-        ${detailCard("Nome da mae", employee.motherName || "Nao informado")}
-        ${detailCard("Nome do pai", employee.fatherName || "Nao informado")}
-        ${detailCard("Empresa", company?.name || "Nao informado")}
-        ${detailCard("Contrato vinculado", employee.contract || company?.contract || "Nao informado")}
-        ${detailCard("Centro de custo", employee.costCenter || employeeCostCenter(employee, company))}
-        ${detailCard("Funcao", employee.role || "Nao informado")}
-        ${detailCard("Status", statusBadge(employee.status))}
-        ${detailCard("Data de admissao", formatDate(employee.admission || employee.startDate))}
-        ${detailCard("Situacao", statusBadge(employeeActiveState(employee)))}
-        ${detailCard("CEP", employee.cep || "Nao informado")}
-        ${detailCard("Cidade", employee.city || "Nao informado")}
-        ${detailCard("Bairro", employee.district || "Nao informado")}
-        ${detailCard("Rua", employee.street || "Nao informado")}
-        ${detailCard("Numero", employee.number || "Nao informado")}
-        ${detailCard("Complemento", employee.complement || "Nao informado")}
-        ${detailCard("Observacoes", employee.notes || "Sem observacoes")}
+        ${detailCard("Nome", normalized.name)}
+        ${detailCard("CPF", normalized.cpf || "Nao informado")}
+        ${detailCard("Matricula", employeeRegistration(normalized))}
+        ${detailCard("Data de nascimento", formatDate(normalized.birthDate))}
+        ${detailCard("Nome da mae", normalized.motherName || "Nao informado")}
+        ${detailCard("Nome do pai", normalized.fatherName || "Nao informado")}
+        ${detailCard("Empresa", company.name || "Nao informado")}
+        ${detailCard("Contrato vinculado", normalized.contract || contractSource.contract || company.contract || "Nao informado")}
+        ${detailCard("Centro de custo", normalized.costCenter || employeeCostCenter(normalized, contractSource || company))}
+        ${detailCard("Funcao", normalized.role || "Nao informado")}
+        ${detailCard("Status", statusBadge(normalized.status))}
+        ${detailCard("Data de admissao", formatDate(normalized.admission || normalized.startDate))}
+        ${detailCard("Situacao", statusBadge(employeeActiveState(normalized)))}
+        ${detailCard("CEP", normalized.cep || "Nao informado")}
+        ${detailCard("Cidade", normalized.city || "Nao informado")}
+        ${detailCard("Bairro", normalized.district || "Nao informado")}
+        ${detailCard("Rua", normalized.street || "Nao informado")}
+        ${detailCard("Numero", normalized.number || "Nao informado")}
+        ${detailCard("Complemento", normalized.complement || "Nao informado")}
+        ${detailCard("Observacoes", normalized.notes || "Sem observacoes")}
       </div>
+    `;
+  }
+  if (tab === "contracts") {
+    return `
+      <div class="detail-grid">
+        ${detailCard("Empresa vinculada", company.name || "Nao informado")}
+        ${detailCard("Contrato selecionado", normalized.contract || contractSource.contract || company.contract || "Nao informado")}
+        ${detailCard("Centro de custo", normalized.costCenter || employeeCostCenter(normalized, contractSource || company))}
+        ${detailCard("Fiscal responsavel", normalized.companyFiscal || contractSource.fiscal || company.fiscal || "Nao informado")}
+        ${detailCard("Gestor do contrato", normalized.contractManager || contractSource.manager || contractSource.responsible || company.manager || company.responsible || "Nao informado")}
+        ${detailCard("Tipo de servico", normalized.serviceType || contractSource.serviceType || contractSource.risk || company.serviceType || company.risk || "Nao informado")}
+        ${detailCard("Unidade / setor", normalized.unitSector || contractSource.unitSector || contractUnit(contractSource || company) || "Nao informado")}
+      </div>
+      <div class="contract-context-actions">
+        ${company.id ? `<button class="btn secondary compact" type="button" data-company-detail="${company.id}">${icon("company")} Abrir empresa</button>` : ""}
+      </div>
+      ${renderCompanyTabHistory(company, "general", "Historico do vinculo contratual")}
     `;
   }
   if (tab === "docs") return renderEmployeeDocsTable(employeeDocs, "Documentos pessoais do funcionario");
@@ -3420,9 +3490,9 @@ function renderEmployeeRecordTab(employee, tab) {
     const medicineDocs = employeeDocs.filter((doc) => /aso|exame|medic/i.test(doc.type));
     return `
       <div class="detail-grid">
-        ${detailCard("Validade ASO", formatDate(employee.asoValidity))}
-        ${detailCard("Status documental", statusBadge(employee.docStatus))}
-        ${detailCard("Status medicina", statusBadge(employeeMedicineStatus(employee, medicineDocs)))}
+        ${detailCard("Validade ASO", formatDate(normalized.asoValidity))}
+        ${detailCard("Status documental", statusBadge(normalized.docStatus))}
+        ${detailCard("Status medicina", statusBadge(employeeMedicineStatus(normalized, medicineDocs)))}
       </div>
       ${renderEmployeeDocsTable(medicineDocs, "Documentos de medicina ocupacional")}
     `;
@@ -3431,49 +3501,60 @@ function renderEmployeeRecordTab(employee, tab) {
     const ehsDocs = employeeDocs.filter((doc) => /nr-|treinamento|epi|segur/i.test(doc.type));
     return `
       <div class="detail-grid">
-        ${detailCard("Validade treinamento", formatDate(employee.trainingValidity))}
-        ${detailCard("Status EHS", statusBadge(employeeEhsStatus(employee, ehsDocs)))}
-        ${detailCard("Funcao analisada", employee.role || "Nao informado")}
+        ${detailCard("Validade treinamento", formatDate(normalized.trainingValidity))}
+        ${detailCard("Status EHS", statusBadge(employeeEhsStatus(normalized, ehsDocs)))}
+        ${detailCard("Funcao analisada", normalized.role || "Nao informado")}
       </div>
       ${renderEmployeeDocsTable(ehsDocs, "Treinamentos e seguranca do trabalho")}
     `;
   }
   if (tab === "patrimonial") {
+    const isPatrimonialEditor = ["admin", "patrimonial"].includes(currentUser()?.role || "");
+    const patrimonialReleaseDate = normalized.patrimonialReleaseDate || normalized.releaseDate || "";
+    const patrimonialBadge = normalized.badgeNumber || normalized.cracha || normalized.crachaNumber || "";
     return `
       <div class="detail-grid">
-        ${detailCard("Liberacao patrimonial", statusBadge(employeePatrimonialStatus(employee)))}
-        ${detailCard("Empresa", company?.name || "Nao informado")}
-        ${detailCard("Contrato", company?.contract || "Nao informado")}
+        ${detailCard("Liberacao patrimonial", statusBadge(employeePatrimonialStatus(normalized)))}
+        ${detailCard("Empresa", company.name || "Nao informado")}
+        ${detailCard("Contrato", normalized.contract || contractSource.contract || company.contract || "Nao informado")}
+        ${detailCard("Matricula", normalized.registration || employeeRegistration(normalized))}
       </div>
-      <div class="item-card"><strong>Controle patrimonial</strong><span class="muted">Acesso final condicionado a documentacao, medicina, EHS e aprovacao fiscal.</span></div>
+      ${isPatrimonialEditor ? `
+        <form class="employee-patrimonial-form" data-employee-patrimonial-form="${normalized.id}">
+          <div class="detail-grid compact">
+            ${inputField("patrimonialRegistration", "Matricula", normalized.registration || employeeRegistration(normalized), "required")}
+            ${inputField("badgeNumber", "Cracha", patrimonialBadge)}
+            ${inputField("patrimonialReleaseDate", "Data de liberacao", patrimonialReleaseDate, "date")}
+            ${textAreaField("patrimonialNotes", "Observacoes patrimoniais", normalized.patrimonialNotes || "")}
+          </div>
+          <div class="actions wrap">
+            <button class="btn primary compact" type="submit">${icon("save")} Salvar patrimonial</button>
+          </div>
+        </form>
+      ` : `<div class="item-card"><strong>Controle patrimonial</strong><span class="muted">Acesso final condicionado a documentacao, medicina, EHS e aprovacao fiscal.</span></div>`}
     `;
   }
-  if (tab === "contracts") {
+  if (tab === "requests") {
+    const requestEvents = employeeRequestEvents(normalized);
     return `
       <div class="detail-grid">
-        ${detailCard("Empresa vinculada", company?.name || "Nao informado")}
-        ${detailCard("Contrato vinculado", employee.contract || company?.contract || "Nao informado")}
-        ${detailCard("Centro de custo", employee.costCenter || employeeCostCenter(employee, company))}
-        ${detailCard("Gestor/Fiscal", company?.fiscal || "Nao informado")}
-        ${detailCard("Inicio do contrato", formatDate(company?.startDate))}
-        ${detailCard("Fim do contrato", formatDate(company?.endDate))}
-        ${detailCard("Situacao", statusBadge(employeeActiveState(employee)))}
+        ${detailCard("Solicitacoes registradas", requestEvents.length)}
+        ${detailCard("Etapa atual", employeeCurrentOperationalStage(normalized))}
+        ${detailCard("Status contratacao", statusBadge(normalized.status))}
+        ${detailCard("Status documental", statusBadge(normalized.docStatus))}
       </div>
-      <div class="contract-context-actions">
-        ${company ? `<button class="btn secondary compact" type="button" data-company-detail="${company.id}">${icon("company")} Abrir empresa</button>` : ""}
-      </div>
-      ${renderCompanyTabHistory(company, "general", "Historico de dados gerais")}
+      ${renderEmployeeRequestTable(requestEvents)}
     `;
   }
   if (tab === "history") {
-    return renderHistoryTimeline("funcionario", employee.id, [
-      `<div class="item-card"><strong>Cadastro do trabalhador/FIT</strong><span class="muted">${formatDate(employee.admission || employee.startDate)} - ${employee.name}</span></div>`,
-      `<div class="item-card"><strong>Empresa vinculada</strong><span class="muted">${company?.name || "Nao informado"}</span></div>`,
+    return renderEmployeeHistoryTable(employeeHistoryEvents(normalized), [
+      `<div class="item-card"><strong>Cadastro do trabalhador/FIT</strong><span class="muted">${formatDate(normalized.admission || normalized.startDate)} - ${normalized.name}</span></div>`,
+      `<div class="item-card"><strong>Empresa vinculada</strong><span class="muted">${company.name || "Nao informado"}</span></div>`,
       `<div class="item-card"><strong>Documentos associados</strong><span class="muted">${allDocs.length} documento(s) monitorados.</span></div>`,
-      `<div class="item-card"><strong>Status atual</strong><span class="muted">${employee.status}</span></div>`,
+      `<div class="item-card"><strong>Status atual</strong><span class="muted">${normalized.status}</span></div>`,
     ]);
   }
-  return renderHistoryTimeline("funcionario", employee.id);
+  return renderEmployeeHistoryTable(employeeHistoryEvents(normalized));
 }
 
 function renderEmployeeApprovalCards(employee) {
@@ -3488,7 +3569,7 @@ function renderEmployeeApprovalCards(employee) {
                 <span class="employee-flow-icon">${icon(step.icon)}</span>
                 ${workflowStatusBadge(step.status)}
               </div>
-              <strong>${step.id === "ehs" ? "EHS/Seguranca do Trabalho" : step.label.replace(" / Documentos pessoais", "")}</strong>
+              <strong>${step.id === "ehs" ? "EHS / SSMA" : step.label.replace(" / Documentos pessoais", "")}</strong>
               <span class="muted">${step.detail}</span>
             </article>
           `,
@@ -3508,6 +3589,82 @@ function renderEmployeeDocsTable(docs, title) {
           <tbody>
             ${docs.length ? docs.map((doc) => `<tr><td><strong>${doc.type}</strong></td><td>${formatDate(doc.dueDate)}</td><td>${statusBadge(docStatus(doc))}</td><td>${doc.notes || "<span class='muted'>Sem observacao</span>"}</td></tr>`).join("") : emptyRow(4)}
           </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function employeeHistoryEvents(employee = {}) {
+  const item = normalizeEmployee(employee);
+  return historyEventsFor("funcionario", item.id);
+}
+
+function employeeRequestEvents(employee = {}) {
+  return employeeHistoryEvents(employee).filter((event) => {
+    const text = normalizeSearchValue(`${event.action || event.acao || ""} ${event.observation || event.observacao || ""} ${event.status || event.nextStatus || ""}`);
+    return text.includes("solicit") || text.includes("revalid") || text.includes("enviado para") || text.includes("avaliacao");
+  });
+}
+
+function renderEmployeeRequestTable(events = []) {
+  const rows = events.length
+    ? events.map((event) => {
+        const previousValue = event.previousStatus ?? event.status_anterior ?? "";
+        const nextValue = event.nextStatus ?? event.status_novo ?? "";
+        const sector = event.sector || event.setor || "Nao informado";
+        return `
+          <tr>
+            <td><strong>${formatDateTime(event.createdAt || event.criado_em)}</strong></td>
+            <td>${escapeHtml(event.userName || event.usuario_nome || "Sistema")}</td>
+              <td><span class="mini-pill">${escapeHtml(historyEventProfile(event))}</span></td>
+            <td>${escapeHtml(event.action || event.acao || "Solicitacao")}</td>
+            <td>${escapeHtml(sector)}</td>
+            <td>${escapeHtml(event.observation || event.observacao || "Sem motivo")}</td>
+            <td>${escapeHtml(previousValue || "Nao informado")}</td>
+            <td>${escapeHtml(nextValue || "Nao informado")}</td>
+          </tr>
+        `;
+      }).join("")
+    : emptyRow(8);
+  return `
+    <section class="employee-request-section">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Data/Hora</th><th>Usuario</th><th>Perfil</th><th>Acao</th><th>Setor</th><th>Motivo/Observacao</th><th>Status anterior</th><th>Status novo</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function renderEmployeeHistoryTable(events = [], fallbackItems = []) {
+  const rows = events.length
+    ? events.map((event) => {
+        const previousValue = event.previousStatus ?? event.status_anterior ?? "";
+        const nextValue = event.nextStatus ?? event.status_novo ?? "";
+        return `
+          <tr>
+            <td><strong>${formatDateTime(event.createdAt || event.criado_em)}</strong></td>
+            <td>${escapeHtml(event.userName || event.usuario_nome || "Sistema")}</td>
+              <td><span class="mini-pill">${escapeHtml(historyEventProfile(event))}</span></td>
+            <td>${escapeHtml(event.action || event.acao || "Alteracao registrada")}</td>
+            <td>${escapeHtml(event.sector || event.setor || "Nao informado")}</td>
+            <td>${escapeHtml(event.observation || event.observacao || "Sem observacao")}</td>
+            <td>${escapeHtml(previousValue || "Nao informado")}</td>
+            <td>${escapeHtml(nextValue || "Nao informado")}</td>
+          </tr>
+        `;
+      }).join("")
+    : "";
+  return `
+    <section class="employee-history-section">
+      ${fallbackItems.length && !rows ? `<div class="history-list">${fallbackItems.join("")}</div>` : ""}
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Data/Hora</th><th>Usuario</th><th>Perfil</th><th>Acao</th><th>Setor</th><th>Motivo/Observacao</th><th>Status anterior</th><th>Status novo</th></tr></thead>
+          <tbody>${rows || emptyRow(8)}</tbody>
         </table>
       </div>
     </section>
@@ -3771,6 +3928,7 @@ function workflowStatusBadge(status) {
     "Em revalidação": "Em revalidação",
     "Em avaliação": "Em avaliação",
     "Rascunho pelo Fornecedor": "Rascunho pelo Fornecedor",
+    "Bloqueado por etapa anterior": "Bloqueado por etapa anterior",
     Bloqueado: "Bloqueado",
     "Aprovado com pendencia": "Aprovado com pend&ecirc;ncia",
     "Pendente Documentação": "Pendente Documentação",
@@ -3794,6 +3952,7 @@ function resolveWorkflowStepStatus(employee, docs, { pending = false, approved =
 
 function workflowStatusClass(status) {
   const token = statusToken(status);
+  if (token.includes("bloqueado por etapa anterior")) return "warn";
   if (token.includes("revisao solicitada") || token.includes("revalidacao solicitada") || token.includes("em revalidacao")) return "analysis";
   if (token.includes("em avaliacao") || token.includes("enviado para") || token.includes("rascunho pelo fornecedor")) return "analysis";
   return {
@@ -3843,7 +4002,7 @@ function workflowStepPresentationStatus(step, rawStatus, index, steps = []) {
     return normalizedRaw === "Rascunho pelo Fornecedor" && isSectorViewer ? "Em avaliação Fiscal" : normalizedRaw;
   }
   if (index === 0) return isSectorViewer ? "Em avaliação Fiscal" : "Rascunho pelo Fornecedor";
-  if (previousStep && !workflowIsConcludedStatus(previousStep.status)) return `Aguardando ${previousStep.label}`;
+  if (previousStep && !workflowIsConcludedStatus(previousStep.status)) return "Bloqueado por etapa anterior";
   return isSectorViewer ? `Em avaliação ${step.sector}` : `Enviado para ${step.sector}`;
 }
 
@@ -3852,7 +4011,7 @@ function employeeWorkflowEditableBySupplier(employee) {
   const active = steps.find((step) => !workflowIsConcludedStatus(step.status));
   if (!active) return false;
   const token = statusToken(active.status);
-  return token.includes("revisao solicitada") || token.includes("revalidacao solicitada");
+  return token.includes("rascunho pelo fornecedor") || token.includes("revisao solicitada") || token.includes("revalidacao solicitada");
 }
 
 function employeeWorkflowCurrentStep(employee) {
@@ -5728,6 +5887,7 @@ function statusBadge(status) {
     "Rascunho pelo Fornecedor": "info",
     "Revalidação solicitada": "analysis",
     "Em revalidação": "analysis",
+    "Bloqueado por etapa anterior": "warn",
     "Aguardando Correção": "analysis",
     "Ativo com pendência": "analysis",
     Arquivado: "info",
@@ -7389,6 +7549,59 @@ function updateEmployeeOperationalStatus(id, action) {
   render();
 }
 
+async function saveEmployeePatrimonialFields(employeeId, form) {
+  const employee = state.employees.find((item) => sameId(item.id, employeeId));
+  if (!employee) return;
+  const role = currentUser()?.role || "visitor";
+  if (!["admin", "patrimonial"].includes(role)) {
+    alert("Seu perfil nao possui permissao para editar patrimonio deste funcionario.");
+    return;
+  }
+  if (!canAccessEmployee(employee)) {
+    alert("Seu perfil nao possui acesso a este funcionario.");
+    return;
+  }
+  const previous = normalizeEmployee(employee);
+  const previousStatus = previous.status || "";
+  employee.registration = String(form.get("patrimonialRegistration") || previous.registration || "").trim();
+  employee.matricula = employee.registration;
+  employee.badgeNumber = String(form.get("badgeNumber") || "").trim();
+  employee.cracha = employee.badgeNumber;
+  employee.crachaNumber = employee.badgeNumber;
+  employee.patrimonialReleaseDate = String(form.get("patrimonialReleaseDate") || "").trim();
+  employee.releaseDate = employee.patrimonialReleaseDate;
+  employee.patrimonialNotes = String(form.get("patrimonialNotes") || "").trim();
+  const visibleNotes = employeeVisibleNotes(employee);
+  const patrimonialLine = `[${new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date())}] ${currentUser()?.name || currentUser()?.email || "Usuario do sistema"}: Atualizacao patrimonial. Matricula: ${employee.registration || "Nao informada"}. Cracha: ${employee.badgeNumber || "Nao informado"}. Liberacao: ${employee.patrimonialReleaseDate || "Nao informada"}. Observacoes: ${employee.patrimonialNotes || "Sem observacoes"}`;
+  employee.notes = visibleNotes ? `${visibleNotes}\n${patrimonialLine}` : patrimonialLine;
+  employee.updatedAt = new Date().toISOString();
+  const history = createHistoryEvent({
+    entityType: "funcionario",
+    entityId: employee.id,
+    action: "Atualizacao patrimonial",
+    previousStatus,
+    nextStatus: employee.status || previousStatus,
+    observation: `Matricula ${employee.registration || "Nao informada"}; cracha ${employee.badgeNumber || "Nao informado"}; liberacao ${employee.patrimonialReleaseDate || "Nao informada"}. ${employee.patrimonialNotes || ""}`.trim(),
+  });
+  state.historico = upsertById(state.historico, history);
+  syncHistoryEvent(history);
+  try {
+    await syncCollection("employees", employee);
+  } catch (error) {
+    console.error("Falha ao salvar dados patrimoniais do funcionario", {
+      table: "employees",
+      employeeId,
+      payload: mapEmployeeToDb(employee),
+      error,
+    });
+    alert(`Nao foi possivel salvar o patrimonio online: ${persistenceMessage(error)}`);
+    return;
+  }
+  saveState();
+  renderApp();
+  openEmployeeRecord(employeeId);
+}
+
 async function uploadDocumentFile(form, fallbackPath = "") {
   const file = form.get("documentFile");
   if (!isOnlineMode() || !file || !file.name || file.size === 0) return fallbackPath;
@@ -7609,6 +7822,9 @@ function normalizeEmployee(employee) {
     street: employee.street || employee.rua || meta.street || "",
     number: employee.number || employee.numero || meta.number || "",
     complement: employee.complement || employee.complemento || meta.complement || "",
+    badgeNumber: employee.badgeNumber || employee.cracha || employee.crachaNumber || meta.badgeNumber || meta.cracha || meta.crachaNumber || "",
+    patrimonialReleaseDate: employee.patrimonialReleaseDate || employee.releaseDate || meta.patrimonialReleaseDate || meta.releaseDate || "",
+    patrimonialNotes: employee.patrimonialNotes || meta.patrimonialNotes || "",
     asoValidity: employee.asoValidity || employee.admission || "",
     trainingValidity: employee.trainingValidity || "",
     docStatus: normalizeDocumentStatusLabel(employee.docStatus || documentStatus),
@@ -7663,6 +7879,9 @@ function serializeEmployeeNotes(employee) {
     street: item.street || "",
     number: item.number || "",
     complement: item.complement || "",
+    badgeNumber: item.badgeNumber || "",
+    patrimonialReleaseDate: item.patrimonialReleaseDate || "",
+    patrimonialNotes: item.patrimonialNotes || "",
     workflowActions: item.workflowActions || existingMeta.workflowActions || {},
   };
   return `${employeeVisibleNotes(employee)}${EMPLOYEE_META_MARKER}${JSON.stringify(meta)}`;
