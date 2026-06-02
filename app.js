@@ -2357,12 +2357,12 @@ function renderCompanies() {
   const items = sortItems("companies", applyOperationalFilters("companies", filteredItems));
   const { pageItems, totalPages } = paginateItems("companies", items);
   return `
-    ${sectionHead("Empresas", "Visao geral operacional com listagem, filtros e acesso rapido para ficha da empresa.", "Nova empresa", "company")}
-    ${toolbar("Buscar por razao social, nome fantasia, CNPJ, codigo, contrato, fiscal ou status")}
+    ${sectionHead("Empresas", "Visão geral operacional com listagem, filtros e acesso rápido para a ficha da empresa.", "Nova empresa", "company")}
+    ${toolbar("Buscar por razão social, nome fantasia, CNPJ, código, contrato, fiscal ou status")}
     ${renderOperationalFilters("companies", baseItems, { quicks: ["Todos", "Ativas", "Pendentes", "Bloqueadas", "Contrato vencido", "Documentos vencidos", "Sem fiscal vinculado"], exportKey: "empresas" })}
     <section class="panel table-wrap">
       <table>
-        <thead><tr>${sortableHeader("companies", "Razão social", "name")}<th>Nome fantasia</th><th>CNPJ</th><th>Contrato principal</th><th>Centro de custo</th><th>Fiscal responsável</th><th>Gestor do contrato</th>${sortableHeader("companies", "Status", "status")}<th>Pendencias</th><th>Funcionários vinculados</th><th>Acoes</th></tr></thead>
+        <thead><tr>${sortableHeader("companies", "Razão social", "name")}<th>Nome fantasia</th><th>CNPJ</th><th>Contrato principal</th><th>Centro de custo</th><th>Fiscal responsável</th><th>Gestor do contrato</th>${sortableHeader("companies", "Status", "status")}<th>Pendências</th><th>Funcionários vinculados</th><th>Ações</th></tr></thead>
         <tbody>
           ${pageItems.length ? pageItems.map(renderCompanyRow).join("") : emptyRow(11)}
         </tbody>
@@ -2394,7 +2394,7 @@ function renderCompanyEditor(company = null, context = {}) {
           inputField("name", "Razão social", item.name, "required"),
           inputField("tradeName", "Nome fantasia", companyTradeName(item) === item.name ? "" : companyTradeName(item)),
           inputField("cnpj", "CNPJ", item.cnpj, "required inputmode='numeric' maxlength='18' data-mask='cnpj' placeholder='00.000.000/0000-00'"),
-          inputField("serviceType", "Tipo de servico principal", item.serviceType || item.risk || "", "required"),
+          inputField("serviceType", "Tipo de serviço principal", item.serviceType || item.risk || "", "required"),
           inputField("phone", "Telefone da empresa", item.phone, "required inputmode='numeric' maxlength='15' data-mask='phone' placeholder='(00) 00000-0000'"),
           inputField("email", "E-mail da empresa", item.email, "type='email' required"),
           inputField("branchCode", "Matriz / Filial", companyBranchCode(item) === "Nao informado" ? "" : companyBranchCode(item)),
@@ -2415,24 +2415,24 @@ function renderCompanyEditor(company = null, context = {}) {
           inputField("fiscalTelefone", "Telefone do fiscal", item.fiscalTelefone || item.fiscal_telefone || ""),
         ])}
         ${formSection("Fornecedor responsável", [
-          inputField("supplierName", "Nome do responsavel", item.supplierName || item.contact || item.responsible || ""),
-          inputField("supplierEmail", "E-mail do responsavel", item.supplierEmail || ""),
-          inputField("supplierPhone", "Telefone do responsavel", item.supplierPhone || ""),
-          inputField("supplierRole", "Cargo / funcao", item.supplierRole || ""),
+          inputField("supplierName", "Nome do responsável", item.supplierName || item.contact || item.responsible || ""),
+          inputField("supplierEmail", "E-mail do responsável", item.supplierEmail || ""),
+          inputField("supplierPhone", "Telefone do responsável", item.supplierPhone || ""),
+          inputField("supplierRole", "Cargo / função", item.supplierRole || ""),
         ])}
         ${formSection("Contrato Inicial", [
           inputField("contract", "Número do contrato", item.contract, "required"),
           inputField("costCenter", "Centro de custo", item.costCenter || "", "required"),
-          inputField("contractServiceType", "Tipo de servico do contrato", item.contractServiceType || item.serviceType || item.risk || "", "required"),
+          inputField("contractServiceType", "Tipo de serviço do contrato", item.contractServiceType || item.serviceType || item.risk || "", "required"),
           selectField("contractStatus", "Status do contrato", item.contractStatus || item.status || "Ativa", ["Ativa", "Pendente", "Bloqueado", "Inativa", "Encerrado", "Desmobilizado"].map(option)),
           inputField("manager", "Gestor do contrato", item.manager || item.responsible, "required"),
           inputField("contractFiscal", "Fiscal do contrato", item.contractFiscal || item.fiscal || "", "required"),
-          inputField("startDate", "Data de inicio", item.startDate, "type='date' required"),
+          inputField("startDate", "Data de início", item.startDate, "type='date' required"),
           inputField("endDate", "Data de fim", item.endDate, "type='date' required"),
           inputField("unitSector", "Unidade / setor", item.unitSector || ""),
-          inputField("contractArea", "Area / departamento", item.contractArea || ""),
+          inputField("contractArea", "Área / departamento", item.contractArea || ""),
           inputField("branchCodeContract", "Código filial", companyBranchCode(item) === "Nao informado" ? "" : companyBranchCode(item)),
-          inputField("contractNotes", "Observacao do contrato", item.contractNotes || ""),
+          inputField("contractNotes", "Observação do contrato", item.contractNotes || ""),
         ])}
         ${textAreaField("notes", "Observações da empresa", companyVisibleNotes(item))}
         <div class="form-actions wide">
@@ -2454,6 +2454,10 @@ function companyCode(company = {}) {
 
 function companyBranchCode(company = {}) {
   return company.branchCode || company.codigoFilial || company.codigo_filial || "Nao informado";
+}
+
+function companyCostCenter(company = {}) {
+  return company.costCenter || company.centroCusto || company.centerCost || "Nao informado";
 }
 
 function companyAddress(company = {}) {
@@ -3050,13 +3054,13 @@ function renderCompanyRow(company) {
   const item = normalizeCompany(company);
   return `
     <tr>
-      <td><button class="link-button strong" type="button" data-company-detail="${company.id}">${escapeHtml(item.name)}</button><br><span class="muted">${item.email || "E-mail nao informado"}</span></td>
+      <td><button class="link-button strong" type="button" data-company-detail="${company.id}">${escapeHtml(item.name)}</button><br><span class="muted">${item.email || "E-mail não informado"}</span></td>
       <td>${companyTradeName(item)}</td>
       <td>${item.cnpj}</td>
       <td>${companyPrimaryContract(item)}</td>
-      <td>${employeeCostCenter({}, item)}</td>
+      <td>${companyCostCenter(item)}</td>
       <td>${item.fiscal}</td>
-      <td>${item.manager || item.responsible || "Nao informado"}</td>
+      <td>${item.manager || item.responsible || "Não informado"}</td>
       <td>${statusBadge(item.status)}</td>
       <td><strong>${companyPendingDocumentsCount(company.id)}</strong></td>
       <td><strong>${companyEmployeeCount(company.id)}</strong></td>
@@ -4721,7 +4725,7 @@ function renderCompanyTab(company, tab) {
         ${detailCard("Inscrição estadual", item.stateRegistration || item.inscricaoEstadual || item.inscricao_estadual || "Nao informado")}
         ${detailCard("Código da empresa", companyCode(item))}
         ${detailCard("Código filial", companyBranchCode(item))}
-        ${detailCard("Centro de custo", employeeCostCenter({}, item))}
+        ${detailCard("Centro de custo da empresa", companyCostCenter(item))}
         ${detailCard("CEP", item.cep || "Nao informado")}
         ${detailCard("Endereço", companyAddress(item))}
         ${detailCard("Município/UF", [item.city || item.municipio, item.uf].filter(Boolean).join("/") || "Nao informado")}
@@ -4736,9 +4740,9 @@ function renderCompanyTab(company, tab) {
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th colspan="2">Resumo operacional de funcionarios</th></tr></thead>
+          <thead><tr><th colspan="2">Resumo operacional de funcionários</th></tr></thead>
           <tbody>
-            <tr><td>Total de funcionarios</td><td><strong>${workflowSummary.total}</strong></td></tr>
+            <tr><td>Total de funcionários</td><td><strong>${workflowSummary.total}</strong></td></tr>
             <tr><td>Liberados</td><td><strong>${workflowSummary.released}</strong></td></tr>
             <tr><td>Pendentes documentação</td><td><strong>${workflowSummary.pendingDocumentation}</strong></td></tr>
             <tr><td>Pendentes medicina</td><td><strong>${workflowSummary.pendingMedicine}</strong></td></tr>
@@ -4762,16 +4766,16 @@ function renderCompanyTab(company, tab) {
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Número do contrato</th><th>Objeto/Escopo</th><th>Inicio</th><th>Termino</th><th>Status</th><th>Centro de custo</th><th>Gestor</th><th>Documentos</th><th>Acoes</th></tr></thead>
+          <thead><tr><th>Número do contrato</th><th>Objeto/Escopo</th><th>Início</th><th>Término</th><th>Status</th><th>Centro de custo</th><th>Gestor</th><th>Documentos</th><th>Ações</th></tr></thead>
           <tbody>
             <tr>
-              <td><strong>${item.contract || "Nao informado"}</strong><span>${Number.isFinite(days) ? `${days} dia(s) restantes` : "Prazo nao informado"}</span></td>
-              <td>${item.scope || item.objeto || "Prestacao de servicos terceirizados"}</td>
+              <td><strong>${item.contract || "Não informado"}</strong><span>${Number.isFinite(days) ? `${days} dia(s) restantes` : "Prazo não informado"}</span></td>
+              <td>${item.scope || item.objeto || "Prestação de serviços terceirizados"}</td>
               <td>${formatDate(item.startDate)}</td>
               <td>${formatDate(item.endDate)}</td>
               <td>${statusBadge(item.status)}</td>
-              <td>${employeeCostCenter({}, item)}</td>
-              <td>${item.responsible || "Nao informado"}</td>
+              <td>${companyCostCenter(item)}</td>
+              <td>${item.responsible || "Não informado"}</td>
               <td>${companyDocuments(company.id).length}</td>
               <td><div class="actions wrap"><button class="btn secondary compact" type="button" data-company-contract-open>${icon("docs")} Abrir contrato</button>${can("edit.company", company) ? `<button class="btn warning compact" type="button" data-company-contract-close>Encerrar contrato</button>` : ""}</div></td>
             </tr>
@@ -4787,21 +4791,21 @@ function renderCompanyTab(company, tab) {
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Matrícula/ID</th><th>Nome</th><th>CPF</th><th>Funcao</th><th>Contrato</th><th>Status documental</th><th>Status contratacao</th><th>ASO</th><th>Treinamento</th><th>Acoes</th></tr></thead>
+          <thead><tr><th>Matrícula/ID</th><th>Nome</th><th>CPF</th><th>Função</th><th>Contrato</th><th>Status documental</th><th>Status de contratação</th><th>ASO</th><th>Treinamento</th><th>Ações</th></tr></thead>
           <tbody>${employees.length ? employees.map((employee) => {
             const normalized = normalizeEmployee(employee);
-            return `<tr><td>${employeeRegistration(normalized)}</td><td><strong>${normalized.name}</strong></td><td>${normalized.cpf}</td><td>${normalized.role}</td><td>${normalized.contract || item.contract || "Nao informado"}</td><td>${statusBadge(normalized.docStatus)}</td><td>${statusBadge(normalized.status)}</td><td>${formatDate(normalized.asoValidity)}</td><td>${formatDate(normalized.trainingValidity)}</td><td><button class="btn secondary compact" type="button" data-employee-record="${employee.id}">${icon("users")} Abrir funcionario</button></td></tr>`;
+            return `<tr><td>${employeeRegistration(normalized)}</td><td><strong>${normalized.name}</strong></td><td>${normalized.cpf}</td><td>${normalized.role}</td><td>${normalized.contract || item.contract || "Não informado"}</td><td>${statusBadge(normalized.docStatus)}</td><td>${statusBadge(normalized.status)}</td><td>${formatDate(normalized.asoValidity)}</td><td>${formatDate(normalized.trainingValidity)}</td><td><button class="btn secondary compact" type="button" data-employee-record="${employee.id}">${icon("users")} Abrir funcionário</button></td></tr>`;
           }).join("") : emptyRow(10)}</tbody>
         </table>
       </div>
-      ${renderCompanyTabHistory(company, "people", "Histórico de funcionarios / FIT")}
+      ${renderCompanyTabHistory(company, "people", "Histórico de funcionários / FIT")}
     `;
   }
   if (tab === "docs") {
     return `
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Documento</th><th>Status</th><th>Validade</th><th>Responsavel pela analise</th><th>Anexar</th><th>Visualizar</th><th>Aprovar/Solicitar Revisão</th></tr></thead>
+          <thead><tr><th>Documento</th><th>Status</th><th>Validade</th><th>Responsável pela análise</th><th>Anexar</th><th>Visualizar</th><th>Aprovar/Solicitar Revisão</th></tr></thead>
           <tbody>${documents.length ? documents.map((doc) => `<tr><td><strong>${doc.type}</strong><br><span class="muted">${doc.employeeId ? employeeName(doc.employeeId) : "Empresa"}</span></td><td>${statusBadge(docStatus(doc))}</td><td>${formatDate(doc.dueDate)}${docStatus(doc) === "Vencido" ? `<br>${statusBadge("Vencido")}` : ""}</td><td>${documentOperationalSector(doc)}</td><td><span class="mini-pill">Preparado</span></td><td><button class="btn secondary compact" type="button" data-document-detail="${doc.id}">${icon("docs")} Visualizar</button></td><td>${documentRowActions(doc) || `<span class="mini-pill">Sem permissao</span>`}</td></tr>`).join("") : emptyRow(7)}</tbody>
         </table>
       </div>
@@ -4816,7 +4820,7 @@ function renderCompanyTab(company, tab) {
       <div class="detail-grid">
         ${detailCard("PCMSO", statusBadge(medicineDocs.some((doc) => /pcmso/i.test(doc.type || "")) ? "Aprovado" : "Pendente"))}
         ${detailCard("PCA", statusBadge(medicineDocs.some((doc) => /pca/i.test(doc.type || "")) ? "Aprovado" : "Pendente"))}
-        ${detailCard("ASO / validade", maxAsoDate ? formatDate(maxAsoDate) : "Nao informado")}
+        ${detailCard("ASO / validade", maxAsoDate ? formatDate(maxAsoDate) : "Não informado")}
         ${detailCard("Anexos de medicina", medicineDocs.length)}
       </div>
       ${renderEmployeeDocsTable(medicineDocs, "Documentos de medicina ocupacional")}
@@ -4830,7 +4834,7 @@ function renderCompanyTab(company, tab) {
         ${detailCard("PGR", statusBadge(ehsDocs.some((doc) => /pgr/i.test(doc.type || "")) ? "Aprovado" : "Pendente"))}
         ${detailCard("LTCAT", statusBadge(ehsDocs.some((doc) => /ltcat/i.test(doc.type || "")) ? "Aprovado" : "Pendente"))}
         ${detailCard("Treinamentos", statusBadge(ehsDocs.some((doc) => /treinamento|nr-|epi/i.test(doc.type || "")) ? "Aprovado" : "Pendente"))}
-        ${detailCard("Anexos de seguranca", ehsDocs.length)}
+        ${detailCard("Anexos de segurança", ehsDocs.length)}
       </div>
       ${renderEmployeeDocsTable(ehsDocs, "Documentos de EHS / SSMA")}
       ${renderCompanyTabHistory(company, "ehs", "Histórico de EHS / SSMA")}
@@ -4842,7 +4846,7 @@ function renderCompanyTab(company, tab) {
       <div class="detail-grid">
         ${detailCard("Liberação patrimonial", statusBadge(patrimonialDocs.some((doc) => statusMatches(docStatus(doc), "Aprovado")) ? "Aprovado" : "Pendente"))}
         ${detailCard("Crachá / acesso", statusBadge(patrimonialDocs.some((doc) => /cracha|acesso/i.test(doc.type || "")) ? "Aprovado" : "Pendente"))}
-        ${detailCard("Observações", item.notes || item.observacoes || "Sem observacoes")}
+        ${detailCard("Observações", item.notes || item.observacoes || "Sem observações")}
         ${detailCard("Anexos patrimoniais", patrimonialDocs.length)}
       </div>
       ${renderEmployeeDocsTable(patrimonialDocs, "Documentos de seguranca patrimonial")}
@@ -4854,10 +4858,10 @@ function renderCompanyTab(company, tab) {
     const linkedFiscais = fiscalIds.map((id) => state.fiscais.find((fiscal) => sameId(fiscal.id, id))).filter(Boolean).map(normalizeFiscal);
     return `
       <div class="detail-grid">
-        ${detailCard("Fiscal responsável da empresa", item.fiscal || "Nao informado")}
-        ${detailCard("Fiscais substitutos", linkedFiscais.length ? linkedFiscais.map((fiscal) => fiscal.nome).join(", ") : "Nao informado")}
-        ${detailCard("Gestor do contrato", item.manager || item.responsible || "Nao informado")}
-        ${detailCard("Status da fiscalizacao", statusBadge(companyHasNoFiscal(item) ? "Pendente" : "Aprovado"))}
+        ${detailCard("Fiscal responsável da empresa", item.fiscal || "Não informado")}
+        ${detailCard("Fiscais substitutos", linkedFiscais.length ? linkedFiscais.map((fiscal) => fiscal.nome).join(", ") : "Não informado")}
+        ${detailCard("Gestor do contrato", item.manager || item.responsible || "Não informado")}
+        ${detailCard("Status da fiscalização", statusBadge(companyHasNoFiscal(item) ? "Pendente" : "Aprovado"))}
       </div>
       ${renderFiscalRegistry()}
       ${renderCompanyTabHistory(company, "managers", "Histórico de fiscais e gestores")}
@@ -6978,7 +6982,7 @@ function companyForm(id, context = {}) {
         inputField("name", "Razão social", item.name, "required"),
         inputField("tradeName", "Nome fantasia", companyTradeName(item) === item.name ? "" : companyTradeName(item)),
         inputField("cnpj", "CNPJ", item.cnpj, "required inputmode='numeric' maxlength='18' data-mask='cnpj' placeholder='00.000.000/0000-00'"),
-        inputField("serviceType", "Tipo de servico principal", item.serviceType || item.risk || "", "required"),
+        inputField("serviceType", "Tipo de serviço principal", item.serviceType || item.risk || "", "required"),
         inputField("phone", "Telefone da empresa", item.phone, "required inputmode='numeric' maxlength='15' data-mask='phone' placeholder='(00) 00000-0000'"),
         inputField("email", "E-mail da empresa", item.email, "type='email' required"),
         inputField("branchCode", "Matriz / Filial", companyBranchCode(item) === "Nao informado" ? "" : companyBranchCode(item)),
@@ -6999,24 +7003,24 @@ function companyForm(id, context = {}) {
         inputField("fiscalTelefone", "Telefone do fiscal", item.fiscalTelefone || item.fiscal_telefone || ""),
       ]),
       formSection("Fornecedor responsável", [
-        inputField("supplierName", "Nome do responsavel", item.supplierName || item.contact || item.responsible || ""),
-        inputField("supplierEmail", "E-mail do responsavel", item.supplierEmail || ""),
-        inputField("supplierPhone", "Telefone do responsavel", item.supplierPhone || ""),
-        inputField("supplierRole", "Cargo / funcao", item.supplierRole || ""),
+        inputField("supplierName", "Nome do responsável", item.supplierName || item.contact || item.responsible || ""),
+        inputField("supplierEmail", "E-mail do responsável", item.supplierEmail || ""),
+        inputField("supplierPhone", "Telefone do responsável", item.supplierPhone || ""),
+        inputField("supplierRole", "Cargo / função", item.supplierRole || ""),
       ]),
       formSection("Contrato Inicial", [
         inputField("contract", "Número do contrato", item.contract, "required"),
         inputField("costCenter", "Centro de custo", item.costCenter || "", "required"),
-        inputField("contractServiceType", "Tipo de servico do contrato", item.contractServiceType || item.serviceType || item.risk || "", "required"),
+        inputField("contractServiceType", "Tipo de serviço do contrato", item.contractServiceType || item.serviceType || item.risk || "", "required"),
         selectField("contractStatus", "Status do contrato", item.contractStatus || item.status || "Ativa", ["Ativa", "Pendente", "Bloqueado", "Inativa", "Encerrado", "Desmobilizado"].map(option)),
         inputField("manager", "Gestor do contrato", item.manager || item.responsible || item.contact, "required"),
         inputField("contractFiscal", "Fiscal do contrato", item.contractFiscal || item.fiscal || "", "required"),
-        inputField("startDate", "Data de inicio", item.startDate, "type='date'"),
+        inputField("startDate", "Data de início", item.startDate, "type='date'"),
         inputField("endDate", "Data de fim", item.endDate, "type='date'"),
         inputField("unitSector", "Unidade / setor", item.unitSector || ""),
-        inputField("contractArea", "Area / departamento", item.contractArea || ""),
+        inputField("contractArea", "Área / departamento", item.contractArea || ""),
         inputField("branchCodeContract", "Código filial", companyBranchCode(item) === "Nao informado" ? "" : companyBranchCode(item)),
-        inputField("contractNotes", "Observacao do contrato", item.contractNotes || ""),
+        inputField("contractNotes", "Observação do contrato", item.contractNotes || ""),
       ]),
       textAreaField("notes", "Observações da empresa", companyVisibleNotes(item)),
     ],
