@@ -222,23 +222,23 @@ const documentTypes = [
 
 const hiringStatuses = [
   "Em cadastro",
-  "Em anÃ¡lise documental",
-  "Pendente DocumentaÃ§Ã£o",
+  "Em análise documental",
+  "Pendente Documentação",
   "Pendente Medicina",
   "Pendente EHS",
   "Pendente Patrimonial",
-  "Aguardando CorreÃ§Ã£o",
+  "Aguardando Correção",
   "Aguardando medicina",
   "Aguardando EHS/RH",
   "Aguardando patrimonial",
   "Liberado",
   "Bloqueado",
   "Inativo",
-  "DesmobilizaÃ§Ã£o solicitada",
+  "Desmobilização solicitada",
   "Desmobilizado",
 ];
 
-const documentStatuses = ["Pendente", "Em anÃ¡lise", "Aprovado", "RevisÃ£o solicitada", "Reprovado", "Vencido", "Aprovado com pendÃªncia", "Arquivado"];
+const documentStatuses = ["Pendente", "Em análise", "Aprovado", "Revisão solicitada", "Reprovado", "Vencido", "Aprovado com pendência", "Arquivado"];
 const fiscalStatuses = ["sem_acesso", "com_acesso", "inativo"];
 const DOC_META_MARKER = "\n\n[SCT_ENTERPRISE_META]";
 const EMPLOYEE_META_MARKER = "\n\n[SCT_EMPLOYEE_META]";
@@ -487,7 +487,7 @@ function wrapUserPersistenceError(error, context) {
 
 function logUserPersistenceError(payload, error) {
   const originalError = error?.originalError || error;
-  console.error("[Usuarios Supabase] Erro public.usuarios", {
+  console.error("[Usuários Supabase] Erro public.usuarios", {
     payload,
     payload_enviado: payload,
     payload_enviado_public_usuarios: payload,
@@ -501,7 +501,7 @@ function logUserPersistenceError(payload, error) {
 
 function logAuthUserError(payload, error, level = "error") {
   const originalError = error?.originalError || error;
-  console[level]("[Usuarios Supabase] Erro Auth", {
+  console[level]("[Usuários Supabase] Erro Auth", {
     payload_enviado_auth: payload,
     code: originalError?.code || originalError?.status || originalError?.statusCode || null,
     message: originalError?.message || null,
@@ -609,7 +609,7 @@ function validateOfficialSupabaseConfig(config = {}, diagnostics = {}) {
 
 function logHistoryPersistenceError(payload, error) {
   const originalError = error?.originalError || error;
-  console.error("[Historico Supabase] Erro historico", {
+  console.error("[Histórico Supabase] Erro historico", {
     payload_enviado_historico: payload,
     code: originalError?.code || originalError?.status || originalError?.statusCode || null,
     message: originalError?.message || null,
@@ -626,7 +626,7 @@ async function ensureOnlineSession(table) {
     error,
   } = await supabaseClient.auth.getUser();
   if (error || !user) {
-    throw wrapPersistenceError(error || new Error("Usuario nao autenticado; auth.uid() indisponivel."), {
+    throw wrapPersistenceError(error || new Error("Usuário nao autenticado; auth.uid() indisponivel."), {
       table,
       operation: "auth.uid()",
     });
@@ -713,7 +713,7 @@ async function fetchProfile(authUser) {
   if (usuario?.data) return validateAuthenticatedProfile(mapUserFromDb(usuario.data), email, "public.usuarios");
   if (usuario?.error) throw wrapUserPersistenceError(usuario.error, { table: "public.usuarios", operation: "select perfil por email/id", payload: { email, id: authUser?.id || null, supabase: supabaseDiagnostics } });
 
-  throw new PersistenceError("Usuario autenticado, mas sem perfil cadastrado.", {
+  throw new PersistenceError("Usuário autenticado, mas sem perfil cadastrado.", {
     table: "public.usuarios",
     operation: "select perfil por email",
     payload: { email, id: authUser?.id || null, supabase: supabaseDiagnostics },
@@ -730,7 +730,7 @@ async function fetchProfileFromTable(table, email, userId) {
 
 function validateAuthenticatedProfile(profile, email, source) {
   if (!profile) {
-    throw new PersistenceError("Usuario autenticado, mas sem perfil cadastrado.", {
+    throw new PersistenceError("Usuário autenticado, mas sem perfil cadastrado.", {
       table: source,
       operation: "select perfil por email",
       payload: { email },
@@ -738,7 +738,7 @@ function validateAuthenticatedProfile(profile, email, source) {
     });
   }
   if (profile.active === false) {
-    throw new PersistenceError("Usuario autenticado, mas esta inativo no cadastro de perfis.", {
+    throw new PersistenceError("Usuário autenticado, mas esta inativo no cadastro de perfis.", {
       table: source,
       operation: "validacao perfil ativo",
       payload: { email },
@@ -879,7 +879,7 @@ function mapSyncedRow(collection, row) {
 
 async function syncUserRecord(user) {
   const isNewUser = !user.id || user.isNew === true;
-  const authResult = isNewUser ? await createAuthUserForUsuario(user) : { ok: true, skipped: true, mode: user.creationMode || "test" };
+  const authResult = isNewUser ? await createAuthUserForUsuário(user) : { ok: true, skipped: true, mode: user.creationMode || "test" };
   const payload = mapUserToDb(user, { includeId: Boolean(!isNewUser && user.id) });
   const context = {
     table: "public.usuarios",
@@ -889,7 +889,7 @@ async function syncUserRecord(user) {
   try {
     validateUserPayload(payload);
     await ensureOnlineSession(context.table);
-    const existing = await findUsuarioByEmail(payload.email);
+    const existing = await findUsuárioByEmail(payload.email);
     const dbPayload = existing?.id ? withoutKeys(payload, ["id"]) : payload;
     const runMutation = () =>
       existing?.id
@@ -897,7 +897,7 @@ async function syncUserRecord(user) {
         : supabaseClient.from("usuarios").insert(dbPayload).select("*").maybeSingle();
     let { data, error } = await runMutation();
     if (error && isRlsError(error) && authResult?.session?.access_token) {
-      console.warn("[Usuarios Supabase] RLS ao salvar com a sessao atual. Tentando novamente com a sessao do usuario Auth criado.", {
+      console.warn("[Usuários Supabase] RLS ao salvar com a sessao atual. Tentando novamente com a sessao do usuario Auth criado.", {
         payload_enviado_public_usuarios: dbPayload,
         code: error.code || null,
         message: error.message || null,
@@ -914,9 +914,9 @@ async function syncUserRecord(user) {
       await restoreSupabaseSession(authResult.previousSession);
     }
     if (error) throw error;
-    const savedRow = data || existing || (await findUsuarioByEmail(payload.email));
+    const savedRow = data || existing || (await findUsuárioByEmail(payload.email));
     if (!savedRow) {
-      throw new PersistenceError("Usuario autenticado no Supabase Auth, mas nao foi possivel confirmar gravacao em public.usuarios.", {
+      throw new PersistenceError("Usuário autenticado no Supabase Auth, mas nao foi possivel confirmar gravacao em public.usuarios.", {
         table: "public.usuarios",
         operation: "confirmacao pos upsert",
         payload: dbPayload,
@@ -928,7 +928,7 @@ async function syncUserRecord(user) {
         .from("usuarios")
         .update({ auth_user_id: authResult.userId })
         .eq("email", savedRow.email);
-      if (authLinkError) console.warn("[Usuarios Supabase] auth_user_id nao foi vinculado; seguindo por email/public.usuarios.id.", authLinkError);
+      if (authLinkError) console.warn("[Usuários Supabase] auth_user_id nao foi vinculado; seguindo por email/public.usuarios.id.", authLinkError);
     }
     const saved = mapUserFromDb(savedRow);
     await recordUserCreationHistory(saved, authResult, Boolean(existing?.id));
@@ -939,7 +939,7 @@ async function syncUserRecord(user) {
   }
 }
 
-async function createAuthUserForUsuario(user) {
+async function createAuthUserForUsuário(user) {
   if (!isOnlineMode()) return { ok: true, skipped: true };
   const mode = user.creationMode === "real" ? "real" : "test";
   const email = optionalText(user.email);
@@ -951,7 +951,7 @@ async function createAuthUserForUsuario(user) {
     options: {
       data: {
         nome: optionalText(user.name),
-        perfil: normalizePerfilUsuario(user.role || user.perfil).toLowerCase(),
+        perfil: normalizePerfilUsuário(user.role || user.perfil).toLowerCase(),
       },
     },
   };
@@ -985,7 +985,7 @@ async function createAuthUserForUsuario(user) {
   }
   if (mode === "test" && !data?.session) {
     throw new PersistenceError(
-      "Usuario de teste criado sem sessao imediata. O projeto Supabase pode exigir confirmacao de e-mail para login por senha.",
+      "Usuário de teste criado sem sessao imediata. O projeto Supabase pode exigir confirmacao de e-mail para login por senha.",
       {
         table: "supabase.auth",
         operation: "signUp test mode",
@@ -1024,10 +1024,10 @@ async function restoreSupabaseSession(session) {
   await supabaseClient.auth.setSession({
     access_token: session.access_token,
     refresh_token: session.refresh_token,
-  }).catch((restoreError) => console.warn("[Usuarios Supabase] Nao foi possivel restaurar sessao anterior.", restoreError));
+  }).catch((restoreError) => console.warn("[Usuários Supabase] Nao foi possivel restaurar sessao anterior.", restoreError));
 }
 
-async function findUsuarioByEmail(email) {
+async function findUsuárioByEmail(email) {
   if (!email) return null;
   const { data, error } = await supabaseClient.from("usuarios").select("*").eq("email", email).maybeSingle();
   if (error) {
@@ -1042,14 +1042,14 @@ async function recordUserCreationHistory(user, authResult, updatedExisting) {
   const history = createHistoryEvent({
     entityType: "usuario",
     entityId: user.id,
-    action: updatedExisting ? "Usuario atualizado" : "Usuario criado",
+    action: updatedExisting ? "Usuário atualizado" : "Usuário criado",
     previousStatus: "",
     nextStatus: user.active ? "Ativo" : "Inativo",
     observation: isRealInvite
-      ? `Usuario ${user.email} salvo em public.usuarios. Convite de primeiro acesso enviado por e-mail.`
+      ? `Usuário ${user.email} salvo em public.usuarios. Convite de primeiro acesso enviado por e-mail.`
       : authResult?.duplicate
-        ? `Usuario ${user.email} salvo em public.usuarios. O e-mail ja existia no Supabase Auth.`
-        : `Usuario ${user.email} salvo em public.usuarios.`,
+        ? `Usuário ${user.email} salvo em public.usuarios. O e-mail ja existia no Supabase Auth.`
+        : `Usuário ${user.email} salvo em public.usuarios.`,
   });
   state.historico = upsertById(state.historico, history);
   await syncHistoryEvent(history);
@@ -1471,7 +1471,7 @@ function renderLogin() {
         <div class="intel-grid">
           <div><strong>24/7</strong><span>Monitoramento</span></div>
           <div><strong>ACL</strong><span>Perfis</span></div>
-          <div><strong>EHS</strong><span>Seguranca</span></div>
+          <div><strong>EHS</strong><span>Segurança</span></div>
           <div><strong>BI</strong><span>Indicadores</span></div>
         </div>
       </div>
@@ -1579,15 +1579,15 @@ function renderApp() {
       items: [
         ["dashboard", "Dashboard", "dashboard"],
         ["companies", "Empresas", "company"],
-        ["employees", "Funcionarios", "users"],
+        ["employees", "Funcionários", "users"],
         ["documents", "Documentos", "docs"],
       ],
     },
     {
       title: "Controle",
       items: [
-        ["approvals", "Aprovacoes", "approve"],
-        ["requests", "Solicitacoes", "workflow"],
+        ["approvals", "Aprovações", "approve"],
+        ["requests", "Solicitações", "workflow"],
         ["reports", "Relatorios", "reports"],
       ],
     },
@@ -1656,10 +1656,10 @@ function renderApp() {
               <input class="search-control" placeholder="Pesquisa" value="${escapeAttr(searchTerm)}" />
             </div>
             <button class="btn icon" id="themeToggle" type="button" title="Alternar tema">${darkMode ? icon("sun") : icon("moon")}</button>
-            <div class="user-status-compact" aria-label="Usuario logado">
-              <strong>${escapeHtml(user.name || user.email || "Usuario")}</strong>
-              <span>${roleName(user.role)} â€¢ Online</span>
-              <small>Atualizado Ã s ${currentSystemTime()}</small>
+            <div class="user-status-compact" aria-label="Usuário logado">
+              <strong>${escapeHtml(user.name || user.email || "Usuário")}</strong>
+              <span>${roleName(user.role)} • Online</span>
+              <small>Atualizado às ${currentSystemTime()}</small>
             </div>
             <button class="btn secondary" id="logoutBtn">${icon("logout")} Sair</button>
           </div>
@@ -1717,17 +1717,17 @@ function viewTitle() {
     dashboard: "Dashboard Operacional",
     companies: "Empresas terceirizadas",
     contracts: "Contratos",
-    employees: "Funcionarios",
+    employees: "Funcionários",
     documents: "Documentos",
-    approvals: "Aprovacoes",
-    requests: "Solicitacoes",
+    approvals: "Aprovações",
+    requests: "Solicitações",
     administration: "Administracao",
     reports: "Relatorios",
     workflow: "Workflow de documentos",
     thirdparty: "Gestao de terceiros",
     compliance: "Conformidade",
     blocks: "Bloqueios",
-    users: "Usuarios e perfis",
+    users: "Usuários e perfis",
     integrations: "Integracoes",
     settings: "Configuracoes",
   }[currentView];
@@ -1794,7 +1794,7 @@ function sortValue(view, item, key) {
   const employee = item.employeeId ? state.employees.find((entry) => sameId(entry.id, item.employeeId)) : null;
   const companyItem = company ? normalizeCompany(company) : {};
   const employeeItem = item.cpf || item.role ? normalizeEmployee(item) : employee ? normalizeEmployee(employee) : {};
-  const statusValue = item.dueDate || item.type ? docStatus(item) : item.cpf || item.role || item.blockType === "Funcionario" ? normalizeEmployee(item).status : companyItem.status;
+  const statusValue = item.dueDate || item.type ? docStatus(item) : item.cpf || item.role || item.blockType === "Funcionário" ? normalizeEmployee(item).status : companyItem.status;
   const values = {
     name: item.blockName || item.name || employeeItem.name || companyItem.name,
     cpf: item.cpf || employeeItem.cpf,
@@ -1824,15 +1824,15 @@ function matchesQuickFilter(view, item, quick) {
   const employee = item.cpf || item.role ? item : item.employeeId ? state.employees.find((entry) => sameId(entry.id, item.employeeId)) : null;
   const status = item.dueDate ? docStatus(item) : employee ? normalizeEmployee(employee).status : normalizeCompany(company).status;
   if (quick === "Ativas") return ["Ativa", "Ativo", "Liberado", "Aprovado"].some((value) => statusMatches(status, value));
-  if (quick === "Pendentes") return ["Pendente", "Pendente DocumentaÃ§Ã£o", "Pendente Medicina", "Pendente EHS", "Pendente Patrimonial", "Aguardando CorreÃ§Ã£o", "A vencer", "Reprovado", "Em anÃ¡lise documental", "Aguardando medicina", "Aguardando EHS/RH", "Aguardando patrimonial", "DesmobilizaÃ§Ã£o solicitada"].some((value) => statusMatches(status, value));
+  if (quick === "Pendentes") return ["Pendente", "Pendente Documentação", "Pendente Medicina", "Pendente EHS", "Pendente Patrimonial", "Aguardando Correção", "A vencer", "Reprovado", "Em análise documental", "Aguardando medicina", "Aguardando EHS/RH", "Aguardando patrimonial", "Desmobilização solicitada"].some((value) => statusMatches(status, value));
   if (quick === "Bloqueadas") return ["Bloqueado", "Bloqueada"].some((value) => statusMatches(status, value));
   if (quick === "Contrato vencido") return company ? isPastDate(normalizeCompany(company).endDate) : false;
   if (quick === "Documentos vencidos") return employee ? employeeHasExpiredDocuments(employee) : company ? companyHasExpiredDocuments(company.id) : status === "Vencido";
   if (quick === "Sem fiscal vinculado") return company ? companyHasNoFiscal(company) : false;
   if (quick === "Ativo") return ["Ativa", "Ativo", "Aprovado", "Liberado"].some((value) => statusMatches(status, value));
   if (quick === "Bloqueado") return ["Bloqueado", "Bloqueada"].some((value) => statusMatches(status, value));
-  if (quick === "Critico") return ["Bloqueado", "Bloqueada", "Pendente", "Pendente DocumentaÃ§Ã£o", "Pendente Medicina", "Pendente EHS", "Pendente Patrimonial", "Aguardando CorreÃ§Ã£o"].some((value) => statusMatches(status, value));
-  if (quick === "Pendente") return ["Pendente", "Pendente DocumentaÃ§Ã£o", "Pendente Medicina", "Pendente EHS", "Pendente Patrimonial", "Aguardando CorreÃ§Ã£o", "A vencer", "Reprovado", "Em anÃ¡lise documental", "Aguardando medicina", "Aguardando EHS/RH", "Aguardando patrimonial", "DesmobilizaÃ§Ã£o solicitada"].some((value) => statusMatches(status, value));
+  if (quick === "Critico") return ["Bloqueado", "Bloqueada", "Pendente", "Pendente Documentação", "Pendente Medicina", "Pendente EHS", "Pendente Patrimonial", "Aguardando Correção"].some((value) => statusMatches(status, value));
+  if (quick === "Pendente") return ["Pendente", "Pendente Documentação", "Pendente Medicina", "Pendente EHS", "Pendente Patrimonial", "Aguardando Correção", "A vencer", "Reprovado", "Em análise documental", "Aguardando medicina", "Aguardando EHS/RH", "Aguardando patrimonial", "Desmobilização solicitada"].some((value) => statusMatches(status, value));
   if (quick === "Vencido") return status === "Vencido";
   if (quick === "Desmobilizado") return ["Desmobilizada", "Desmobilizado"].some((value) => statusMatches(status, value));
   if (quick === "Vencendo") return contractDays(company) >= 0 && contractDays(company) <= 60;
@@ -2129,7 +2129,7 @@ function visibleDocuments() {
 function operationalMetrics(companies = visibleCompanies(), employees = visibleEmployees(), documents = visibleDocuments()) {
   const normalizedCompanies = companies.map((company) => ({ ...normalizeCompany(company), raw: company }));
   const normalizedEmployees = employees.map((employee) => ({ ...normalizeEmployee(employee), raw: employee }));
-  const pendingEmployeeStatuses = ["Em cadastro", "Pendente DocumentaÃ§Ã£o", "Pendente Medicina", "Pendente EHS", "Pendente Patrimonial", "Aguardando CorreÃ§Ã£o", "Em anÃ¡lise documental", "Aguardando medicina", "Aguardando EHS/RH", "Aguardando patrimonial", "DesmobilizaÃ§Ã£o solicitada"];
+  const pendingEmployeeStatuses = ["Em cadastro", "Pendente Documentação", "Pendente Medicina", "Pendente EHS", "Pendente Patrimonial", "Aguardando Correção", "Em análise documental", "Aguardando medicina", "Aguardando EHS/RH", "Aguardando patrimonial", "Desmobilização solicitada"];
   const criticalCompanyStatuses = ["Bloqueada", "Bloqueado", "Pendente"];
   const pendingApprovalStatuses = ["Pendente", "Reprovado", "A vencer"];
   return {
@@ -2144,7 +2144,7 @@ function operationalMetrics(companies = visibleCompanies(), employees = visibleE
     expiredAso: normalizedEmployees.filter((employee) => isPastDate(employee.asoValidity)).map((employee) => employee.raw),
     expiredTrainings: normalizedEmployees.filter((employee) => isPastDate(employee.trainingValidity)).map((employee) => employee.raw),
     medicinePendencies: normalizedEmployees
-      .filter((employee) => statusMatches(employee.status, "Aguardando medicina") || ["Vencido", "Pendente", "Em anÃ¡lise", "Reprovado", "Aprovado com pendÃªncia"].some((status) => statusMatches(employee.docStatus, status)) || employeeMedicineStatus(employee.raw) === "Pendente")
+      .filter((employee) => statusMatches(employee.status, "Aguardando medicina") || ["Vencido", "Pendente", "Em análise", "Reprovado", "Aprovado com pendência"].some((status) => statusMatches(employee.docStatus, status)) || employeeMedicineStatus(employee.raw) === "Pendente")
       .map((employee) => employee.raw),
     ehsPendencies: normalizedEmployees
       .filter((employee) => statusMatches(employee.status, "Aguardando EHS/RH") || employeeEhsStatus(employee.raw) === "Pendente")
@@ -2257,10 +2257,10 @@ function renderDashboard() {
         <div class="item-list dense-list">${criticalDocs.length ? criticalDocs.map(renderDocCard).join("") : `<div class="empty">Nenhum alerta documental agora.</div>`}</div>
       </section>
       <section class="bi-card wide">
-        <div class="bi-head"><div><span class="eyebrow">Mesa operacional</span><h2>Funcionarios em monitoramento</h2></div></div>
+        <div class="bi-head"><div><span class="eyebrow">Mesa operacional</span><h2>Funcionários em monitoramento</h2></div></div>
         <div class="ops-table">
           <table>
-            <thead><tr><th>Funcionario</th><th>Empresa</th><th>Documental</th><th>Contratacao</th></tr></thead>
+            <thead><tr><th>Funcionário</th><th>Empresa</th><th>Documental</th><th>Contratação</th></tr></thead>
             <tbody>${operationalRows || emptyRow(4)}</tbody>
           </table>
         </div>
@@ -2271,14 +2271,14 @@ function renderDashboard() {
 
 function buildDashboardCards(metrics, totalPendencies) {
   return [
-    { label: "Funcionarios Liberados", value: metrics.activeEmployees.length, helper: "Aptos para atividade", iconName: "users", tone: "success", view: "employees", query: "", filter: "Todos", quick: "Ativo" },
+    { label: "Funcionários Liberados", value: metrics.activeEmployees.length, helper: "Aptos para atividade", iconName: "users", tone: "success", view: "employees", query: "", filter: "Todos", quick: "Ativo" },
     { label: "Bloqueados", value: metrics.blockedEmployees.length, helper: "Restricoes de funcionarios", iconName: "block", tone: "danger", view: "employees", query: "", filter: "Bloqueado", quick: "Bloqueado" },
     { label: "Pendentes", value: totalPendencies, helper: "Itens aguardando acao", iconName: "clock", tone: "warning", view: "employees", query: "", filter: "Todos", quick: "Pendente" },
     { label: "Documentos Vencidos", value: metrics.expiredDocs.length, helper: "Fora da validade", iconName: "docs", tone: "danger", view: "documents", query: "", filter: "Todos", quick: "Vencido" },
     { label: "Documentos a Vencer", value: metrics.expiringDocs.length, helper: "Janela de alerta", iconName: "clock", tone: "warning", view: "documents", query: "", filter: "Todos", quick: "A vencer" },
     { label: "Contratos Vencendo", value: metrics.expiringContracts.length, helper: "Proximos 60 dias", iconName: "contracts", tone: "warning", view: "contracts", query: "", filter: "Todos", quick: "Vencendo" },
     { label: "Empresas Criticas", value: metrics.criticalCompanies.length, helper: "Bloqueadas ou pendentes", iconName: "company", tone: "danger", view: "companies", query: "", filter: "Todos", quick: "Critico" },
-    { label: "Aprovacoes Pendentes", value: metrics.pendingApprovals.length, helper: "Documentos para decisao", iconName: "approve", tone: "special", view: "approvals", query: "", filter: "Todos", quick: "Pendente" },
+    { label: "Aprovações Pendentes", value: metrics.pendingApprovals.length, helper: "Documentos para decisao", iconName: "approve", tone: "special", view: "approvals", query: "", filter: "Todos", quick: "Pendente" },
   ];
 }
 
@@ -2289,10 +2289,10 @@ function buildOperationalAlerts(metrics) {
     { label: "ASO vencido", value: metrics.expiredAso.length, priority: "critica", helper: "Bloqueio medico potencial", iconName: "shield", view: "employees", quick: "ASO vencido" },
     { label: "Treinamentos vencidos", value: metrics.expiredTrainings.length, priority: "critica", helper: "Pendencia EHS operacional", iconName: "factory", view: "employees", quick: "Treinamento vencido" },
     { label: "Contratos proximos do vencimento", value: metrics.expiringContracts.length, priority: "media", helper: "Fim previsto em ate 60 dias", iconName: "contracts", view: "contracts", quick: "Vencendo" },
-    { label: "Funcionarios bloqueados", value: metrics.blockedEmployees.length, priority: "critica", helper: "Restricao ativa de acesso", iconName: "block", view: "employees", filter: "Bloqueado", quick: "Bloqueado" },
+    { label: "Funcionários bloqueados", value: metrics.blockedEmployees.length, priority: "critica", helper: "Restricao ativa de acesso", iconName: "block", view: "employees", filter: "Bloqueado", quick: "Bloqueado" },
     { label: "Pendencias Medicina", value: metrics.medicinePendencies.length, priority: "media", helper: "ASO, exames e liberacao medica", iconName: "shield", view: "employees", quick: "Medicina" },
     { label: "Pendencias EHS", value: metrics.ehsPendencies.length, priority: "media", helper: "Treinamentos e requisitos de seguranca", iconName: "factory", view: "employees", quick: "EHS" },
-    { label: "Pendencias Patrimonial", value: metrics.patrimonialPendencies.length, priority: "baixa", helper: "Crachas, acesso e liberacao final", iconName: "block", view: "employees", quick: "Pendente" },
+    { label: "Pendencias Patrimonial", value: metrics.patrimonialPendencies.length, priority: "baixa", helper: "Crachás, acesso e liberacao final", iconName: "block", view: "employees", quick: "Pendente" },
   ];
 }
 
@@ -2359,7 +2359,7 @@ function renderCompanies() {
     ${renderOperationalFilters("companies", baseItems, { quicks: ["Todos", "Ativas", "Pendentes", "Bloqueadas", "Contrato vencido", "Documentos vencidos", "Sem fiscal vinculado"], exportKey: "empresas" })}
     <section class="panel table-wrap">
       <table>
-        <thead><tr>${sortableHeader("companies", "Razao social", "name")}<th>Nome fantasia</th><th>CNPJ</th><th>Contrato principal</th><th>Centro de custo</th><th>Fiscal responsavel</th><th>Gestor do contrato</th>${sortableHeader("companies", "Status", "status")}<th>Pendencias</th><th>Funcionarios vinculados</th><th>Acoes</th></tr></thead>
+        <thead><tr>${sortableHeader("companies", "Razão social", "name")}<th>Nome fantasia</th><th>CNPJ</th><th>Contrato principal</th><th>Centro de custo</th><th>Fiscal responsável</th><th>Gestor do contrato</th>${sortableHeader("companies", "Status", "status")}<th>Pendencias</th><th>Funcionários vinculados</th><th>Acoes</th></tr></thead>
         <tbody>
           ${pageItems.length ? pageItems.map(renderCompanyRow).join("") : emptyRow(11)}
         </tbody>
@@ -2388,7 +2388,7 @@ function renderCompanyEditor(company = null, context = {}) {
       <form id="companyEditorForm" class="form-grid company-form">
         <input type="hidden" name="id" value="${escapeAttr(company?.id || "")}" />
         ${formSection("Dados da empresa", [
-          inputField("name", "Razao social", item.name, "required"),
+          inputField("name", "Razão social", item.name, "required"),
           inputField("tradeName", "Nome fantasia", companyTradeName(item) === item.name ? "" : companyTradeName(item)),
           inputField("cnpj", "CNPJ", item.cnpj, "required inputmode='numeric' maxlength='18' data-mask='cnpj' placeholder='00.000.000/0000-00'"),
           inputField("serviceType", "Tipo de servico principal", item.serviceType || item.risk || "", "required"),
@@ -2401,9 +2401,9 @@ function renderCompanyEditor(company = null, context = {}) {
           inputField("uf", "UF", item.uf || "", "inputmode='text' maxlength='2' data-mask='uf' placeholder='UF'"),
           inputField("district", "Bairro", item.district || ""),
           inputField("street", "Logradouro", item.street || ""),
-          inputField("number", "Numero", item.number || ""),
+          inputField("number", "Número", item.number || ""),
           inputField("complement", "Complemento", item.complement || ""),
-          inputField("companyCode", "Codigo da empresa", companyCode(item) === item.id ? "" : companyCode(item)),
+          inputField("companyCode", "Código da empresa", companyCode(item) === item.id ? "" : companyCode(item)),
         ])}
         ${formSection("Fiscal principal", [
           selectField("fiscalId", "Fiscal cadastrado (opcional)", item.fiscalId || "", [{ value: "", label: "Informar fiscal manualmente" }].concat(fiscalOptions.slice(1))),
@@ -2411,14 +2411,14 @@ function renderCompanyEditor(company = null, context = {}) {
           inputField("fiscalEmail", "E-mail do fiscal", item.fiscalEmail || item.fiscal_email || "", "type='email'"),
           inputField("fiscalTelefone", "Telefone do fiscal", item.fiscalTelefone || item.fiscal_telefone || ""),
         ])}
-        ${formSection("Fornecedor responsavel", [
+        ${formSection("Fornecedor responsável", [
           inputField("supplierName", "Nome do responsavel", item.supplierName || item.contact || item.responsible || ""),
           inputField("supplierEmail", "E-mail do responsavel", item.supplierEmail || ""),
           inputField("supplierPhone", "Telefone do responsavel", item.supplierPhone || ""),
           inputField("supplierRole", "Cargo / funcao", item.supplierRole || ""),
         ])}
-        ${formSection("Contrato inicial", [
-          inputField("contract", "Numero do contrato", item.contract, "required"),
+        ${formSection("Contrato Inicial", [
+          inputField("contract", "Número do contrato", item.contract, "required"),
           inputField("costCenter", "Centro de custo", item.costCenter || "", "required"),
           inputField("contractServiceType", "Tipo de servico do contrato", item.contractServiceType || item.serviceType || item.risk || "", "required"),
           selectField("contractStatus", "Status do contrato", item.contractStatus || item.status || "Ativa", ["Ativa", "Pendente", "Bloqueado", "Inativa", "Encerrado", "Desmobilizado"].map(option)),
@@ -2428,10 +2428,10 @@ function renderCompanyEditor(company = null, context = {}) {
           inputField("endDate", "Data de fim", item.endDate, "type='date' required"),
           inputField("unitSector", "Unidade / setor", item.unitSector || ""),
           inputField("contractArea", "Area / departamento", item.contractArea || ""),
-          inputField("branchCodeContract", "Codigo filial", companyBranchCode(item) === "Nao informado" ? "" : companyBranchCode(item)),
+          inputField("branchCodeContract", "Código filial", companyBranchCode(item) === "Nao informado" ? "" : companyBranchCode(item)),
           inputField("contractNotes", "Observacao do contrato", item.contractNotes || ""),
         ])}
-        ${textAreaField("notes", "Observacoes da empresa", companyVisibleNotes(item))}
+        ${textAreaField("notes", "Observações da empresa", companyVisibleNotes(item))}
         <div class="form-actions wide">
           <button class="btn primary" type="submit">${icon("save")} Salvar</button>
           ${company && currentUser()?.role !== "supplier" ? `<button class="btn warning" type="button" data-demobilize="company" data-id="${company.id}">Desmobilizar contrato</button>` : ""}
@@ -2579,16 +2579,16 @@ function normalizeDocumentStatusLabel(status = "") {
     regular: "Aprovado",
     aprovado: "Aprovado",
     pendente: "Pendente",
-    "em analise": "Em anÃ¡lise",
+    "em analise": "Em análise",
     "a vencer": "A vencer",
     vencido: "Vencido",
-    "revisao solicitada": "RevisÃ£o solicitada",
-    "revisao solicitada pelo fiscal": "RevisÃ£o solicitada",
-    "revisao solicitada pela medicina": "RevisÃ£o solicitada",
-    "revisao solicitada pela ehs": "RevisÃ£o solicitada",
-    "revisao solicitada pela seguranca patrimonial": "RevisÃ£o solicitada",
+    "revisao solicitada": "Revisão solicitada",
+    "revisao solicitada pelo fiscal": "Revisão solicitada",
+    "revisao solicitada pela medicina": "Revisão solicitada",
+    "revisao solicitada pela ehs": "Revisão solicitada",
+    "revisao solicitada pela seguranca patrimonial": "Revisão solicitada",
     reprovado: "Reprovado",
-    "aprovado com pendencia": "Aprovado com pendÃªncia",
+    "aprovado com pendencia": "Aprovado com pendência",
     arquivado: "Arquivado",
   };
   return map[statusToken(status)] || String(status || "").trim() || "Pendente";
@@ -2597,15 +2597,15 @@ function normalizeDocumentStatusLabel(status = "") {
 function normalizeHiringStatusLabel(status = "") {
   const map = {
     "em cadastro": "Em cadastro",
-    "em analise": "Pendente DocumentaÃ§Ã£o",
-    "em analise documental": "Pendente DocumentaÃ§Ã£o",
-    "documentos pendente": "Pendente DocumentaÃ§Ã£o",
-    "pendente": "Pendente DocumentaÃ§Ã£o",
-    "pendente documentacao": "Pendente DocumentaÃ§Ã£o",
+    "em analise": "Pendente Documentação",
+    "em analise documental": "Pendente Documentação",
+    "documentos pendente": "Pendente Documentação",
+    "pendente": "Pendente Documentação",
+    "pendente documentação": "Pendente Documentação",
     "pendente medicina": "Pendente Medicina",
     "pendente ehs": "Pendente EHS",
     "pendente patrimonial": "Pendente Patrimonial",
-    "aguardando correcao": "Aguardando CorreÃ§Ã£o",
+    "aguardando correcao": "Aguardando Correção",
     "aguardando exames": "Pendente Medicina",
     "aguardando medicina": "Pendente Medicina",
     "em treinamento": "Pendente EHS",
@@ -2613,28 +2613,28 @@ function normalizeHiringStatusLabel(status = "") {
     "aguardando aprovacao do fiscal": "Pendente Patrimonial",
     "aguardando patrimonial": "Pendente Patrimonial",
     liberado: "Liberado",
-    "ativo com pendencia": "Aguardando CorreÃ§Ã£o",
+    "ativo com pendencia": "Aguardando Correção",
     bloqueado: "Bloqueado",
     desmobilizado: "Desmobilizado",
-    "desmobilizacao solicitada": "DesmobilizaÃ§Ã£o solicitada",
+    "desmobilizacao solicitada": "Desmobilização solicitada",
     inativo: "Inativo",
   };
   return map[statusToken(status)] || String(status || "").trim() || "Em cadastro";
 }
 
 function isManualEmployeeOperationalStatus(status = "") {
-  return ["Bloqueado", "Inativo", "Desmobilizado", "DesmobilizaÃ§Ã£o solicitada"].some((value) => statusMatches(status, value));
+  return ["Bloqueado", "Inativo", "Desmobilizado", "Desmobilização solicitada"].some((value) => statusMatches(status, value));
 }
 
 function isPendingHiringStatus(status = "") {
   return [
-    "Pendente DocumentaÃ§Ã£o",
+    "Pendente Documentação",
     "Pendente Medicina",
     "Pendente EHS",
     "Pendente Patrimonial",
-    "Aguardando CorreÃ§Ã£o",
-    "Em anÃ¡lise documental",
-    "DesmobilizaÃ§Ã£o solicitada",
+    "Aguardando Correção",
+    "Em análise documental",
+    "Desmobilização solicitada",
   ].some((value) => statusMatches(status, value));
 }
 
@@ -2683,10 +2683,10 @@ function normalizeWorkflowStatusLabel(status = "") {
     reprovado: "Reprovado",
     bloqueado: "Bloqueado",
   };
-  if (token.includes("revalidacao solicitada")) return "RevalidaÃ§Ã£o solicitada";
-  if (token.includes("revisao solicitada")) return "RevisÃ£o solicitada";
-  if (token.includes("em revalidacao")) return "Em revalidaÃ§Ã£o";
-  if (token.includes("em avaliacao")) return "Em avaliaÃ§Ã£o";
+  if (token.includes("revalidacao solicitada")) return "Revalidação solicitada";
+  if (token.includes("revisao solicitada")) return "Revisão solicitada";
+  if (token.includes("em revalidacao")) return "Em revalidação";
+  if (token.includes("em avaliacao")) return "Em avaliação";
   if (token.includes("enviado para")) return "Pendente";
   if (token.includes("rascunho pelo fornecedor")) return "Rascunho pelo Fornecedor";
   return map[token] || String(status || "").trim() || "Pendente";
@@ -2700,23 +2700,23 @@ function calculateDocumentStatus(employee = {}, docs = employeeDocsFor(employee)
   const attachedDocs = (docs || []).filter(Boolean);
   if (!attachedDocs.length) return "Pendente";
   const fiscalWorkflowStatus = employeeWorkflowActionStatus(employee, "fiscal");
-  if (statusMatches(fiscalWorkflowStatus, "Reprovado", "RevisÃ£o solicitada", "RevalidaÃ§Ã£o solicitada", "Bloqueado")) return "RevisÃ£o solicitada";
+  if (statusMatches(fiscalWorkflowStatus, "Reprovado", "Revisão solicitada", "Revalidação solicitada", "Bloqueado")) return "Revisão solicitada";
   if (statusMatches(fiscalWorkflowStatus, "Aprovado", "Aprovado com pendencia")) {
-    if (attachedDocs.some((doc) => statusMatches(docStatus(doc), "Reprovado", "RevisÃ£o solicitada", "RevalidaÃ§Ã£o solicitada"))) return "RevisÃ£o solicitada";
+    if (attachedDocs.some((doc) => statusMatches(docStatus(doc), "Reprovado", "Revisão solicitada", "Revalidação solicitada"))) return "Revisão solicitada";
     if (attachedDocs.some((doc) => statusMatches(docStatus(doc), "Vencido"))) return "Vencido";
-    return hasPendingApprovalException(employee) ? "Aprovado com pendÃªncia" : "Aprovado";
+    return hasPendingApprovalException(employee) ? "Aprovado com pendência" : "Aprovado";
   }
-  if (attachedDocs.some((doc) => statusMatches(docStatus(doc), "Reprovado", "RevisÃ£o solicitada", "RevalidaÃ§Ã£o solicitada"))) return "RevisÃ£o solicitada";
+  if (attachedDocs.some((doc) => statusMatches(docStatus(doc), "Reprovado", "Revisão solicitada", "Revalidação solicitada"))) return "Revisão solicitada";
   if (attachedDocs.some((doc) => statusMatches(docStatus(doc), "Vencido"))) return "Vencido";
-  if (attachedDocs.some((doc) => statusMatches(docStatus(doc), "Pendente", "Em anÃ¡lise"))) return "Em anÃ¡lise";
-  return hasPendingApprovalException(employee) ? "Aprovado com pendÃªncia" : "Aprovado";
+  if (attachedDocs.some((doc) => statusMatches(docStatus(doc), "Pendente", "Em análise"))) return "Em análise";
+  return hasPendingApprovalException(employee) ? "Aprovado com pendência" : "Aprovado";
 }
 
 function calculateHiringStatus(employee = {}, docs = employeeDocsFor(employee), documentStatus = calculateDocumentStatus(employee, docs)) {
   const rawStatus = normalizeHiringStatusLabel(employee.status || employee.hiringStatus || "");
   if (isManualEmployeeOperationalStatus(rawStatus)) return rawStatus;
   if (!employeeHasCoreData(employee)) return "Em cadastro";
-  if (statusMatches(documentStatus, "Reprovado", "RevisÃ£o solicitada", "RevalidaÃ§Ã£o solicitada", "Vencido", "Pendente", "Em anÃ¡lise")) return "Pendente DocumentaÃ§Ã£o";
+  if (statusMatches(documentStatus, "Reprovado", "Revisão solicitada", "Revalidação solicitada", "Vencido", "Pendente", "Em análise")) return "Pendente Documentação";
   if (employeeMedicineStatus(employee, docs) !== "Aprovado") return "Pendente Medicina";
   if (employeeEhsStatus(employee, docs) !== "Aprovado") return "Pendente EHS";
   if (employeePatrimonialStatus(employee, docs) !== "Aprovado") return "Pendente Patrimonial";
@@ -2729,17 +2729,17 @@ function employeeMatchesStatusFilter(employee, filter) {
   const normalizedFilter = normalizeHiringStatusLabel(filter);
   if (statusMatches(filter, "Documentos vencidos")) return employeeHasExpiredDocuments(item);
   if (statusMatches(normalizedFilter, "Em cadastro")) return statusMatches(item.status, "Em cadastro");
-  if (statusMatches(normalizedFilter, "Pendente DocumentaÃ§Ã£o", "Aguardando CorreÃ§Ã£o")) return statusMatches(item.status, "Pendente DocumentaÃ§Ã£o", "Aguardando CorreÃ§Ã£o", "Em anÃ¡lise documental");
+  if (statusMatches(normalizedFilter, "Pendente Documentação", "Aguardando Correção")) return statusMatches(item.status, "Pendente Documentação", "Aguardando Correção", "Em análise documental");
   if (statusMatches(normalizedFilter, "Pendente Medicina")) return statusMatches(item.status, "Pendente Medicina", "Aguardando medicina");
   if (statusMatches(normalizedFilter, "Pendente EHS")) return statusMatches(item.status, "Pendente EHS", "Aguardando EHS/RH");
   if (statusMatches(normalizedFilter, "Pendente Patrimonial")) return statusMatches(item.status, "Pendente Patrimonial", "Aguardando patrimonial");
   if (statusMatches(normalizedFilter, "Liberado")) return statusMatches(item.status, "Liberado");
   if (statusMatches(normalizedFilter, "Bloqueado")) return statusMatches(item.status, "Bloqueado");
-  if (statusMatches(normalizedFilter, "DesmobilizaÃ§Ã£o solicitada")) return statusMatches(item.status, "DesmobilizaÃ§Ã£o solicitada");
+  if (statusMatches(normalizedFilter, "Desmobilização solicitada")) return statusMatches(item.status, "Desmobilização solicitada");
   if (statusMatches(normalizedFilter, "Desmobilizado")) return statusMatches(item.status, "Desmobilizado");
   if (statusMatches(normalizedFilter, "Inativo")) return statusMatches(item.status, "Inativo");
-  if (statusMatches(normalizedFilter, "Pendente")) return ["Em cadastro", "Pendente DocumentaÃ§Ã£o", "Aguardando CorreÃ§Ã£o", "Pendente Medicina", "Pendente EHS", "Pendente Patrimonial", "DesmobilizaÃ§Ã£o solicitada"].some((status) => statusMatches(item.status, status)) || statusMatches(item.docStatus, "Pendente", "Em anÃ¡lise", "Reprovado", "Vencido");
-  if (statusMatches(normalizedFilter, "Aprovado")) return statusMatches(item.status, "Liberado") || statusMatches(item.docStatus, "Aprovado", "Aprovado com pendÃªncia");
+  if (statusMatches(normalizedFilter, "Pendente")) return ["Em cadastro", "Pendente Documentação", "Aguardando Correção", "Pendente Medicina", "Pendente EHS", "Pendente Patrimonial", "Desmobilização solicitada"].some((status) => statusMatches(item.status, status)) || statusMatches(item.docStatus, "Pendente", "Em análise", "Reprovado", "Vencido");
+  if (statusMatches(normalizedFilter, "Aprovado")) return statusMatches(item.status, "Liberado") || statusMatches(item.docStatus, "Aprovado", "Aprovado com pendência");
   if (statusMatches(normalizedFilter, "Reprovado")) return statusMatches(item.docStatus, "Reprovado");
   if (statusMatches(normalizedFilter, "Vencido")) return statusMatches(item.docStatus, "Vencido") || employeeHasExpiredDocuments(item);
   return statusMatches(item.status, normalizedFilter) || statusMatches(item.docStatus, normalizedFilter);
@@ -2869,7 +2869,7 @@ function companyTopicHistoryEvents(company, topic) {
     .slice(0, 8);
 }
 
-function renderCompanyTabHistory(company, topic, title = "Historico da area") {
+function renderCompanyTabHistory(company, topic, title = "Histórico da area") {
   const events = companyTopicHistoryEvents(company, topic);
   return `
     <section class="record-section">
@@ -2932,7 +2932,7 @@ function renderRecordFooter(title, rows, entityType, entityId) {
     </section>
     <section class="record-section">
       <div class="record-section-title">
-        <h3>Historico Completo</h3>
+        <h3>Histórico Completo</h3>
         <span class="mini-pill">${escapeHtml(title)}</span>
       </div>
       ${renderHistoryTimeline(entityType, entityId)}
@@ -2959,7 +2959,7 @@ function companyActivityRows(company) {
   return [
     { title: "Status da empresa", detail: item.status, status: item.status },
     { title: "Contrato principal", detail: `${item.contract || "Nao informado"} - vence ${formatDate(item.endDate)}`, status: isPastDate(item.endDate) ? "Vencido" : item.status },
-    { title: "Funcionarios vinculados", detail: `${employees.length} funcionario(s)`, status: employees.some((employee) => normalizeEmployee(employee).status === "Bloqueado") ? "Bloqueado" : "Aprovado" },
+    { title: "Funcionários vinculados", detail: `${employees.length} funcionario(s)`, status: employees.some((employee) => normalizeEmployee(employee).status === "Bloqueado") ? "Bloqueado" : "Aprovado" },
     { title: "Documentos pendentes", detail: `${companyPendingDocumentsCount(item.id)} pendencia(s)`, status: companyPendingDocumentsCount(item.id) ? "Pendente" : "Aprovado" },
     { title: "Fiscalizacao", detail: item.fiscal || "Nao informado", status: companyHasNoFiscal(item) ? "Pendente" : "Aprovado" },
   ];
@@ -3004,7 +3004,7 @@ function renderFiscalRegistry() {
             <form id="fiscalQuickForm" class="form-grid company-form">
               ${inputField("nome", "Nome do fiscal", "", "required")}
               ${inputField("email", "E-mail", "", "type='email'")}
-              ${inputField("matricula", "Matricula", "")}
+              ${inputField("matricula", "Matrícula", "")}
               ${inputField("telefone", "Telefone", "")}
               ${inputField("setor", "Setor", "Fiscalizacao")}
               ${selectField("status", "Status", "sem_acesso", fiscalStatuses.map((status) => ({ value: status, label: fiscalStatusLabel(status) })))}
@@ -3088,14 +3088,14 @@ function renderEmployees() {
   const items = sortItems("employees", applyOperationalFilters("employees", byStatus));
   const { pageItems, totalPages } = paginateItems("employees", items);
   return `
-    ${sectionHead("Funcionarios / FIT", "Lista operacional de trabalhadores vinculados a empresas, contratos e status documentais.")}
+    ${sectionHead("Funcionários / FIT", "Lista operacional de trabalhadores vinculados a empresas, contratos e status documentais.")}
     ${editingEmployee ? renderEmployeeEditor(editingEmployee) : ""}
     ${toolbar("Buscar por nome, CPF, matricula, empresa, contrato, centro de custo ou status")}
     ${renderEmployeeStatusFilters()}
     ${renderOperationalFilters("employees", baseItems, { quicks: ["Todos", "Ativo", "Bloqueado", "Pendente", "Medicina", "EHS", "Desmobilizado"], exportKey: "funcionarios-ativos" })}
     <section class="panel table-wrap">
       <table>
-        <thead><tr>${sortableHeader("employees", "ID/Matricula", "id")}${sortableHeader("employees", "Nome", "name")}${sortableHeader("employees", "CPF", "cpf")}<th>Empresa</th><th>Contrato</th>${sortableHeader("employees", "Funcao", "sector")}<th>Centro de custo</th>${sortableHeader("employees", "Status documental", "status")}<th>Status contratacao</th><th>Etapa atual do fluxo</th><th>ASO</th><th>Treinamento</th><th>Ultima atualizacao</th><th>Acoes</th></tr></thead>
+        <thead><tr>${sortableHeader("employees", "ID/Matrícula", "id")}${sortableHeader("employees", "Nome", "name")}${sortableHeader("employees", "CPF", "cpf")}<th>Empresa</th><th>Contrato</th>${sortableHeader("employees", "Funcao", "sector")}<th>Centro de custo</th>${sortableHeader("employees", "Status documental", "status")}<th>Status contratacao</th><th>Etapa atual do fluxo</th><th>ASO</th><th>Treinamento</th><th>Ultima atualizacao</th><th>Acoes</th></tr></thead>
         <tbody>
           ${renderEmployeeGroupedRows(pageItems)}
         </tbody>
@@ -3131,7 +3131,7 @@ function renderEmployeeEditor(employee = null) {
       <form id="employeeEditorForm" class="form-grid employee-form">
         <input type="hidden" name="id" value="${escapeAttr(employee?.id || "")}" />
         ${formSection("Identificacao", [
-          inputField("registration", "Matricula do funcionario", item.registration, "required"),
+          inputField("registration", "Matrícula do funcionario", item.registration, "required"),
           inputField("name", "Nome completo", item.name, "required"),
           inputField("cpf", "CPF", item.cpf, "required inputmode='numeric' maxlength='14' data-mask='cpf' placeholder='000.000.000-00'"),
           inputField("birthDate", "Data de nascimento", item.birthDate, "type='date' required"),
@@ -3146,12 +3146,12 @@ function renderEmployeeEditor(employee = null) {
           inputField("companyFiscal", "Fiscal da empresa", item.companyFiscal || linkedCompany?.fiscal || "", canEditOperationalLink ? "" : "readonly"),
           inputField("contractManager", "Gestor do contrato", item.contractManager || linkedCompany?.manager || linkedCompany?.responsible || "", canEditOperationalLink ? "" : "readonly"),
         ])}
-        ${formSection("Endereco", [
+        ${formSection("Endereço", [
           inputField("cep", "CEP", item.cep, "required inputmode='numeric' maxlength='9' data-mask='cep' placeholder='00000-000'"),
           inputField("city", "Cidade", item.city, "required"),
           inputField("district", "Bairro", item.district, "required"),
           inputField("street", "Rua", item.street, "required"),
-          inputField("number", "Numero", item.number, "required"),
+          inputField("number", "Número", item.number, "required"),
           inputField("complement", "Complemento", item.complement),
         ])}
         ${formSection("Status operacional", [
@@ -3159,7 +3159,7 @@ function renderEmployeeEditor(employee = null) {
           inputField("trainingValidity", "Validade de treinamento", item.trainingValidity, "type='date' required"),
           selectField("docStatus", "Status documental", item.docStatus || "Pendente", documentStatuses.map(option)),
           selectField("status", "Status", item.status || "Em analise", hiringStatuses.map(option)),
-          textAreaField("notes", "Observacoes", item.notes),
+          textAreaField("notes", "Observações", item.notes),
         ])}
         <div class="form-actions wide">
           <button class="btn primary" type="submit">${icon("save")} Salvar</button>
@@ -3170,7 +3170,7 @@ function renderEmployeeEditor(employee = null) {
 }
 
 function renderEmployeeStatusFilters() {
-  const filters = ["Todos", "Em cadastro", "Pendente DocumentaÃ§Ã£o", "Pendente Medicina", "Pendente EHS", "Pendente Patrimonial", "Aguardando CorreÃ§Ã£o", "Liberado", "Bloqueado", "DesmobilizaÃ§Ã£o solicitada", "Desmobilizado", "Inativo", "Documentos vencidos"];
+  const filters = ["Todos", "Em cadastro", "Pendente Documentação", "Pendente Medicina", "Pendente EHS", "Pendente Patrimonial", "Aguardando Correção", "Liberado", "Bloqueado", "Desmobilização solicitada", "Desmobilizado", "Inativo", "Documentos vencidos"];
   return `
     <div class="status-filter" aria-label="Filtros de funcionarios por status">
       ${filters
@@ -3216,7 +3216,7 @@ function employeeWorkflowReason(employee, step) {
   const action = employeeWorkflowActions(normalized)?.[step.id] || {};
   const actionReason = extractOperationalReasonText(action.motivo || action.observation || "");
   if (actionReason) return actionReason;
-  if (statusMatches(step.status, "Em avaliaÃ§Ã£o", "Enviado para Fiscal", "Enviado para Medicina", "Enviado para EHS", "Enviado para Patrimonial", "Rascunho pelo Fornecedor")) {
+  if (statusMatches(step.status, "Em avaliação", "Enviado para Fiscal", "Enviado para Medicina", "Enviado para EHS", "Enviado para Patrimonial", "Rascunho pelo Fornecedor")) {
     return "Aguardando avaliacao do setor responsavel.";
   }
   if (statusMatches(step.status, "Bloqueado por etapa anterior")) {
@@ -3227,7 +3227,7 @@ function employeeWorkflowReason(employee, step) {
   }
   if (step.id === "liberacao") return statusMatches(step.status, "Aprovado") ? "Fluxo completo concluido." : "Aguardando conclusao das etapas anteriores.";
   const stepDocs = state.documents.filter((doc) => sameId(doc.employeeId, normalized.id) && documentOperationalSector(doc) === step.sector);
-  const issueDoc = stepDocs.find((doc) => statusMatches(docStatus(doc), "Reprovado", "RevisÃ£o solicitada", "RevalidaÃ§Ã£o solicitada", "Vencido", "Pendente", "Em analise", "A vencer"));
+  const issueDoc = stepDocs.find((doc) => statusMatches(docStatus(doc), "Reprovado", "Revisão solicitada", "Revalidação solicitada", "Vencido", "Pendente", "Em analise", "A vencer"));
   if (!issueDoc) return "";
   const docReason = extractOperationalReasonText(documentVisibleNotes(issueDoc));
   if (docReason) return docReason;
@@ -3253,7 +3253,7 @@ function employeeOperationalStages(employee) {
     },
     {
       key: "documentation",
-      label: "Documentacao",
+      label: "Documentação",
       status: workflowStepPresentationStatus(documentStep, documentStep.status, 0, workflowSteps),
       reason: employeeWorkflowReason(normalized, { ...documentStep, id: "fiscal", sector: "Fiscal" }),
     },
@@ -3308,7 +3308,7 @@ function renderEmployeeRow(employee) {
   return `
     <tr class="employee-row employee-row-${group.key}">
       <td><button class="link-button" type="button" data-employee-record="${employee.id}">${escapeHtml(employeeRegistration(item))}</button></td>
-      <td><button class="link-button strong" type="button" data-employee-record="${employee.id}">${escapeHtml(item.name)}</button><br><span class="muted">${item.address || "Endereco nao informado"}</span></td>
+      <td><button class="link-button strong" type="button" data-employee-record="${employee.id}">${escapeHtml(item.name)}</button><br><span class="muted">${item.address || "Endereço nao informado"}</span></td>
       <td>${item.cpf}</td>
       <td>${companyName(item.companyId)}</td>
       <td>${item.contract || company?.contract || "Nao informado"}</td>
@@ -3333,9 +3333,9 @@ function renderEmployeeRow(employee) {
 function renderEmployeeGroupedRows(items) {
   if (!items.length) return emptyRow(14);
   const groups = [
-    { key: "active", title: "Funcionarios ativos" },
-    { key: "blocked", title: "Funcionarios bloqueados" },
-    { key: "inactive", title: "Funcionarios desmobilizados/inativos" },
+    { key: "active", title: "Funcionários ativos" },
+    { key: "blocked", title: "Funcionários bloqueados" },
+    { key: "inactive", title: "Funcionários desmobilizados/inativos" },
   ];
   return groups
     .map((group) => {
@@ -3356,9 +3356,9 @@ function renderEmployeeGroupedRows(items) {
 
 function employeeVisualGroup(employee) {
   const status = normalizeEmployee(employee).status;
-  if (statusMatches(status, "Bloqueado")) return { key: "blocked", title: "Funcionarios bloqueados" };
-  if (statusMatches(status, "Desmobilizado", "Inativo")) return { key: "inactive", title: "Funcionarios desmobilizados/inativos" };
-  return { key: "active", title: "Funcionarios ativos" };
+  if (statusMatches(status, "Bloqueado")) return { key: "blocked", title: "Funcionários bloqueados" };
+  if (statusMatches(status, "Desmobilizado", "Inativo")) return { key: "inactive", title: "Funcionários desmobilizados/inativos" };
+  return { key: "active", title: "Funcionários ativos" };
 }
 
 function openEmployeeRecord(id) {
@@ -3389,7 +3389,7 @@ function openEmployeeRecord(id) {
             <span>Gestor ${item.contractManager || contractSource.manager || contractSource.responsible || company.manager || company.responsible || "Nao informado"}</span>
             <span>Servico ${item.serviceType || contractSource.serviceType || contractSource.risk || company.serviceType || company.risk || "Nao informado"}</span>
             <span>Unidade ${item.unitSector || contractSource.unitSector || contractUnit(contractSource || company) || "Nao informado"}</span>
-            <span>Matricula ${employeeRegistration(item)}</span>
+            <span>Matrícula ${employeeRegistration(item)}</span>
             <span>${item.role || "Funcao nao informada"}</span>
             <span>Atualizado ${formatDateTime(employeeUpdatedAt(item))}</span>
           </div>
@@ -3411,7 +3411,7 @@ function openEmployeeRecord(id) {
           .join("")}
       </div>
       <div class="modal-body employee-tab-content">${renderEmployeeRecordTab(item, defaultTab)}</div>
-      <div class="modal-body record-footer">${renderRecordFooter("Funcionario/FIT", employeeActivityRows(item), "funcionario", item.id)}</div>
+      <div class="modal-body record-footer">${renderRecordFooter("Funcionário/FIT", employeeActivityRows(item), "funcionario", item.id)}</div>
     </section>
   `;
   document.body.appendChild(modal);
@@ -3482,13 +3482,13 @@ function employeeRecordTabs() {
   const allTabs = [
     ["summary", "Resumo"],
     ["personal", "Dados Pessoais"],
-    ["contracts", "VÃ­nculo / Contrato"],
+    ["contracts", "Vínculo / Contrato"],
     ["docs", "Documentos Pessoais"],
     ["medicine", "Medicina"],
     ["ehs", "EHS / SSMA"],
-    ["patrimonial", "SeguranÃ§a Patrimonial"],
-    ["requests", "SolicitaÃ§Ãµes"],
-    ["history", "HistÃ³rico"],
+    ["patrimonial", "Segurança Patrimonial"],
+    ["requests", "Solicitações"],
+    ["history", "Histórico"],
   ];
   const allowed = new Set(["summary", "contracts", "requests", "history", ...allowedEmployeeTabs()]);
   return allTabs.filter(([tab]) => allowed.has(tab));
@@ -3509,7 +3509,7 @@ function renderEmployeeRecordTab(employee, tab) {
         ${detailCard("Empresa", company.name || "Nao informado")}
         ${detailCard("Contrato", normalized.contract || contractSource.contract || company.contract || "Nao informado")}
         ${detailCard("Centro de custo", normalized.costCenter || employeeCostCenter(normalized, contractSource || company))}
-        ${detailCard("Fiscal responsavel", normalized.companyFiscal || contractSource.fiscal || company.fiscal || "Nao informado")}
+        ${detailCard("Fiscal responsável", normalized.companyFiscal || contractSource.fiscal || company.fiscal || "Nao informado")}
         ${detailCard("Gestor do contrato", normalized.contractManager || contractSource.manager || contractSource.responsible || company.manager || company.responsible || "Nao informado")}
         ${detailCard("Tipo de servico", normalized.serviceType || contractSource.serviceType || contractSource.risk || company.serviceType || company.risk || "Nao informado")}
         ${detailCard("Unidade / setor", normalized.unitSector || contractSource.unitSector || contractUnit(contractSource || company) || "Nao informado")}
@@ -3541,7 +3541,7 @@ function renderEmployeeRecordTab(employee, tab) {
       <div class="detail-grid">
         ${detailCard("Nome", normalized.name)}
         ${detailCard("CPF", normalized.cpf || "Nao informado")}
-        ${detailCard("Matricula", employeeRegistration(normalized))}
+        ${detailCard("Matrícula", employeeRegistration(normalized))}
         ${detailCard("Data de nascimento", formatDate(normalized.birthDate))}
         ${detailCard("Nome da mae", normalized.motherName || "Nao informado")}
         ${detailCard("Nome do pai", normalized.fatherName || "Nao informado")}
@@ -3556,11 +3556,11 @@ function renderEmployeeRecordTab(employee, tab) {
         ${detailCard("Cidade", normalized.city || "Nao informado")}
         ${detailCard("Bairro", normalized.district || "Nao informado")}
         ${detailCard("Rua", normalized.street || "Nao informado")}
-        ${detailCard("Numero", normalized.number || "Nao informado")}
+        ${detailCard("Número", normalized.number || "Nao informado")}
         ${detailCard("Complemento", normalized.complement || "Nao informado")}
         ${detailCard("UF", normalized.uf || "Nao informado")}
-        ${detailCard("Endereco completo", normalized.address || "Nao informado")}
-        ${detailCard("Observacoes", normalized.notes || "Sem observacoes")}
+        ${detailCard("Endereço completo", normalized.address || "Nao informado")}
+        ${detailCard("Observações", normalized.notes || "Sem observacoes")}
       </div>
     `;
   }
@@ -3570,7 +3570,7 @@ function renderEmployeeRecordTab(employee, tab) {
         ${detailCard("Empresa vinculada", company.name || "Nao informado")}
         ${detailCard("Contrato selecionado", normalized.contract || contractSource.contract || company.contract || "Nao informado")}
         ${detailCard("Centro de custo", normalized.costCenter || employeeCostCenter(normalized, contractSource || company))}
-        ${detailCard("Fiscal responsavel", normalized.companyFiscal || contractSource.fiscal || company.fiscal || "Nao informado")}
+        ${detailCard("Fiscal responsável", normalized.companyFiscal || contractSource.fiscal || company.fiscal || "Nao informado")}
         ${detailCard("Gestor do contrato", normalized.contractManager || contractSource.manager || contractSource.responsible || company.manager || company.responsible || "Nao informado")}
         ${detailCard("Tipo de servico", normalized.serviceType || contractSource.serviceType || contractSource.risk || company.serviceType || company.risk || "Nao informado")}
         ${detailCard("Unidade / setor", normalized.unitSector || contractSource.unitSector || contractUnit(contractSource || company) || "Nao informado")}
@@ -3578,7 +3578,7 @@ function renderEmployeeRecordTab(employee, tab) {
       <div class="contract-context-actions">
         ${company.id ? `<button class="btn secondary compact" type="button" data-company-detail="${company.id}">${icon("company")} Abrir empresa</button>` : ""}
       </div>
-      ${renderCompanyTabHistory(company, "general", "Historico do vinculo contratual")}
+      ${renderCompanyTabHistory(company, "general", "Histórico do vinculo contratual")}
     `;
   }
   if (tab === "docs") return renderEmployeeDocsTable(employeeDocs, "Documentos pessoais do funcionario");
@@ -3610,31 +3610,31 @@ function renderEmployeeRecordTab(employee, tab) {
     const patrimonialBadge = normalized.badgeNumber || normalized.cracha || normalized.crachaNumber || "";
     return `
       <div class="detail-grid">
-        ${detailCard("Liberacao patrimonial", statusBadge(employeePatrimonialStatus(normalized)))}
+        ${detailCard("Liberação patrimonial", statusBadge(employeePatrimonialStatus(normalized)))}
         ${detailCard("Empresa", company.name || "Nao informado")}
         ${detailCard("Contrato", normalized.contract || contractSource.contract || company.contract || "Nao informado")}
-        ${detailCard("Matricula", normalized.registration || employeeRegistration(normalized))}
+        ${detailCard("Matrícula", normalized.registration || employeeRegistration(normalized))}
       </div>
       ${isPatrimonialEditor ? `
         <form class="employee-patrimonial-form" data-employee-patrimonial-form="${normalized.id}">
           <div class="detail-grid compact">
-            ${inputField("patrimonialRegistration", "Matricula", normalized.registration || employeeRegistration(normalized), "required")}
-            ${inputField("badgeNumber", "Cracha", patrimonialBadge)}
+            ${inputField("patrimonialRegistration", "Matrícula", normalized.registration || employeeRegistration(normalized), "required")}
+            ${inputField("badgeNumber", "Crachá", patrimonialBadge)}
             ${inputField("patrimonialReleaseDate", "Data de liberacao", patrimonialReleaseDate, "date")}
-            ${textAreaField("patrimonialNotes", "Observacoes patrimoniais", normalized.patrimonialNotes || "")}
+            ${textAreaField("patrimonialNotes", "Observações patrimoniais", normalized.patrimonialNotes || "")}
           </div>
           <div class="actions wrap">
             <button class="btn primary compact" type="submit">${icon("save")} Salvar patrimonial</button>
           </div>
         </form>
-      ` : `<div class="item-card"><strong>Controle patrimonial</strong><span class="muted">Acesso final condicionado a documentacao, medicina, EHS e aprovacao fiscal.</span></div>`}
+      ` : `<div class="item-card"><strong>Controle patrimonial</strong><span class="muted">Acesso final condicionado a documentação, medicina, EHS e aprovacao fiscal.</span></div>`}
     `;
   }
   if (tab === "requests") {
     const requestEvents = employeeRequestEvents(normalized);
     return `
       <div class="detail-grid">
-        ${detailCard("Solicitacoes registradas", requestEvents.length)}
+        ${detailCard("Solicitações registradas", requestEvents.length)}
         ${detailCard("Etapa atual", employeeCurrentOperationalStage(normalized))}
         ${detailCard("Status contratacao", statusBadge(normalized.status))}
         ${detailCard("Status documental", statusBadge(normalized.docStatus))}
@@ -3681,7 +3681,7 @@ function renderEmployeeDocsTable(docs, title) {
       <div class="modal-head"><h2>${title}</h2><span class="mini-pill">${docs.length} item(ns)</span></div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Documento</th><th>Validade</th><th>Status</th><th>Observacoes</th></tr></thead>
+          <thead><tr><th>Documento</th><th>Validade</th><th>Status</th><th>Observações</th></tr></thead>
           <tbody>
             ${docs.length ? docs.map((doc) => `<tr><td><strong>${doc.type}</strong></td><td>${formatDate(doc.dueDate)}</td><td>${statusBadge(docStatus(doc))}</td><td>${doc.notes || "<span class='muted'>Sem observacao</span>"}</td></tr>`).join("") : emptyRow(4)}
           </tbody>
@@ -3714,7 +3714,7 @@ function renderEmployeeRequestTable(events = []) {
             <td><strong>${formatDateTime(event.createdAt || event.criado_em)}</strong></td>
             <td>${escapeHtml(event.userName || event.usuario_nome || "Sistema")}</td>
               <td><span class="mini-pill">${escapeHtml(historyEventProfile(event))}</span></td>
-            <td>${escapeHtml(event.action || event.acao || "Solicitacao")}</td>
+            <td>${escapeHtml(event.action || event.acao || "Solicitação")}</td>
             <td>${escapeHtml(sector)}</td>
             <td>${escapeHtml(event.observation || event.observacao || "Sem motivo")}</td>
             <td>${escapeHtml(previousValue || "Nao informado")}</td>
@@ -3727,7 +3727,7 @@ function renderEmployeeRequestTable(events = []) {
     <section class="employee-request-section">
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Data/Hora</th><th>Usuario</th><th>Perfil</th><th>Acao</th><th>Setor</th><th>Motivo/Observacao</th><th>Status anterior</th><th>Status novo</th></tr></thead>
+          <thead><tr><th>Data/Hora</th><th>Usuário</th><th>Perfil</th><th>Acao</th><th>Setor</th><th>Motivo/Observacao</th><th>Status anterior</th><th>Status novo</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>
@@ -3759,7 +3759,7 @@ function renderEmployeeHistoryTable(events = [], fallbackItems = []) {
       ${fallbackItems.length && !rows ? `<div class="history-list">${fallbackItems.join("")}</div>` : ""}
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Data/Hora</th><th>Usuario</th><th>Perfil</th><th>Acao</th><th>Setor</th><th>Motivo/Observacao</th><th>Status anterior</th><th>Status novo</th></tr></thead>
+          <thead><tr><th>Data/Hora</th><th>Usuário</th><th>Perfil</th><th>Acao</th><th>Setor</th><th>Motivo/Observacao</th><th>Status anterior</th><th>Status novo</th></tr></thead>
           <tbody>${rows || emptyRow(8)}</tbody>
         </table>
       </div>
@@ -3807,8 +3807,8 @@ function employeeWorkflowSteps(employee) {
       label: "Fiscal / Documentos pessoais",
       icon: "docs",
       status: workflow.fiscal?.status || resolveWorkflowStepStatus(item, fiscalDocs, {
-        pending: statusMatches(documentStatus, "Pendente", "Em anÃ¡lise"),
-        approved: statusMatches(documentStatus, "Aprovado", "Aprovado com pendÃªncia") || fiscalDocs.some((doc) => statusMatches(docStatus(doc), "Aprovado", "A vencer")),
+        pending: statusMatches(documentStatus, "Pendente", "Em análise"),
+        approved: statusMatches(documentStatus, "Aprovado", "Aprovado com pendência") || fiscalDocs.some((doc) => statusMatches(docStatus(doc), "Aprovado", "A vencer")),
         exception,
       }),
       detail: "Cadastro, CPF, vinculo e documentos pessoais",
@@ -3855,11 +3855,11 @@ function employeeWorkflowSteps(employee) {
   steps.push({
     id: "liberacao",
     sector: "Fiscal",
-    label: "Liberacao final",
+    label: "Liberação final",
     icon: "approve",
     status:
       workflow.liberacao?.status ||
-      (statusMatches(hiringStatus, "Bloqueado", "Inativo", "Desmobilizado", "DesmobilizaÃ§Ã£o solicitada")
+      (statusMatches(hiringStatus, "Bloqueado", "Inativo", "Desmobilizado", "Desmobilização solicitada")
         ? hiringStatus
         : rejectedStatus
           ? "Reprovado"
@@ -3876,7 +3876,7 @@ function renderWorkflowStepActions(employee, step) {
   return `
     <div class="workflow-step-actions">
       <button class="btn success compact" type="button" data-employee-id="${employee.id}" data-workflow-step="${step.id}" data-workflow-action="approve">${icon("approve")} Aprovar</button>
-      <button class="btn danger compact" type="button" data-employee-id="${employee.id}" data-workflow-step="${step.id}" data-workflow-action="review">${icon("block")} Solicitar RevisÃ£o</button>
+      <button class="btn danger compact" type="button" data-employee-id="${employee.id}" data-workflow-step="${step.id}" data-workflow-action="review">${icon("block")} Solicitar Revisão</button>
       <button class="btn special compact" type="button" data-employee-id="${employee.id}" data-workflow-step="${step.id}" data-workflow-action="approve_pending">${icon("clock")} Aprovar com pend&ecirc;ncia</button>
     </div>
   `;
@@ -3948,7 +3948,7 @@ function updateEmployeeWorkflowStep(employeeId, stepId, action) {
 }
 
 function collectWorkflowActionData(action, step, employee) {
-  const actor = currentUser()?.name || currentUser()?.email || "Usuario do sistema";
+  const actor = currentUser()?.name || currentUser()?.email || "Usuário do sistema";
   const base = {
     action,
     sector: step.sector,
@@ -3987,7 +3987,7 @@ function collectWorkflowActionData(action, step, employee) {
     }
     const managerRegistration = prompt("Informe a matricula do gestor responsavel:");
     if (!managerRegistration || !managerRegistration.trim()) {
-      alert("Matricula do gestor obrigatoria. A aprovacao com pendencia nao foi salva.");
+      alert("Matrícula do gestor obrigatoria. A aprovacao com pendencia nao foi salva.");
       return null;
     }
     const reason = prompt("Informe o motivo da aprovacao com pendencia:");
@@ -4018,30 +4018,30 @@ function workflowStatusBadge(status) {
   const labels = {
     Pendente: "Pendente",
     Aprovado: "Aprovado",
-    Reprovado: "Solicitar RevisÃ£o",
-    "RevisÃ£o solicitada": "Solicitar RevisÃ£o",
-    "RevalidaÃ§Ã£o solicitada": "RevalidaÃ§Ã£o solicitada",
-    "Em revalidaÃ§Ã£o": "Em revalidaÃ§Ã£o",
-    "Em avaliaÃ§Ã£o": "Em avaliaÃ§Ã£o",
+    Reprovado: "Solicitar Revisão",
+    "Revisão solicitada": "Solicitar Revisão",
+    "Revalidação solicitada": "Revalidação solicitada",
+    "Em revalidação": "Em revalidação",
+    "Em avaliação": "Em avaliação",
     "Rascunho pelo Fornecedor": "Rascunho pelo Fornecedor",
     "Bloqueado por etapa anterior": "Bloqueado por etapa anterior",
     Bloqueado: "Bloqueado",
     "Aprovado com pendencia": "Aprovado com pend&ecirc;ncia",
-    "Pendente DocumentaÃ§Ã£o": "Pendente DocumentaÃ§Ã£o",
+    "Pendente Documentação": "Pendente Documentação",
     "Pendente Medicina": "Pendente Medicina",
     "Pendente EHS": "Pendente EHS",
     "Pendente Patrimonial": "Pendente Patrimonial",
-    "Aguardando CorreÃ§Ã£o": "Aguardando CorreÃ§Ã£o",
+    "Aguardando Correção": "Aguardando Correção",
   };
   return `<span class="status ${workflowStatusClass(status)}">${labels[status] || status}</span>`;
 }
 
 function resolveWorkflowStepStatus(employee, docs, { pending = false, approved = false, exception = false } = {}) {
   if (statusMatches(employee.status, "Bloqueado")) return "Bloqueado";
-  if (docs.some((doc) => statusMatches(doc.status, "RevalidaÃ§Ã£o solicitada") || statusMatches(docStatus(doc), "RevalidaÃ§Ã£o solicitada"))) return "RevalidaÃ§Ã£o solicitada";
-  if (docs.some((doc) => statusMatches(doc.status, "RevisÃ£o solicitada") || statusMatches(docStatus(doc), "RevisÃ£o solicitada"))) return "RevisÃ£o solicitada";
+  if (docs.some((doc) => statusMatches(doc.status, "Revalidação solicitada") || statusMatches(docStatus(doc), "Revalidação solicitada"))) return "Revalidação solicitada";
+  if (docs.some((doc) => statusMatches(doc.status, "Revisão solicitada") || statusMatches(docStatus(doc), "Revisão solicitada"))) return "Revisão solicitada";
   if (docs.some((doc) => statusMatches(docStatus(doc), "Vencido"))) return exception ? "Aprovado com pendencia" : "Pendente";
-  if (pending || docs.some((doc) => ["Pendente", "A vencer", "Em anÃ¡lise"].some((value) => statusMatches(docStatus(doc), value)))) return exception ? "Aprovado com pendencia" : "Pendente";
+  if (pending || docs.some((doc) => ["Pendente", "A vencer", "Em análise"].some((value) => statusMatches(docStatus(doc), value)))) return exception ? "Aprovado com pendencia" : "Pendente";
   if (approved || docs.some((doc) => ["Aprovado", "A vencer"].some((value) => statusMatches(docStatus(doc), value)))) return "Aprovado";
   return exception ? "Aprovado com pendencia" : "Pendente";
 }
@@ -4056,13 +4056,13 @@ function workflowStatusClass(status) {
     "Aprovado com pendencia": "conditional",
     Pendente: "warn",
     Reprovado: "analysis",
-    "RevisÃ£o solicitada": "analysis",
-    "RevalidaÃ§Ã£o solicitada": "analysis",
-    "Em revalidaÃ§Ã£o": "analysis",
-    "Em avaliaÃ§Ã£o": "analysis",
+    "Revisão solicitada": "analysis",
+    "Revalidação solicitada": "analysis",
+    "Em revalidação": "analysis",
+    "Em avaliação": "analysis",
     "Rascunho pelo Fornecedor": "info",
     Bloqueado: "blocked",
-    "Pendente DocumentaÃ§Ã£o": "warn",
+    "Pendente Documentação": "warn",
     "Pendente Medicina": "warn",
     "Pendente EHS": "warn",
     "Pendente Patrimonial": "warn",
@@ -4071,12 +4071,12 @@ function workflowStatusClass(status) {
     "Convite enviado": "analysis",
     "Sem usuário de acesso": "warn",
     "Aguardando liberação de acesso": "warn",
-    "Aguardando CorreÃ§Ã£o": "analysis",
+    "Aguardando Correção": "analysis",
   }[status] || statusClass(status);
 }
 
 function workflowIsConcludedStatus(status = "") {
-  return statusMatches(status, "Aprovado", "Aprovado com pendencia", "Aprovado com pendÃªncia", "Liberado");
+  return statusMatches(status, "Aprovado", "Aprovado com pendencia", "Aprovado com pendência", "Liberado");
 }
 
 function workflowIsReviewStatus(status = "") {
@@ -4095,16 +4095,16 @@ function workflowStepPresentationStatus(step, rawStatus, index, steps = []) {
   const role = currentUser()?.role || "";
   const sectorRole = { Fiscal: "fiscal", Medicina: "medicina", EHS: "ehs", Patrimonial: "patrimonial" }[step.sector] || "";
   const isSectorViewer = role === "admin" || role === sectorRole;
-  if (workflowIsConcludedStatus(normalizedRaw)) return normalizedRaw === "Aprovado com pendencia" ? "Aprovado com pendÃªncia" : normalizedRaw;
-  if (statusToken(normalizedRaw).includes("revalidacao solicitada")) return "RevalidaÃ§Ã£o solicitada";
-  if (workflowIsReviewStatus(normalizedRaw)) return normalizedRaw === "Em revalidaÃ§Ã£o" ? "Em revalidaÃ§Ã£o" : `RevisÃ£o solicitada pelo ${step.sector}`;
+  if (workflowIsConcludedStatus(normalizedRaw)) return normalizedRaw === "Aprovado com pendencia" ? "Aprovado com pendência" : normalizedRaw;
+  if (statusToken(normalizedRaw).includes("revalidacao solicitada")) return "Revalidação solicitada";
+  if (workflowIsReviewStatus(normalizedRaw)) return normalizedRaw === "Em revalidação" ? "Em revalidação" : `Revisão solicitada pelo ${step.sector}`;
   if (workflowIsEvaluationStatus(normalizedRaw)) {
-    if (statusToken(normalizedRaw).includes("enviado para") && isSectorViewer) return `Em avaliaÃ§Ã£o ${step.sector}`;
-    return normalizedRaw === "Rascunho pelo Fornecedor" && isSectorViewer ? "Em avaliaÃ§Ã£o Fiscal" : normalizedRaw;
+    if (statusToken(normalizedRaw).includes("enviado para") && isSectorViewer) return `Em avaliação ${step.sector}`;
+    return normalizedRaw === "Rascunho pelo Fornecedor" && isSectorViewer ? "Em avaliação Fiscal" : normalizedRaw;
   }
-  if (index === 0) return isSectorViewer ? "Em avaliaÃ§Ã£o Fiscal" : "Rascunho pelo Fornecedor";
+  if (index === 0) return isSectorViewer ? "Em avaliação Fiscal" : "Rascunho pelo Fornecedor";
   if (previousStep && !workflowIsConcludedStatus(previousStep.status)) return "Bloqueado por etapa anterior";
-  return isSectorViewer ? `Em avaliaÃ§Ã£o ${step.sector}` : `Enviado para ${step.sector}`;
+  return isSectorViewer ? `Em avaliação ${step.sector}` : `Enviado para ${step.sector}`;
 }
 
 function employeeWorkflowEditableBySupplier(employee) {
@@ -4141,18 +4141,18 @@ function employeeActiveState(employee) {
   const status = normalizeHiringStatusLabel(employee.status);
   if (statusMatches(status, "Bloqueado")) return "Bloqueado";
   if (statusMatches(status, "Desmobilizado", "Inativo")) return "Inativo";
-  if (isPendingHiringStatus(status)) return "Ativo com pendÃªncia";
+  if (isPendingHiringStatus(status)) return "Ativo com pendência";
   return "Ativo";
 }
 
 function employeeMedicineStatus(employee, docs = []) {
   const workflowStatus = employeeWorkflowActionStatus(employee, "medicina");
   if (statusMatches(workflowStatus, "Aprovado", "Aprovado com pendencia")) return "Aprovado";
-  if (statusMatches(workflowStatus, "Reprovado", "RevisÃ£o solicitada", "RevalidaÃ§Ã£o solicitada", "Bloqueado")) return "Pendente";
-  if (statusMatches(employee.status, "Bloqueado", "Desmobilizado", "DesmobilizaÃ§Ã£o solicitada")) return "Pendente";
+  if (statusMatches(workflowStatus, "Reprovado", "Revisão solicitada", "Revalidação solicitada", "Bloqueado")) return "Pendente";
+  if (statusMatches(employee.status, "Bloqueado", "Desmobilizado", "Desmobilização solicitada")) return "Pendente";
   if (statusMatches(employee.status, "Liberado", "Aprovado")) return "Aprovado";
   const medicineDocs = docs.filter((doc) => /aso|exame|medic/i.test(doc.type));
-  if (medicineDocs.some((doc) => statusMatches(docStatus(doc), "Reprovado", "RevisÃ£o solicitada", "RevalidaÃ§Ã£o solicitada", "Vencido", "Pendente", "Em anÃ¡lise"))) return "Pendente";
+  if (medicineDocs.some((doc) => statusMatches(docStatus(doc), "Reprovado", "Revisão solicitada", "Revalidação solicitada", "Vencido", "Pendente", "Em análise"))) return "Pendente";
   if (medicineDocs.some((doc) => statusMatches(docStatus(doc), "Aprovado", "A vencer"))) return "Aprovado";
   return employee.asoValidity && !isPastDate(employee.asoValidity) ? "Aprovado" : "Pendente";
 }
@@ -4160,11 +4160,11 @@ function employeeMedicineStatus(employee, docs = []) {
 function employeeEhsStatus(employee, docs = []) {
   const workflowStatus = employeeWorkflowActionStatus(employee, "ehs");
   if (statusMatches(workflowStatus, "Aprovado", "Aprovado com pendencia")) return "Aprovado";
-  if (statusMatches(workflowStatus, "Reprovado", "RevisÃ£o solicitada", "RevalidaÃ§Ã£o solicitada", "Bloqueado")) return "Pendente";
-  if (statusMatches(employee.status, "Bloqueado", "Desmobilizado", "DesmobilizaÃ§Ã£o solicitada")) return "Pendente";
+  if (statusMatches(workflowStatus, "Reprovado", "Revisão solicitada", "Revalidação solicitada", "Bloqueado")) return "Pendente";
+  if (statusMatches(employee.status, "Bloqueado", "Desmobilizado", "Desmobilização solicitada")) return "Pendente";
   if (statusMatches(employee.status, "Liberado", "Aprovado")) return "Aprovado";
   const ehsDocs = docs.filter((doc) => /nr-|treinamento|epi|segur/i.test(doc.type));
-  if (ehsDocs.some((doc) => statusMatches(docStatus(doc), "Reprovado", "RevisÃ£o solicitada", "RevalidaÃ§Ã£o solicitada", "Vencido", "Pendente", "Em anÃ¡lise"))) return "Pendente";
+  if (ehsDocs.some((doc) => statusMatches(docStatus(doc), "Reprovado", "Revisão solicitada", "Revalidação solicitada", "Vencido", "Pendente", "Em análise"))) return "Pendente";
   if (ehsDocs.some((doc) => statusMatches(docStatus(doc), "Aprovado", "A vencer"))) return "Aprovado";
   return employee.trainingValidity && !isPastDate(employee.trainingValidity) ? "Aprovado" : "Pendente";
 }
@@ -4172,11 +4172,11 @@ function employeeEhsStatus(employee, docs = []) {
 function employeePatrimonialStatus(employee, docs = []) {
   const workflowStatus = employeeWorkflowActionStatus(employee, "patrimonial");
   if (statusMatches(workflowStatus, "Aprovado", "Aprovado com pendencia")) return "Aprovado";
-  if (statusMatches(workflowStatus, "Reprovado", "RevisÃ£o solicitada", "RevalidaÃ§Ã£o solicitada", "Bloqueado")) return "Pendente";
-  if (statusMatches(employee.status, "Bloqueado", "Desmobilizado", "DesmobilizaÃ§Ã£o solicitada")) return "Pendente";
+  if (statusMatches(workflowStatus, "Reprovado", "Revisão solicitada", "Revalidação solicitada", "Bloqueado")) return "Pendente";
+  if (statusMatches(employee.status, "Bloqueado", "Desmobilizado", "Desmobilização solicitada")) return "Pendente";
   if (statusMatches(employee.status, "Liberado", "Aprovado")) return "Aprovado";
   const patrimonialDocs = docs.filter((doc) => documentOperationalSector(doc) === "Patrimonial");
-  if (patrimonialDocs.some((doc) => statusMatches(docStatus(doc), "Reprovado", "RevisÃ£o solicitada", "RevalidaÃ§Ã£o solicitada", "Vencido", "Pendente", "Em anÃ¡lise"))) return "Pendente";
+  if (patrimonialDocs.some((doc) => statusMatches(docStatus(doc), "Reprovado", "Revisão solicitada", "Revalidação solicitada", "Vencido", "Pendente", "Em análise"))) return "Pendente";
   if (patrimonialDocs.some((doc) => statusMatches(docStatus(doc), "Aprovado", "A vencer"))) return "Aprovado";
   return "Pendente";
 }
@@ -4185,7 +4185,7 @@ function applyAutomaticStatusRules({ syncRemote = false, source = "Motor automat
   if (!state?.companies || !state?.employees || !state?.documents) return [];
   state.historico ||= [];
   const changes = [];
-  const employeePendingStatuses = ["Em cadastro", "Pendente DocumentaÃ§Ã£o", "Pendente Medicina", "Pendente EHS", "Pendente Patrimonial", "Aguardando CorreÃ§Ã£o", "Em anÃ¡lise documental", "Aguardando medicina", "Aguardando EHS/RH", "Aguardando patrimonial", "DesmobilizaÃ§Ã£o solicitada"];
+  const employeePendingStatuses = ["Em cadastro", "Pendente Documentação", "Pendente Medicina", "Pendente EHS", "Pendente Patrimonial", "Aguardando Correção", "Em análise documental", "Aguardando medicina", "Aguardando EHS/RH", "Aguardando patrimonial", "Desmobilização solicitada"];
 
   const employeeTargets = scope?.employeeId ? state.employees.filter((employee) => sameId(employee.id, scope.employeeId)) : state.employees;
   const companyTargets = scope?.companyId ? state.companies.filter((company) => sameId(company.id, scope.companyId)) : state.companies;
@@ -4219,8 +4219,8 @@ function applyAutomaticStatusRules({ syncRemote = false, source = "Motor automat
     registerStatusChange("employees", "funcionario", employee, "docStatus", nextDocumentStatus, `status documental recalculado para ${nextDocumentStatus}`);
     registerStatusChange("employees", "funcionario", employee, "status", nextHiringStatus, `status de contratacao recalculado para ${nextHiringStatus}`);
 
-    if (hasPendingApprovalException(item) && statusMatches(nextDocumentStatus, "Aprovado com pendÃªncia")) {
-      registerStatusChange("employees", "funcionario", employee, "docStatus", "Aprovado com pendÃªncia", "aprovacao com pendencia formalizada com responsavel, motivo e prazo");
+    if (hasPendingApprovalException(item) && statusMatches(nextDocumentStatus, "Aprovado com pendência")) {
+      registerStatusChange("employees", "funcionario", employee, "docStatus", "Aprovado com pendência", "aprovacao com pendencia formalizada com responsavel, motivo e prazo");
       if (!statusMatches(nextHiringStatus, "Liberado")) {
         registerStatusChange("employees", "funcionario", employee, "status", "Liberado", "aprovacao com pendencia nao bloqueia a liberacao operacional");
       }
@@ -4311,7 +4311,7 @@ function renderDocuments() {
     ${renderOperationalFilters("documents", baseItems, { quicks: ["Todos", "Pendente", "Vencido", "A vencer", "Medicina", "EHS"], exportKey: "documentos-vencidos" })}
     <section class="panel table-wrap">
       <table>
-        <thead><tr>${sortableHeader("documents", "Documento", "sector")}${sortableHeader("documents", "Empresa", "company")}<th>Funcionario</th>${sortableHeader("documents", "Vencimento", "dueDate")}${sortableHeader("documents", "Status", "status")}<th>Observacoes</th><th>Acoes</th></tr></thead>
+        <thead><tr>${sortableHeader("documents", "Documento", "sector")}${sortableHeader("documents", "Empresa", "company")}<th>Funcionário</th>${sortableHeader("documents", "Vencimento", "dueDate")}${sortableHeader("documents", "Status", "status")}<th>Observações</th><th>Acoes</th></tr></thead>
         <tbody>
           ${pageItems.length ? pageItems.map(renderDocumentRow).join("") : emptyRow(7)}
         </tbody>
@@ -4390,7 +4390,7 @@ function renderContracts() {
         ${renderOperationalFilters("contracts", baseItems, { quicks: ["Todos", "Ativo", "Vencendo", "Pendente", "Bloqueado", "Desmobilizado"], exportKey: "contratos-vencendo" })}
         <div class="table-wrap contract-table-wrap">
           <table class="contract-table">
-            <thead><tr>${sortableHeader("contracts", "Contrato", "contract")}${sortableHeader("contracts", "Empresa", "company")}${sortableHeader("contracts", "Unidade", "sector")}<th>Periodo</th><th>Dias</th>${sortableHeader("contracts", "Status", "status")}<th>Acoes</th></tr></thead>
+            <thead><tr>${sortableHeader("contracts", "Contrato", "contract")}${sortableHeader("contracts", "Empresa", "company")}${sortableHeader("contracts", "Unidade", "sector")}<th>Período</th><th>Dias</th>${sortableHeader("contracts", "Status", "status")}<th>Acoes</th></tr></thead>
             <tbody>
               ${
                 pageItems.length
@@ -4442,10 +4442,10 @@ function openContractDetails(id) {
       <div class="contract-tabs" role="tablist">
         ${[
           ["general", "Dados Gerais"],
-          ["people", "Funcionarios"],
+          ["people", "Funcionários"],
           ["docs", "Documentos"],
-          ["approvals", "Aprovacoes"],
-          ["history", "Historico"],
+          ["approvals", "Aprovações"],
+          ["history", "Histórico"],
           ["pendencies", "Pendencias"],
         ]
           .map(([tab, label], index) => `<button class="${index === 0 ? "active" : ""}" type="button" data-contract-tab="${tab}">${label}</button>`)
@@ -4473,12 +4473,12 @@ function openContractDetails(id) {
 function renderContractOperationalSummary(company) {
   const employees = state.employees.filter((employee) => sameId(employee.companyId, company.id));
   const documents = state.documents.filter((doc) => sameId(doc.companyId, company.id));
-  const pendencies = documents.filter((doc) => !statusMatches(docStatus(doc), "Aprovado")).length + employees.filter((employee) => ["Em anÃ¡lise documental", "Aguardando medicina", "Aguardando EHS/RH", "Aguardando patrimonial", "DesmobilizaÃ§Ã£o solicitada"].some((status) => statusMatches(normalizeEmployee(employee).status, status))).length;
+  const pendencies = documents.filter((doc) => !statusMatches(docStatus(doc), "Aprovado")).length + employees.filter((employee) => ["Em análise documental", "Aguardando medicina", "Aguardando EHS/RH", "Aguardando patrimonial", "Desmobilização solicitada"].some((status) => statusMatches(normalizeEmployee(employee).status, status))).length;
   const expiring = documents.filter((doc) => docStatus(doc) === "A vencer").length + (contractDays(company) >= 0 && contractDays(company) <= 60 ? 1 : 0);
   const blocks = employees.filter((employee) => statusMatches(normalizeEmployee(employee).status, "Bloqueado")).length + (["Bloqueada", "Bloqueado"].some((status) => statusMatches(normalizeCompany(company).status, status)) ? 1 : 0);
   return `
     <div class="contract-ops-summary">
-      <div><span>Funcionarios</span><strong>${employees.length}</strong></div>
+      <div><span>Funcionários</span><strong>${employees.length}</strong></div>
       <div><span>Pendencias</span><strong>${pendencies}</strong></div>
       <div><span>Vencimentos proximos</span><strong>${expiring}</strong></div>
       <div><span>Bloqueios ativos</span><strong>${blocks}</strong></div>
@@ -4557,7 +4557,7 @@ function openCompanyDetails(id) {
           <div class="employee-record-meta">
             <span>${companyTradeName(item)}</span>
             <span>CNPJ ${item.cnpj || "Nao informado"}</span>
-            <span>ID/Codigo ${companyCode(item)}</span>
+            <span>ID/Código ${companyCode(item)}</span>
             <span>Fiscal ${item.fiscal || "Nao informado"}</span>
             <span>Contato ${companyMainContact(item)}</span>
             <span>Vencimento ${formatDate(item.endDate)}</span>
@@ -4573,14 +4573,14 @@ function openCompanyDetails(id) {
         ${[
           ["general", "Dados Gerais"],
           ["contracts", "Contratos"],
-          ["people", "FuncionÃ¡rios"],
+          ["people", "Funcionários"],
           ["docs", "Documentos da Empresa"],
           ["medicine", "Medicina Ocupacional"],
           ["ehs", "EHS / SSMA"],
-          ["patrimonial", "Seguranca Patrimonial"],
+          ["patrimonial", "Segurança Patrimonial"],
           ["managers", "Fiscais e Gestores"],
-          ["requests", "SolicitaÃ§Ãµes"],
-          ["history", "Historico"],
+          ["requests", "Solicitações"],
+          ["history", "Histórico"],
         ]
           .map(([tab, label], index) => `<button class="${index === 0 ? "active" : ""}" type="button" data-company-tab="${tab}">${label}</button>`)
           .join("")}
@@ -4690,7 +4690,7 @@ function renderCompanyTab(company, tab) {
       const stages = employeeOperationalStages(normalized);
       const stage = (key) => stages.find((entry) => entry.key === key);
       if (statusMatches(normalized.status, "Bloqueado")) acc.blocked += 1;
-      if (statusMatches(normalized.status, "Desmobilizado", "DesmobilizaÃ§Ã£o solicitada", "Inativo")) acc.demobilized += 1;
+      if (statusMatches(normalized.status, "Desmobilizado", "Desmobilização solicitada", "Inativo")) acc.demobilized += 1;
       if (statusMatches(stage("released")?.status, "Concluido")) acc.released += 1;
       if (!statusMatches(stage("documentation")?.status, "Concluido")) acc.pendingDocumentation += 1;
       if (!statusMatches(stage("medicine")?.status, "Concluido")) acc.pendingMedicine += 1;
@@ -4712,24 +4712,24 @@ function renderCompanyTab(company, tab) {
   if (tab === "general") {
     return `
       <div class="detail-grid">
-        ${detailCard("Razao social", item.name)}
+        ${detailCard("Razão social", item.name)}
         ${detailCard("Nome fantasia", companyTradeName(item))}
         ${detailCard("CNPJ", item.cnpj)}
-        ${detailCard("Inscricao estadual", item.stateRegistration || item.inscricaoEstadual || item.inscricao_estadual || "Nao informado")}
-        ${detailCard("Codigo da empresa", companyCode(item))}
-        ${detailCard("Codigo filial", companyBranchCode(item))}
+        ${detailCard("Inscrição estadual", item.stateRegistration || item.inscricaoEstadual || item.inscricao_estadual || "Nao informado")}
+        ${detailCard("Código da empresa", companyCode(item))}
+        ${detailCard("Código filial", companyBranchCode(item))}
         ${detailCard("Centro de custo", employeeCostCenter({}, item))}
         ${detailCard("CEP", item.cep || "Nao informado")}
-        ${detailCard("Endereco", companyAddress(item))}
-        ${detailCard("Municipio/UF", [item.city || item.municipio, item.uf].filter(Boolean).join("/") || "Nao informado")}
+        ${detailCard("Endereço", companyAddress(item))}
+        ${detailCard("Município/UF", [item.city || item.municipio, item.uf].filter(Boolean).join("/") || "Nao informado")}
         ${detailCard("Telefone", item.phone || "Nao informado")}
         ${detailCard("E-mail", item.email || "Nao informado")}
         ${detailCard("Contato principal", companyMainContact(item))}
         ${detailCard("Responsavel legal", companyLegalResponsible(item))}
         ${detailCard("Status", statusBadge(item.status))}
-        ${detailCard("Fiscal responsavel", item.fiscal || "Nao informado")}
+        ${detailCard("Fiscal responsável", item.fiscal || "Nao informado")}
         ${detailCard("Fiscais adicionais", fiscalNames(item.fiscaisAdicionais))}
-        ${detailCard("Observacoes", item.notes || item.observacoes || "Sem observacoes")}
+        ${detailCard("Observações", item.notes || item.observacoes || "Sem observacoes")}
       </div>
       <div class="table-wrap">
         <table>
@@ -4737,7 +4737,7 @@ function renderCompanyTab(company, tab) {
           <tbody>
             <tr><td>Total de funcionarios</td><td><strong>${workflowSummary.total}</strong></td></tr>
             <tr><td>Liberados</td><td><strong>${workflowSummary.released}</strong></td></tr>
-            <tr><td>Pendentes documentacao</td><td><strong>${workflowSummary.pendingDocumentation}</strong></td></tr>
+            <tr><td>Pendentes documentação</td><td><strong>${workflowSummary.pendingDocumentation}</strong></td></tr>
             <tr><td>Pendentes medicina</td><td><strong>${workflowSummary.pendingMedicine}</strong></td></tr>
             <tr><td>Pendentes EHS/SSMA</td><td><strong>${workflowSummary.pendingEhs}</strong></td></tr>
             <tr><td>Pendentes patrimonial</td><td><strong>${workflowSummary.pendingPatrimonial}</strong></td></tr>
@@ -4746,7 +4746,7 @@ function renderCompanyTab(company, tab) {
           </tbody>
         </table>
       </div>
-      ${renderCompanyTabHistory(company, "general", "Historico da empresa")}
+      ${renderCompanyTabHistory(company, "general", "Histórico da empresa")}
     `;
   }
   if (tab === "contracts") {
@@ -4759,7 +4759,7 @@ function renderCompanyTab(company, tab) {
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Numero do contrato</th><th>Objeto/Escopo</th><th>Inicio</th><th>Termino</th><th>Status</th><th>Centro de custo</th><th>Gestor</th><th>Documentos</th><th>Acoes</th></tr></thead>
+          <thead><tr><th>Número do contrato</th><th>Objeto/Escopo</th><th>Inicio</th><th>Termino</th><th>Status</th><th>Centro de custo</th><th>Gestor</th><th>Documentos</th><th>Acoes</th></tr></thead>
           <tbody>
             <tr>
               <td><strong>${item.contract || "Nao informado"}</strong><span>${Number.isFinite(days) ? `${days} dia(s) restantes` : "Prazo nao informado"}</span></td>
@@ -4780,29 +4780,29 @@ function renderCompanyTab(company, tab) {
   if (tab === "people") {
     return `
       <div class="contract-inner-toolbar">
-        ${can("create.employee") ? `<button class="btn primary compact" type="button" data-company-employee-new data-company-id="${company.id}">${icon("plus")} Novo FuncionÃ¡rio</button>` : ""}
+        ${can("create.employee") ? `<button class="btn primary compact" type="button" data-company-employee-new data-company-id="${company.id}">${icon("plus")} Novo Funcionário</button>` : ""}
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Matricula/ID</th><th>Nome</th><th>CPF</th><th>Funcao</th><th>Contrato</th><th>Status documental</th><th>Status contratacao</th><th>ASO</th><th>Treinamento</th><th>Acoes</th></tr></thead>
+          <thead><tr><th>Matrícula/ID</th><th>Nome</th><th>CPF</th><th>Funcao</th><th>Contrato</th><th>Status documental</th><th>Status contratacao</th><th>ASO</th><th>Treinamento</th><th>Acoes</th></tr></thead>
           <tbody>${employees.length ? employees.map((employee) => {
             const normalized = normalizeEmployee(employee);
             return `<tr><td>${employeeRegistration(normalized)}</td><td><strong>${normalized.name}</strong></td><td>${normalized.cpf}</td><td>${normalized.role}</td><td>${normalized.contract || item.contract || "Nao informado"}</td><td>${statusBadge(normalized.docStatus)}</td><td>${statusBadge(normalized.status)}</td><td>${formatDate(normalized.asoValidity)}</td><td>${formatDate(normalized.trainingValidity)}</td><td><button class="btn secondary compact" type="button" data-employee-record="${employee.id}">${icon("users")} Abrir funcionario</button></td></tr>`;
           }).join("") : emptyRow(10)}</tbody>
         </table>
       </div>
-      ${renderCompanyTabHistory(company, "people", "Historico de funcionarios / FIT")}
+      ${renderCompanyTabHistory(company, "people", "Histórico de funcionarios / FIT")}
     `;
   }
   if (tab === "docs") {
     return `
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Documento</th><th>Status</th><th>Validade</th><th>Responsavel pela analise</th><th>Anexar</th><th>Visualizar</th><th>Aprovar/Solicitar RevisÃ£o</th></tr></thead>
+          <thead><tr><th>Documento</th><th>Status</th><th>Validade</th><th>Responsavel pela analise</th><th>Anexar</th><th>Visualizar</th><th>Aprovar/Solicitar Revisão</th></tr></thead>
           <tbody>${documents.length ? documents.map((doc) => `<tr><td><strong>${doc.type}</strong><br><span class="muted">${doc.employeeId ? employeeName(doc.employeeId) : "Empresa"}</span></td><td>${statusBadge(docStatus(doc))}</td><td>${formatDate(doc.dueDate)}${docStatus(doc) === "Vencido" ? `<br>${statusBadge("Vencido")}` : ""}</td><td>${documentOperationalSector(doc)}</td><td><span class="mini-pill">Preparado</span></td><td><button class="btn secondary compact" type="button" data-document-detail="${doc.id}">${icon("docs")} Visualizar</button></td><td>${documentRowActions(doc) || `<span class="mini-pill">Sem permissao</span>`}</td></tr>`).join("") : emptyRow(7)}</tbody>
         </table>
       </div>
-      ${renderCompanyTabHistory(company, "docs", "Historico de documentos")}
+      ${renderCompanyTabHistory(company, "docs", "Histórico de documentos")}
     `;
   }
   if (tab === "medicine") {
@@ -4817,7 +4817,7 @@ function renderCompanyTab(company, tab) {
         ${detailCard("Anexos de medicina", medicineDocs.length)}
       </div>
       ${renderEmployeeDocsTable(medicineDocs, "Documentos de medicina ocupacional")}
-      ${renderCompanyTabHistory(company, "medicine", "Historico de medicina ocupacional")}
+      ${renderCompanyTabHistory(company, "medicine", "Histórico de medicina ocupacional")}
     `;
   }
   if (tab === "ehs") {
@@ -4830,20 +4830,20 @@ function renderCompanyTab(company, tab) {
         ${detailCard("Anexos de seguranca", ehsDocs.length)}
       </div>
       ${renderEmployeeDocsTable(ehsDocs, "Documentos de EHS / SSMA")}
-      ${renderCompanyTabHistory(company, "ehs", "Historico de EHS / SSMA")}
+      ${renderCompanyTabHistory(company, "ehs", "Histórico de EHS / SSMA")}
     `;
   }
   if (tab === "patrimonial") {
     const patrimonialDocs = documents.filter((doc) => documentOperationalSector(doc) === "Patrimonial" || /patrimonial|cracha|acesso|liberacao/i.test(doc.type || ""));
     return `
       <div class="detail-grid">
-        ${detailCard("Liberacao patrimonial", statusBadge(patrimonialDocs.some((doc) => statusMatches(docStatus(doc), "Aprovado")) ? "Aprovado" : "Pendente"))}
-        ${detailCard("Cracha / acesso", statusBadge(patrimonialDocs.some((doc) => /cracha|acesso/i.test(doc.type || "")) ? "Aprovado" : "Pendente"))}
-        ${detailCard("Observacoes", item.notes || item.observacoes || "Sem observacoes")}
+        ${detailCard("Liberação patrimonial", statusBadge(patrimonialDocs.some((doc) => statusMatches(docStatus(doc), "Aprovado")) ? "Aprovado" : "Pendente"))}
+        ${detailCard("Crachá / acesso", statusBadge(patrimonialDocs.some((doc) => /cracha|acesso/i.test(doc.type || "")) ? "Aprovado" : "Pendente"))}
+        ${detailCard("Observações", item.notes || item.observacoes || "Sem observacoes")}
         ${detailCard("Anexos patrimoniais", patrimonialDocs.length)}
       </div>
       ${renderEmployeeDocsTable(patrimonialDocs, "Documentos de seguranca patrimonial")}
-      ${renderCompanyTabHistory(company, "patrimonial", "Historico de seguranca patrimonial")}
+      ${renderCompanyTabHistory(company, "patrimonial", "Histórico de seguranca patrimonial")}
     `;
   }
   if (tab === "managers") {
@@ -4851,27 +4851,27 @@ function renderCompanyTab(company, tab) {
     const linkedFiscais = fiscalIds.map((id) => state.fiscais.find((fiscal) => sameId(fiscal.id, id))).filter(Boolean).map(normalizeFiscal);
     return `
       <div class="detail-grid">
-        ${detailCard("Fiscal responsavel da empresa", item.fiscal || "Nao informado")}
+        ${detailCard("Fiscal responsável da empresa", item.fiscal || "Nao informado")}
         ${detailCard("Fiscais substitutos", linkedFiscais.length ? linkedFiscais.map((fiscal) => fiscal.nome).join(", ") : "Nao informado")}
         ${detailCard("Gestor do contrato", item.manager || item.responsible || "Nao informado")}
         ${detailCard("Status da fiscalizacao", statusBadge(companyHasNoFiscal(item) ? "Pendente" : "Aprovado"))}
       </div>
       ${renderFiscalRegistry()}
-      ${renderCompanyTabHistory(company, "managers", "Historico de fiscais e gestores")}
+      ${renderCompanyTabHistory(company, "managers", "Histórico de fiscais e gestores")}
     `;
   }
   if (tab === "history") {
     return renderHistoryTimeline("empresa", company.id, [
       `<div class="item-card"><strong>Empresa cadastrada</strong><span class="muted">${item.name} - ${item.cnpj}</span></div>`,
       `<div class="item-card"><strong>Contrato atual</strong><span class="muted">${item.contract || "Nao informado"} - ${formatDate(item.startDate)} ate ${formatDate(item.endDate)}</span></div>`,
-      `<div class="item-card"><strong>Funcionarios vinculados</strong><span class="muted">${employees.length} funcionario(s)</span></div>`,
+      `<div class="item-card"><strong>Funcionários vinculados</strong><span class="muted">${employees.length} funcionario(s)</span></div>`,
       `<div class="item-card"><strong>Documentos vinculados</strong><span class="muted">${documents.length} documento(s)</span></div>`,
     ]);
   }
   return renderHistoryTimeline("empresa", company.id, [
     `<div class="item-card"><strong>Empresa cadastrada</strong><span class="muted">${item.name} - ${item.cnpj}</span></div>`,
     `<div class="item-card"><strong>Contrato atual</strong><span class="muted">${item.contract || "Nao informado"} - ${formatDate(item.startDate)} ate ${formatDate(item.endDate)}</span></div>`,
-    `<div class="item-card"><strong>Funcionarios vinculados</strong><span class="muted">${employees.length} funcionario(s)</span></div>`,
+    `<div class="item-card"><strong>Funcionários vinculados</strong><span class="muted">${employees.length} funcionario(s)</span></div>`,
     `<div class="item-card"><strong>Documentos vinculados</strong><span class="muted">${documents.length} documento(s)</span></div>`,
   ]);
 }
@@ -4952,7 +4952,7 @@ function openCompanyQuickDetails(id) {
         ${detailCard("Fiscal", item.fiscal || "Nao informado")}
         ${detailCard("Responsavel", item.responsible || "Nao informado")}
         ${detailCard("Contato", `${item.phone || "Nao informado"} / ${item.email || "Nao informado"}`)}
-        ${detailCard("Periodo", `${formatDate(item.startDate)} ate ${formatDate(item.endDate)}`)}
+        ${detailCard("Período", `${formatDate(item.startDate)} ate ${formatDate(item.endDate)}`)}
         ${detailCard("Status", statusBadge(item.status))}
       </div>
     </section>
@@ -4974,7 +4974,7 @@ function renderContractTab(company, tab) {
   if (tab === "general") {
     return `
       <div class="detail-grid">
-        ${detailCard("Numero do contrato", item.contract || "Nao informado")}
+        ${detailCard("Número do contrato", item.contract || "Nao informado")}
         ${detailCard("Empresa", item.name)}
         ${detailCard("Unidade", contractUnit(item))}
         ${detailCard("Fiscal", item.fiscal)}
@@ -5011,7 +5011,7 @@ function renderContractTab(company, tab) {
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Funcionario/FIT</th><th>CPF</th><th>Funcao</th><th>ASO</th><th>Treinamento</th><th>Status</th><th>Acoes</th></tr></thead>
+          <thead><tr><th>Funcionário/FIT</th><th>CPF</th><th>Funcao</th><th>ASO</th><th>Treinamento</th><th>Status</th><th>Acoes</th></tr></thead>
           <tbody>
             ${
               items.length
@@ -5041,7 +5041,7 @@ function renderContractTab(company, tab) {
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Documento</th><th>Funcionario</th><th>Validade</th><th>Status</th><th>Observacoes</th><th>Acoes</th></tr></thead>
+          <thead><tr><th>Documento</th><th>Funcionário</th><th>Validade</th><th>Status</th><th>Observações</th><th>Acoes</th></tr></thead>
           <tbody>
             ${
               documents.length
@@ -5068,7 +5068,7 @@ function renderContractTab(company, tab) {
       `<div class="item-card"><strong>Contrato registrado</strong><span class="muted">${formatDate(item.startDate)} - ${item.name}</span></div>`,
       `<div class="item-card"><strong>Status atual</strong><span class="muted">${item.status}</span></div>`,
       `<div class="item-card"><strong>Documentos monitorados</strong><span class="muted">${documents.length} documento(s) associados ao contrato.</span></div>`,
-      `<div class="item-card"><strong>Funcionarios vinculados</strong><span class="muted">${employees.length} funcionario(s)/FIT vinculados.</span></div>`,
+      `<div class="item-card"><strong>Funcionários vinculados</strong><span class="muted">${employees.length} funcionario(s)/FIT vinculados.</span></div>`,
       `<div class="item-card"><strong>Pendencias atuais</strong><span class="muted">${pendingDocs.length} documento(s) e ${blockedEmployees.length} bloqueio(s) em acompanhamento.</span></div>`,
     ]);
   }
@@ -5087,11 +5087,47 @@ function renderContractTab(company, tab) {
 }
 
 function detailCard(label, value) {
+  if (typeof value === "number") {
+    const suffix = value === 1 ? ` ${singularizeDetailLabel(label)}` : "";
+    return `<div class="detail-card"><span>${label}</span><strong>${value}${suffix}</strong></div>`;
+  }
   return `<div class="detail-card"><span>${label}</span><strong>${value}</strong></div>`;
 }
 
+function singularizeDetailLabel(label = "") {
+  const text = String(label || "").trim();
+  if (!text) return "";
+  const [first, ...rest] = text.split(/\s+/);
+  const replacements = {
+    Aprovados: "Aprovado",
+    Aprovadas: "Aprovada",
+    Reprovados: "Reprovado",
+    Reprovadas: "Reprovada",
+    Pendentes: "Pendente",
+    Liberados: "Liberado",
+    Funcionarios: "Funcionário",
+    Funcionários: "Funcionário",
+    Anexos: "Anexo",
+    Solicitações: "Solicitação",
+    Solicitacoes: "Solicitação",
+    Aprovações: "Aprovação",
+    Aprovacoes: "Aprovação",
+    Documentos: "Documento",
+    Vinculos: "Vínculo",
+    Vínculos: "Vínculo",
+    Usuários: "Usuário",
+    Usuarios: "Usuário",
+    Históricos: "Histórico",
+    Historicos: "Histórico",
+    Contratos: "Contrato",
+    Matrículas: "Matrícula",
+    Matriculas: "Matrícula",
+  };
+  return [replacements[first] || first, ...rest].join(" ");
+}
+
 function renderApprovals() {
-  const baseItems = visibleDocuments().filter((doc) => ["Pendente", "Reprovado", "RevisÃ£o solicitada", "A vencer", "Vencido"].includes(docStatus(doc)));
+  const baseItems = visibleDocuments().filter((doc) => ["Pendente", "Reprovado", "Revisão solicitada", "A vencer", "Vencido"].includes(docStatus(doc)));
   const filteredItems = filtered(baseItems, [(doc) => doc.type, (doc) => companyName(doc.companyId), (doc) => employeeName(doc.employeeId), (doc) => docStatus(doc)]);
   const items = sortItems("approvals", applyOperationalFilters("approvals", filteredItems));
   const { pageItems, totalPages } = paginateItems("approvals", items);
@@ -5099,14 +5135,14 @@ function renderApprovals() {
     <section class="panel">
       <div class="modal-head">
         <div>
-          <h2>Aprovacoes documentais</h2>
+          <h2>Aprovações documentais</h2>
           <span class="muted">Fila de documentos para avaliacao do fiscal.</span>
         </div>
         <span class="mini-pill">${items.length} item(ns)</span>
       </div>
       <div class="modal-body">
         ${toolbar("Buscar por documento, empresa, funcionario ou status")}
-        ${renderOperationalFilters("approvals", baseItems, { quicks: ["Todos", "Pendente", "RevisÃ£o solicitada", "Vencido", "A vencer", "Medicina", "EHS"], exportKey: "pendencias-por-setor" })}
+        ${renderOperationalFilters("approvals", baseItems, { quicks: ["Todos", "Pendente", "Revisão solicitada", "Vencido", "A vencer", "Medicina", "EHS"], exportKey: "pendencias-por-setor" })}
       </div>
       <div class="modal-body item-list">
         ${
@@ -5238,7 +5274,7 @@ function renderCompliance() {
   const risks = [
     ["Documentos vencidos", documents.filter((doc) => docStatus(doc) === "Vencido").length, "bad"],
     ["Empresas desmobilizadas", companies.filter((company) => normalizeCompany(company).status === "Desmobilizada").length, "warn"],
-    ["Funcionarios bloqueados", employees.filter((employee) => statusMatches(normalizeEmployee(employee).status, "Bloqueado")).length, "bad"],
+    ["Funcionários bloqueados", employees.filter((employee) => statusMatches(normalizeEmployee(employee).status, "Bloqueado")).length, "bad"],
     ["Pendencias totais", documents.filter((doc) => docStatus(doc) !== "Aprovado").length, "info"],
   ];
   return `
@@ -5256,14 +5292,14 @@ function renderCompliance() {
       <section class="panel">
         <div class="modal-head"><h2>Matriz de conformidade</h2></div>
         <div class="modal-body item-list">
-          ${["Politica documental", "Medicina ocupacional", "Treinamento EHS", "Liberacao fiscal"].map((item, index) => `<div class="item-card"><div class="item-row"><strong>${item}</strong>${statusBadge(index === 0 && complianceScore > 70 ? "Aprovado" : "Pendente")}</div><span class="muted">Controle preparado para auditoria e rastreabilidade.</span></div>`).join("")}
+          ${["Politica documental", "Medicina ocupacional", "Treinamento EHS", "Liberação fiscal"].map((item, index) => `<div class="item-card"><div class="item-row"><strong>${item}</strong>${statusBadge(index === 0 && complianceScore > 70 ? "Aprovado" : "Pendente")}</div><span class="muted">Controle preparado para auditoria e rastreabilidade.</span></div>`).join("")}
         </div>
       </section>
       <section class="panel">
         <div class="modal-head"><h2>Resumo executivo</h2></div>
         <div class="modal-body item-list">
           <div class="item-card"><strong>${companies.length} empresas monitoradas</strong><span class="muted">Carteira visivel conforme perfil do usuario.</span></div>
-          <div class="item-card"><strong>${employees.length} funcionarios vinculados</strong><span class="muted">Status de contratacao e documentacao acompanhados.</span></div>
+          <div class="item-card"><strong>${employees.length} funcionarios vinculados</strong><span class="muted">Status de contratacao e documentação acompanhados.</span></div>
           <div class="item-card"><strong>${documents.length} documentos rastreados</strong><span class="muted">Validade, aprovacao e historico de observacoes.</span></div>
         </div>
       </section>
@@ -5276,7 +5312,7 @@ function renderBlocks() {
   const blockedEmployees = visibleEmployees().filter((employee) => ["Bloqueado"].some((status) => statusMatches(normalizeEmployee(employee).status, status)));
   const baseItems = [
     ...blockedCompanies.map((company) => ({ ...company, blockType: "Empresa", blockName: company.name, blockCompanyId: company.id })),
-    ...blockedEmployees.map((employee) => ({ ...employee, blockType: "Funcionario", blockName: employee.name, blockCompanyId: employee.companyId })),
+    ...blockedEmployees.map((employee) => ({ ...employee, blockType: "Funcionário", blockName: employee.name, blockCompanyId: employee.companyId })),
   ];
   const filteredItems = filtered(baseItems, [
     (item) => item.blockName,
@@ -5302,7 +5338,7 @@ function renderBlocks() {
           ${
             pageItems.length
               ? pageItems.map((item) => {
-                  const isEmployee = item.blockType === "Funcionario";
+                  const isEmployee = item.blockType === "Funcionário";
                   const company = state.companies.find((entry) => sameId(entry.id, item.blockCompanyId));
                   return `<tr><td>${item.blockType}</td><td><strong>${item.blockName}</strong><br><span class="muted">${isEmployee ? item.role : item.cnpj}</span></td><td>${company?.name || item.blockName}</td><td>${company?.contract || item.contract || "Nao informado"}</td><td>${statusBadge(item.status)}</td><td>${isEmployee ? `<button class="btn secondary compact" type="button" data-employee-record="${item.id}">${icon("users")} Ver detalhes</button>` : `<button class="btn secondary compact" type="button" data-contract-detail="${item.id}">${icon("docs")} Ver detalhes</button>`}</td></tr>`;
                 }).join("")
@@ -5432,7 +5468,7 @@ async function openDocumentDetails(id, popupHandle = null) {
         <section class="document-info-panel">
           <div class="detail-grid">
             ${detailCard("Empresa", companyName(doc.companyId))}
-            ${detailCard("Funcionario", doc.employeeId ? employeeName(doc.employeeId) : "Documento da empresa")}
+            ${detailCard("Funcionário", doc.employeeId ? employeeName(doc.employeeId) : "Documento da empresa")}
             ${detailCard("Vencimento", formatDate(doc.dueDate))}
             ${detailCard("Status automatico", statusBadge(status))}
           </div>
@@ -5607,16 +5643,16 @@ function renderUsers() {
       <div class="modal-head">
         <div>
           <span class="eyebrow">Administracao</span>
-          <h2>Usuarios e Acessos</h2>
+          <h2>Usuários e Acessos</h2>
           <span class="muted">Visao consolidada dos acessos do portal, alinhada as demais secoes administrativas.</span>
         </div>
         <div class="actions wrap">
-          <button class="btn primary" type="button" data-create="user">${icon("plus")} Novo Usuario</button>
+          <button class="btn primary" type="button" data-create="user">${icon("plus")} Novo Usuário</button>
         </div>
       </div>
       <div class="access-summary-grid">
         <div class="item-card"><strong>Total de usuarios</strong><span class="muted">${totalUsers} conta(s) cadastrada(s).</span></div>
-        <div class="item-card"><strong>Usuarios ativos</strong><span class="muted">${activeUsers} acesso(s) liberado(s).</span></div>
+        <div class="item-card"><strong>Usuários ativos</strong><span class="muted">${activeUsers} acesso(s) liberado(s).</span></div>
         <div class="item-card"><strong>Convites ativos</strong><span class="muted">${inviteUsers} usuario(s) em fluxo de primeiro acesso.</span></div>
       </div>
       <div class="enterprise-strip users-strip">
@@ -5637,12 +5673,12 @@ function renderUsers() {
 }
 
 const ADMINISTRATION_SECTIONS = [
-  ["users", "Usuarios e Acessos", "Visao consolidada de acessos e convites."],
-  ["fiscais", "Fiscais", "Responsaveis operacionais por empresa e contrato."],
-  ["fornecedores", "Fornecedores", "Responsaveis da empresa e do portal."],
-  ["medicina", "Medicina", "Usuarios da fila de Medicina ocupacional."],
-  ["ehs", "EHS / SSMA", "Usuarios da fila de seguranca do trabalho."],
-  ["patrimonial", "Seguranca Patrimonial", "Usuarios da fila de liberacao final."],
+  ["users", "Usuários e Acessos", "Visao consolidada de acessos e convites."],
+  ["fiscais", "Fiscais", "Responsáveis operacionais por empresa e contrato."],
+  ["fornecedores", "Fornecedores", "Responsáveis da empresa e do portal."],
+  ["medicina", "Medicina", "Usuários da fila de Medicina ocupacional."],
+  ["ehs", "EHS / SSMA", "Usuários da fila de seguranca do trabalho."],
+  ["patrimonial", "Segurança Patrimonial", "Usuários da fila de liberacao final."],
 ];
 
 function administrationSectionConfig(section = "users") {
@@ -5702,7 +5738,7 @@ function fiscalAccessStatus(fiscal = {}) {
   if (user && user.active === false) return "Acesso inativo";
   if (user) return userAccessStatusLabel(user);
   if (item.usuarioEmail || item.usuarioId || item.authUserId) return "Convite enviado";
-  return "Sem usuÃ¡rio de acesso";
+  return "Sem usuário de acesso";
 }
 
 function supplierUserForCompany(company = {}) {
@@ -5712,7 +5748,7 @@ function supplierUserForCompany(company = {}) {
 
 function supplierAccessStatus(company = {}) {
   const user = supplierUserForCompany(company);
-  if (!user) return "Aguardando liberaÃ§Ã£o de acesso";
+  if (!user) return "Aguardando liberação de acesso";
   return userAccessStatusLabel(user);
 }
 
@@ -5760,9 +5796,9 @@ function renderAdministrationFiscalSection() {
                   ${user ? `<button class="btn secondary compact" type="button" data-user-action="resend-invite" data-id="${user.id}">Enviar convite</button>` : ""}
                   ${user ? `<button class="btn secondary compact" type="button" data-user-action="resend-invite" data-id="${user.id}" data-reset="1">Reenviar convite</button>` : ""}
                   ${user ? `<button class="btn warning compact" type="button" data-user-action="toggle-access" data-id="${user.id}">${user.active === false ? "Reativar acesso" : "Inativar acesso"}</button>` : ""}
-                  ${user ? `<button class="btn secondary compact" type="button" data-user-action="change-link" data-id="${user.id}">Editar vÃ­nculo</button>` : ""}
+                  ${user ? `<button class="btn secondary compact" type="button" data-user-action="change-link" data-id="${user.id}">Editar vínculo</button>` : ""}
                   ${!user && fiscal.status !== "inativo" ? `<button class="btn secondary compact" type="button" data-fiscal-access="${fiscal.id}">${icon("users")} Criar acesso ao sistema</button>` : ""}
-                  ${!user && linkedCompanies.length ? `<button class="btn secondary compact" type="button" data-company-detail="${linkedCompanies[0].id}">Editar vÃ­nculo</button>` : ""}
+                  ${!user && linkedCompanies.length ? `<button class="btn secondary compact" type="button" data-company-detail="${linkedCompanies[0].id}">Editar vínculo</button>` : ""}
                   ${fiscal.status !== "inativo" ? `<button class="btn warning compact" type="button" data-fiscal-inactivate="${fiscal.id}">Inativar fiscal</button>` : `<span class="mini-pill">Inativo</span>`}
                 </div>
               </td>
@@ -5780,7 +5816,7 @@ function renderAdministrationFiscalSection() {
         </div>
       </div>
       <table>
-        <thead><tr><th>Nome</th><th>Contato</th><th>Matricula</th><th>Setor</th><th>Empresa vinculada</th><th>Contrato vinculado</th><th>Status do acesso</th><th>Acoes</th></tr></thead>
+        <thead><tr><th>Nome</th><th>Contato</th><th>Matrícula</th><th>Setor</th><th>Empresa vinculada</th><th>Contrato vinculado</th><th>Status do acesso</th><th>Acoes</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </section>
@@ -5829,7 +5865,7 @@ function renderAdministrationSupplierSection() {
       <div class="modal-head">
         <div>
           <h2>Fornecedores</h2>
-          <span class="muted">Responsaveis vinculados a empresas e contratos com liberaÃ§Ã£o de acesso ao portal.</span>
+          <span class="muted">Responsáveis vinculados a empresas e contratos com liberação de acesso ao portal.</span>
         </div>
       </div>
       <table>
@@ -5896,9 +5932,9 @@ function renderAdministrationSection(section) {
   if (section === "users") return renderUsers();
   if (section === "fiscais") return renderAdministrationFiscalSection();
   if (section === "fornecedores") return renderAdministrationSupplierSection();
-  if (section === "medicina") return renderAdministrationSectorSection("medicina", "Medicina", "Usuarios que atuam na fila de Medicina ocupacional.");
-  if (section === "ehs") return renderAdministrationSectorSection("ehs", "EHS / SSMA", "Usuarios que atuam na fila de EHS / SSMA.");
-  if (section === "patrimonial") return renderAdministrationSectorSection("patrimonial", "Seguranca Patrimonial", "Usuarios que atuam na fila de liberacao final.");
+  if (section === "medicina") return renderAdministrationSectorSection("medicina", "Medicina", "Usuários que atuam na fila de Medicina ocupacional.");
+  if (section === "ehs") return renderAdministrationSectorSection("ehs", "EHS / SSMA", "Usuários que atuam na fila de EHS / SSMA.");
+  if (section === "patrimonial") return renderAdministrationSectorSection("patrimonial", "Segurança Patrimonial", "Usuários que atuam na fila de liberacao final.");
   return `<div class="empty">Secao administrativa indisponivel.</div>`;
 }
 
@@ -5909,12 +5945,12 @@ function renderReports() {
   const metrics = operationalMetrics(companies, employees, documents);
   const sectorPendencies = [
     { setor: "Medicina Ocupacional", pendencias: metrics.medicinePendencies.length, responsavel: "ASO e exames", status: "Pendente" },
-    { setor: "Seguranca do Trabalho/EHS", pendencias: metrics.ehsPendencies.length, responsavel: "Treinamentos e requisitos EHS", status: "Pendente" },
-    { setor: "Seguranca Patrimonial", pendencias: metrics.patrimonialPendencies.length, responsavel: "Liberacao final", status: "Pendente" },
+    { setor: "Segurança do Trabalho/EHS", pendencias: metrics.ehsPendencies.length, responsavel: "Treinamentos e requisitos EHS", status: "Pendente" },
+    { setor: "Segurança Patrimonial", pendencias: metrics.patrimonialPendencies.length, responsavel: "Liberação final", status: "Pendente" },
   ];
   const blockRows = [
     ...metrics.blockedEmployees.map((employee) => ({
-      tipo: "Funcionario",
+      tipo: "Funcionário",
       registro: normalizeEmployee(employee).name,
       empresa: companyName(normalizeEmployee(employee).companyId),
       motivo: normalizeEmployee(employee).notes || "Restricao operacional",
@@ -5944,18 +5980,18 @@ function renderReports() {
       <div class="modal-body report-grid">
         <div class="stat-card danger"><span>Documentos vencidos</span><strong>${metrics.expiredDocs.length}</strong><small>Fora da validade</small></div>
         <div class="stat-card warning"><span>Documentos a vencer</span><strong>${metrics.expiringDocs.length}</strong><small>Janela de alerta</small></div>
-        <div class="stat-card success"><span>Funcionarios ativos</span><strong>${metrics.activeEmployees.length}</strong><small>Aptos/liberados</small></div>
+        <div class="stat-card success"><span>Funcionários ativos</span><strong>${metrics.activeEmployees.length}</strong><small>Aptos/liberados</small></div>
         <div class="stat-card danger"><span>Bloqueios</span><strong>${blockRows.length}</strong><small>Restricoes em aberto</small></div>
       </div>
     </section>
     <div class="report-stack">
-      ${renderReportTable("Documentos vencidos", "Controle de documentos fora do prazo.", "documentos-vencidos", ["Documento", "Empresa", "Funcionario", "Vencimento", "Status"], metrics.expiredDocs.map((doc) => [doc.type, companyName(doc.companyId), doc.employeeId ? employeeName(doc.employeeId) : "Empresa", formatDate(doc.dueDate), statusBadge(docStatus(doc))]))}
-      ${renderReportTable("Documentos a vencer", "Itens proximos do vencimento.", "documentos-a-vencer", ["Documento", "Empresa", "Funcionario", "Vencimento", "Status"], metrics.expiringDocs.map((doc) => [doc.type, companyName(doc.companyId), doc.employeeId ? employeeName(doc.employeeId) : "Empresa", formatDate(doc.dueDate), statusBadge(docStatus(doc))]))}
-      ${renderReportTable("Funcionarios ativos", "Trabalhadores liberados para operacao.", "funcionarios-ativos", ["Nome", "CPF", "Empresa", "Funcao", "Status"], metrics.activeEmployees.map((employee) => {
+      ${renderReportTable("Documentos vencidos", "Controle de documentos fora do prazo.", "documentos-vencidos", ["Documento", "Empresa", "Funcionário", "Vencimento", "Status"], metrics.expiredDocs.map((doc) => [doc.type, companyName(doc.companyId), doc.employeeId ? employeeName(doc.employeeId) : "Empresa", formatDate(doc.dueDate), statusBadge(docStatus(doc))]))}
+      ${renderReportTable("Documentos a vencer", "Itens proximos do vencimento.", "documentos-a-vencer", ["Documento", "Empresa", "Funcionário", "Vencimento", "Status"], metrics.expiringDocs.map((doc) => [doc.type, companyName(doc.companyId), doc.employeeId ? employeeName(doc.employeeId) : "Empresa", formatDate(doc.dueDate), statusBadge(docStatus(doc))]))}
+      ${renderReportTable("Funcionários ativos", "Trabalhadores liberados para operacao.", "funcionarios-ativos", ["Nome", "CPF", "Empresa", "Funcao", "Status"], metrics.activeEmployees.map((employee) => {
         const item = normalizeEmployee(employee);
         return [item.name, item.cpf || "Nao informado", companyName(item.companyId), item.role || "Nao informado", statusBadge(item.status)];
       }))}
-      ${renderReportTable("Funcionarios inativos/desmobilizados", "Historico de trabalhadores sem atividade atual.", "funcionarios-inativos", ["Nome", "CPF", "Empresa", "Funcao", "Status"], metrics.inactiveEmployees.map((employee) => {
+      ${renderReportTable("Funcionários inativos/desmobilizados", "Histórico de trabalhadores sem atividade atual.", "funcionarios-inativos", ["Nome", "CPF", "Empresa", "Funcao", "Status"], metrics.inactiveEmployees.map((employee) => {
         const item = normalizeEmployee(employee);
         return [item.name, item.cpf || "Nao informado", companyName(item.companyId), item.role || "Nao informado", statusBadge(item.status)];
       }))}
@@ -5972,13 +6008,13 @@ function renderReports() {
 function renderRequests() {
   const requestCards = [
     ["Pendentes", "Pedidos aguardando analise", "warn"],
-    ["Aprovadas", "Solicitacoes autorizadas", "success"],
+    ["Aprovadas", "Solicitações autorizadas", "success"],
     ["Rejeitadas", "Pedidos negados com registro", "danger"],
-    ["Executadas", "Solicitacoes concluidas", "info"],
+    ["Executadas", "Solicitações concluidas", "info"],
   ];
-  const requestBands = ["Desmobilizacao", "Encerramento", "Arquivamento", "Acesso"];
+  const requestBands = ["Desmobilização", "Encerramento", "Arquivamento", "Acesso"];
   const requestRows = [
-    ["Desmobilizacao de funcionario", "Empresa A", "Pendente"],
+    ["Desmobilização de funcionario", "Empresa A", "Pendente"],
     ["Arquivamento de documento", "Empresa B", "Em analise"],
     ["Encerramento de contrato", "Empresa C", "Pendente"],
   ];
@@ -5986,7 +6022,7 @@ function renderRequests() {
     <section class="hero-panel compact-hero">
       <div>
         <span class="eyebrow">Central operacional</span>
-        <h2>Solicitacoes</h2>
+        <h2>Solicitações</h2>
         <p>Estrutura visual para pedidos formais e acompanhamento do fluxo, sem implementar regras nesta fase.</p>
         <div class="hero-command-row">
           ${requestBands.map((band) => `<span>${band}</span>`).join("")}
@@ -5998,13 +6034,13 @@ function renderRequests() {
     </div>
     <div class="dashboard-grid">
       <section class="bi-card wide">
-        <div class="bi-head"><div><span class="eyebrow">Fila operacional</span><h2>Solicitacoes em estrutura</h2></div><span class="mini-pill">Preparado</span></div>
+        <div class="bi-head"><div><span class="eyebrow">Fila operacional</span><h2>Solicitações em estrutura</h2></div><span class="mini-pill">Preparado</span></div>
         <div class="item-list dense-list">
           ${requestRows.map(([title, company, status]) => `<div class="item-card"><div class="item-row"><strong>${title}</strong>${statusBadge(status)}</div><span class="muted">${company} - estrutura de fluxo sem regras ativadas nesta fase.</span></div>`).join("")}
         </div>
       </section>
       <section class="bi-card">
-        <div class="bi-head"><div><span class="eyebrow">Historico</span><h2>Eventos da central</h2></div><span class="mini-pill">0</span></div>
+        <div class="bi-head"><div><span class="eyebrow">Histórico</span><h2>Eventos da central</h2></div><span class="mini-pill">0</span></div>
         <div class="empty">Sem processamento de solicitacoes nesta fase. A estrutura foi preparada para a V2.</div>
       </section>
     </div>
@@ -6027,7 +6063,7 @@ function renderAdministration() {
       </div>
     </section>
     <div class="stats-grid four">
-      <div class="stat-card info"><span>Usuarios</span><strong>${totalUsers}</strong><small>Contas registradas</small></div>
+      <div class="stat-card info"><span>Usuários</span><strong>${totalUsers}</strong><small>Contas registradas</small></div>
       <div class="stat-card warning"><span>Fiscais</span><strong>${totalFiscais}</strong><small>${activeFiscais} com acesso ativo</small></div>
       <div class="stat-card special"><span>Fornecedores</span><strong>${supplierUsers.length}</strong><small>Acessos por empresa</small></div>
       <div class="stat-card success"><span>Setoriais</span><strong>${sectorUsers}</strong><small>Medicina, EHS e Patrimonial</small></div>
@@ -6037,7 +6073,7 @@ function renderAdministration() {
       <div class="modal-head">
         <div>
           <span class="eyebrow">Secao administrativa</span>
-          <h2>${section === "users" ? "Usuarios e Acessos" : administrationSectionConfig(section)[1]}</h2>
+          <h2>${section === "users" ? "Usuários e Acessos" : administrationSectionConfig(section)[1]}</h2>
           <span class="muted">${administrationSectionConfig(section)[2]}</span>
         </div>
       </div>
@@ -6049,9 +6085,9 @@ function renderAdministration() {
       <section class="bi-card wide">
         <div class="bi-head"><div><span class="eyebrow">Estrutura</span><h2>Organizacao administrativa</h2></div></div>
         <div class="item-list dense-list">
-          <div class="item-card"><strong>Usuarios e Acessos</strong><span class="muted">Visao consolidada dos acessos do portal.</span></div>
+          <div class="item-card"><strong>Usuários e Acessos</strong><span class="muted">Visao consolidada dos acessos do portal.</span></div>
           <div class="item-card"><strong>Fiscais</strong><span class="muted">Base operacional de responsaveis vinculados a empresas.</span></div>
-          <div class="item-card"><strong>Fornecedores</strong><span class="muted">Responsaveis da empresa com liberacao de acesso.</span></div>
+          <div class="item-card"><strong>Fornecedores</strong><span class="muted">Responsáveis da empresa com liberacao de acesso.</span></div>
         </div>
       </section>
       <section class="bi-card">
@@ -6059,7 +6095,7 @@ function renderAdministration() {
         <div class="item-list dense-list">
           <div class="item-card"><strong>Medicina</strong><span class="muted">Fila medica e aprovacoes de ASO/exames.</span></div>
           <div class="item-card"><strong>EHS / SSMA</strong><span class="muted">Fila de treinamentos e requisitos de seguranca.</span></div>
-          <div class="item-card"><strong>Seguranca Patrimonial</strong><span class="muted">Liberacao final, matricula e cracha.</span></div>
+          <div class="item-card"><strong>Segurança Patrimonial</strong><span class="muted">Liberação final, matricula e cracha.</span></div>
         </div>
       </section>
     </div>
@@ -6090,7 +6126,7 @@ function renderReportTable(title, subtitle, exportKey, columns, rows) {
 }
 
 function renderUserRow(user) {
-  const userTypeBadge = user.creationMode === "test" ? `<span class="mini-pill">Usuario de teste</span>` : `<span class="mini-pill">Usuario real</span>`;
+  const userTypeBadge = user.creationMode === "test" ? `<span class="mini-pill">Usuário de teste</span>` : `<span class="mini-pill">Usuário real</span>`;
   const company = state.companies.find((item) => sameId(item.id, user.companyId));
   return `
     <tr>
@@ -6125,7 +6161,7 @@ function userRowActions(user) {
       <button class="btn secondary compact" type="button" data-user-action="reset-password" data-id="${user.id}">Redefinir senha</button>
       <button class="btn secondary compact" type="button" data-user-action="resend-invite" data-id="${user.id}">Reenviar convite</button>
       <button class="btn secondary compact" type="button" data-user-action="change-role" data-id="${user.id}">Alterar perfil</button>
-      <button class="btn secondary compact" type="button" data-user-action="change-link" data-id="${user.id}">Alterar vÃ­nculo</button>
+      <button class="btn secondary compact" type="button" data-user-action="change-link" data-id="${user.id}">Alterar vínculo</button>
     </div>
   `;
 }
@@ -6188,7 +6224,7 @@ function documentRowActions(doc) {
   return `
     <div class="actions wrap">
       ${can("approveDocuments", doc) ? `<button class="btn secondary compact" type="button" data-doc-status="Aprovado" data-id="${doc.id}">Aprovar</button>` : ""}
-      ${can("approveDocuments", doc) ? `<button class="btn warning compact" type="button" data-doc-status="RevisÃ£o solicitada" data-id="${doc.id}">Solicitar RevisÃ£o</button>` : ""}
+      ${can("approveDocuments", doc) ? `<button class="btn warning compact" type="button" data-doc-status="Revisão solicitada" data-id="${doc.id}">Solicitar Revisão</button>` : ""}
       ${can("edit.document", doc) ? `<button class="btn secondary compact" type="button" data-edit="document" data-id="${doc.id}">${icon("edit")} Editar</button>` : ""}
       ${can("delete.document", doc) ? `<button class="btn danger compact" type="button" data-delete="document" data-id="${doc.id}">${icon("trash")} Excluir</button>` : ""}
       ${!can("approveDocuments", doc) && !can("edit.document", doc) && !can("delete.document", doc) ? `<span class="mini-pill">Somente leitura</span>` : ""}
@@ -6206,33 +6242,33 @@ function statusBadge(status) {
   const hireLabel = normalizeHiringStatusLabel(raw);
   const normalized = [
     "Pendente",
-    "Em anÃ¡lise",
+    "Em análise",
     "Aprovado",
     "Reprovado",
     "Vencido",
-    "Aprovado com pendÃªncia",
+    "Aprovado com pendência",
     "A vencer",
   ].includes(docLabel)
     ? docLabel
     : hireLabel;
   const kind = {
     Aprovado: "ok",
-    "Aprovado com pendÃªncia": "conditional",
+    "Aprovado com pendência": "conditional",
     Ativa: "ok",
     Ativo: "ok",
     Liberado: "ok",
     Integrado: "ok",
     Conectado: "ok",
     Estatico: "ok",
-    "Em anÃ¡lise": "analysis",
-    "Em anÃ¡lise documental": "analysis",
+    "Em análise": "analysis",
+    "Em análise documental": "analysis",
     "A vencer": "warn",
     Pendente: "warn",
     "Aguardando medicina": "exams",
     "Aguardando EHS/RH": "training",
     "Aguardando patrimonial": "fiscal",
-    "DesmobilizaÃ§Ã£o solicitada": "warn",
-    "Pendente DocumentaÃ§Ã£o": "warn",
+    "Desmobilização solicitada": "warn",
+    "Pendente Documentação": "warn",
     "Pendente Medicina": "warn",
     "Pendente EHS": "warn",
     "Pendente Patrimonial": "warn",
@@ -6241,26 +6277,26 @@ function statusBadge(status) {
     "Convite enviado": "analysis",
     "Sem usuário de acesso": "warn",
     "Aguardando liberação de acesso": "warn",
-    "RevisÃ£o solicitada": "analysis",
-    "RevisÃ£o solicitada pelo Fiscal": "analysis",
-    "RevisÃ£o solicitada pela Medicina": "analysis",
-    "RevisÃ£o solicitada pelo EHS": "analysis",
-    "RevisÃ£o solicitada pela Patrimonial": "analysis",
-    "Em avaliaÃ§Ã£o": "analysis",
-    "Em avaliaÃ§Ã£o Fiscal": "analysis",
-    "Em avaliaÃ§Ã£o Medicina": "analysis",
-    "Em avaliaÃ§Ã£o EHS": "analysis",
-    "Em avaliaÃ§Ã£o Patrimonial": "analysis",
+    "Revisão solicitada": "analysis",
+    "Revisão solicitada pelo Fiscal": "analysis",
+    "Revisão solicitada pela Medicina": "analysis",
+    "Revisão solicitada pelo EHS": "analysis",
+    "Revisão solicitada pela Patrimonial": "analysis",
+    "Em avaliação": "analysis",
+    "Em avaliação Fiscal": "analysis",
+    "Em avaliação Medicina": "analysis",
+    "Em avaliação EHS": "analysis",
+    "Em avaliação Patrimonial": "analysis",
     "Enviado para Fiscal": "info",
     "Enviado para Medicina": "info",
     "Enviado para EHS": "info",
     "Enviado para Patrimonial": "info",
     "Rascunho pelo Fornecedor": "info",
-    "RevalidaÃ§Ã£o solicitada": "analysis",
-    "Em revalidaÃ§Ã£o": "analysis",
+    "Revalidação solicitada": "analysis",
+    "Em revalidação": "analysis",
     "Bloqueado por etapa anterior": "warn",
-    "Aguardando CorreÃ§Ã£o": "analysis",
-    "Ativo com pendÃªncia": "analysis",
+    "Aguardando Correção": "analysis",
+    "Ativo com pendência": "analysis",
     Arquivado: "info",
     Vencido: "bad",
     Inativa: "bad",
@@ -6283,49 +6319,49 @@ function statusClass(status) {
   const hireLabel = normalizeHiringStatusLabel(raw);
   const normalized = [
     "Pendente",
-    "Em anÃ¡lise",
+    "Em análise",
     "Aprovado",
     "Reprovado",
     "Vencido",
-    "Aprovado com pendÃªncia",
+    "Aprovado com pendência",
     "A vencer",
   ].includes(docLabel)
     ? docLabel
     : hireLabel;
   return {
     Aprovado: "ok",
-    "Aprovado com pendÃªncia": "conditional",
+    "Aprovado com pendência": "conditional",
     Ativa: "ok",
     Ativo: "ok",
     Liberado: "ok",
     Pendente: "warn",
     "A vencer": "warn",
-    "Em anÃ¡lise": "analysis",
-    "Em anÃ¡lise documental": "analysis",
+    "Em análise": "analysis",
+    "Em análise documental": "analysis",
     Reprovado: "bad",
-    "Pendente DocumentaÃ§Ã£o": "warn",
+    "Pendente Documentação": "warn",
     "Pendente Medicina": "warn",
     "Pendente EHS": "warn",
     "Pendente Patrimonial": "warn",
-    "RevisÃ£o solicitada": "analysis",
-    "RevisÃ£o solicitada pelo Fiscal": "analysis",
-    "RevisÃ£o solicitada pela Medicina": "analysis",
-    "RevisÃ£o solicitada pela EHS": "analysis",
-    "RevisÃ£o solicitada pela Patrimonial": "analysis",
-    "Em avaliaÃ§Ã£o": "analysis",
-    "Em avaliaÃ§Ã£o Fiscal": "analysis",
-    "Em avaliaÃ§Ã£o Medicina": "analysis",
-    "Em avaliaÃ§Ã£o EHS": "analysis",
-    "Em avaliaÃ§Ã£o Patrimonial": "analysis",
+    "Revisão solicitada": "analysis",
+    "Revisão solicitada pelo Fiscal": "analysis",
+    "Revisão solicitada pela Medicina": "analysis",
+    "Revisão solicitada pela EHS": "analysis",
+    "Revisão solicitada pela Patrimonial": "analysis",
+    "Em avaliação": "analysis",
+    "Em avaliação Fiscal": "analysis",
+    "Em avaliação Medicina": "analysis",
+    "Em avaliação EHS": "analysis",
+    "Em avaliação Patrimonial": "analysis",
     "Enviado para Fiscal": "info",
     "Enviado para Medicina": "info",
     "Enviado para EHS": "info",
     "Enviado para Patrimonial": "info",
     "Rascunho pelo Fornecedor": "info",
-    "RevalidaÃ§Ã£o solicitada": "analysis",
-    "Em revalidaÃ§Ã£o": "analysis",
-    "Aguardando CorreÃ§Ã£o": "analysis",
-    "Ativo com pendÃªncia": "analysis",
+    "Revalidação solicitada": "analysis",
+    "Em revalidação": "analysis",
+    "Aguardando Correção": "analysis",
+    "Ativo com pendência": "analysis",
     Arquivado: "info",
     Vencido: "bad",
     Bloqueado: "bad",
@@ -6333,7 +6369,7 @@ function statusClass(status) {
     "Aguardando medicina": "exams",
     "Aguardando EHS/RH": "training",
     "Aguardando patrimonial": "fiscal",
-    "DesmobilizaÃ§Ã£o solicitada": "warn",
+    "Desmobilização solicitada": "warn",
     Inativo: "bad",
     Encerrado: "bad",
     Desmobilizado: "bad",
@@ -6587,7 +6623,7 @@ function bindViewEvents() {
 
   document.querySelectorAll("[data-doc-status]").forEach((button) => {
     button.addEventListener("click", () => {
-      const label = button.dataset.docStatus === "Aprovado" ? "Aprovar documento" : "Solicitar revisÃ£o do documento";
+      const label = button.dataset.docStatus === "Aprovado" ? "Aprovar documento" : "Solicitar revisão do documento";
       console.log(label, button.dataset.id);
       updateDocumentStatus(button.dataset.id, button.dataset.docStatus);
     });
@@ -6936,7 +6972,7 @@ function companyForm(id, context = {}) {
     title: id ? "Editar empresa" : "Nova empresa",
     fields: [
       formSection("Dados da empresa", [
-        inputField("name", "Razao social", item.name, "required"),
+        inputField("name", "Razão social", item.name, "required"),
         inputField("tradeName", "Nome fantasia", companyTradeName(item) === item.name ? "" : companyTradeName(item)),
         inputField("cnpj", "CNPJ", item.cnpj, "required inputmode='numeric' maxlength='18' data-mask='cnpj' placeholder='00.000.000/0000-00'"),
         inputField("serviceType", "Tipo de servico principal", item.serviceType || item.risk || "", "required"),
@@ -6949,9 +6985,9 @@ function companyForm(id, context = {}) {
         inputField("uf", "UF", item.uf || "", "inputmode='text' maxlength='2' data-mask='uf' placeholder='UF'"),
         inputField("district", "Bairro", item.district || ""),
         inputField("street", "Logradouro", item.street || ""),
-        inputField("number", "Numero", item.number || ""),
+        inputField("number", "Número", item.number || ""),
         inputField("complement", "Complemento", item.complement || ""),
-        inputField("companyCode", "Codigo da empresa", companyCode(item) === item.id ? "" : companyCode(item)),
+        inputField("companyCode", "Código da empresa", companyCode(item) === item.id ? "" : companyCode(item)),
       ]),
       formSection("Fiscal principal", [
         selectField("fiscalId", "Fiscal cadastrado (opcional)", item.fiscalId || "", [{ value: "", label: "Informar fiscal manualmente" }].concat(state.fiscais.map(normalizeFiscal).filter((fiscal) => fiscal.status !== "inativo").map((fiscal) => ({ value: fiscal.id, label: `${fiscal.nome}${fiscal.matricula ? ` - ${fiscal.matricula}` : ""}` })))),
@@ -6959,14 +6995,14 @@ function companyForm(id, context = {}) {
         inputField("fiscalEmail", "E-mail do fiscal", item.fiscalEmail || item.fiscal_email || "", "type='email'"),
         inputField("fiscalTelefone", "Telefone do fiscal", item.fiscalTelefone || item.fiscal_telefone || ""),
       ]),
-      formSection("Fornecedor responsavel", [
+      formSection("Fornecedor responsável", [
         inputField("supplierName", "Nome do responsavel", item.supplierName || item.contact || item.responsible || ""),
         inputField("supplierEmail", "E-mail do responsavel", item.supplierEmail || ""),
         inputField("supplierPhone", "Telefone do responsavel", item.supplierPhone || ""),
         inputField("supplierRole", "Cargo / funcao", item.supplierRole || ""),
       ]),
-      formSection("Contrato inicial", [
-        inputField("contract", "Numero do contrato", item.contract, "required"),
+      formSection("Contrato Inicial", [
+        inputField("contract", "Número do contrato", item.contract, "required"),
         inputField("costCenter", "Centro de custo", item.costCenter || "", "required"),
         inputField("contractServiceType", "Tipo de servico do contrato", item.contractServiceType || item.serviceType || item.risk || "", "required"),
         selectField("contractStatus", "Status do contrato", item.contractStatus || item.status || "Ativa", ["Ativa", "Pendente", "Bloqueado", "Inativa", "Encerrado", "Desmobilizado"].map(option)),
@@ -6976,10 +7012,10 @@ function companyForm(id, context = {}) {
         inputField("endDate", "Data de fim", item.endDate, "type='date'"),
         inputField("unitSector", "Unidade / setor", item.unitSector || ""),
         inputField("contractArea", "Area / departamento", item.contractArea || ""),
-        inputField("branchCodeContract", "Codigo filial", companyBranchCode(item) === "Nao informado" ? "" : companyBranchCode(item)),
+        inputField("branchCodeContract", "Código filial", companyBranchCode(item) === "Nao informado" ? "" : companyBranchCode(item)),
         inputField("contractNotes", "Observacao do contrato", item.contractNotes || ""),
       ]),
-      textAreaField("notes", "Observacoes da empresa", companyVisibleNotes(item)),
+      textAreaField("notes", "Observações da empresa", companyVisibleNotes(item)),
     ],
     save(form) {
       return saveCompanyFromForm(form);
@@ -7008,8 +7044,8 @@ function employeeForm(id, context = {}) {
   const legacyAddress = parseLegacyEmployeeAddress(item.address);
   const currentCep = item.cep || legacyAddress.cep || "";
   const registrationField = isSupplier
-    ? `<div class="wide item-card"><strong>Matricula do funcionario</strong><span class="muted">Preenchida posteriormente pela Seguranca Patrimonial.</span></div>`
-    : inputField("registration", "Matricula do funcionario", item.registration, "required");
+    ? `<div class="wide item-card"><strong>Matrícula do funcionario</strong><span class="muted">Preenchida posteriormente pela Segurança Patrimonial.</span></div>`
+    : inputField("registration", "Matrícula do funcionario", item.registration, "required");
   const companyField = hasCompanyContext
     ? `
       <input type="hidden" name="companyId" value="${escapeAttr(fallbackCompanyId)}" />
@@ -7035,32 +7071,32 @@ function employeeForm(id, context = {}) {
       hasCompanyContext
         ? formSection("Vinculo contratual", [
             selectField("contractSourceId", "Contrato ativo", selectedContractId, contractOptions),
-            inputField("contract", "Numero do contrato", selectedContract.contract || linkedCompany.contract || "", "readonly"),
+            inputField("contract", "Número do contrato", selectedContract.contract || linkedCompany.contract || "", "readonly"),
             inputField("costCenter", "Centro de custo", inheritedCostCenter, "readonly"),
             inputField("companyFiscal", "Fiscal da empresa", inheritedFiscal, "readonly"),
             inputField("contractManager", "Gestor do contrato", inheritedManager, "readonly"),
             inputField("serviceType", "Tipo de servico", inheritedServiceType, "readonly"),
             inputField("unitSector", "Unidade / setor", inheritedUnitSector, "readonly"),
           ])
-        : `${inputField("contract", "Numero do contrato", item.contract || linkedCompany.contract || "", `${canEditOperationalLink ? "" : "readonly"} required`)}${inputField("costCenter", "Centro de custo", item.costCenter || linkedCompany.costCenter || linkedCompany.contract || "", canEditOperationalLink ? "required" : "required readonly")}${inputField("companyFiscal", "Fiscal da empresa", item.companyFiscal || linkedCompany.fiscal || "", canEditOperationalLink ? "" : "readonly")}${inputField("contractManager", "Gestor do contrato", item.contractManager || linkedCompany.manager || linkedCompany.responsible || "", canEditOperationalLink ? "" : "readonly")}${inputField("serviceType", "Tipo de servico", item.serviceType || linkedCompany.serviceType || linkedCompany.risk || "", "readonly")}${inputField("unitSector", "Unidade / setor", item.unitSector || contractUnit(linkedCompany), "readonly")}`,
+        : `${inputField("contract", "Número do contrato", item.contract || linkedCompany.contract || "", `${canEditOperationalLink ? "" : "readonly"} required`)}${inputField("costCenter", "Centro de custo", item.costCenter || linkedCompany.costCenter || linkedCompany.contract || "", canEditOperationalLink ? "required" : "required readonly")}${inputField("companyFiscal", "Fiscal da empresa", item.companyFiscal || linkedCompany.fiscal || "", canEditOperationalLink ? "" : "readonly")}${inputField("contractManager", "Gestor do contrato", item.contractManager || linkedCompany.manager || linkedCompany.responsible || "", canEditOperationalLink ? "" : "readonly")}${inputField("serviceType", "Tipo de servico", item.serviceType || linkedCompany.serviceType || linkedCompany.risk || "", "readonly")}${inputField("unitSector", "Unidade / setor", item.unitSector || contractUnit(linkedCompany), "readonly")}`,
       inputField("asoValidity", "Validade de ASO", item.asoValidity || today(), "type='date'"),
       inputField("trainingValidity", "Validade de treinamento", item.trainingValidity || today(), "type='date'"),
       inputField("docStatus", "Status documental", documentStatus, "readonly"),
       inputField("status", "Status de contratacao", hiringStatus, "readonly"),
-      formSection("Endereco", [
+      formSection("Endereço", [
         inputField("cep", "CEP", currentCep, "required inputmode='numeric' maxlength='9' data-mask='cep' placeholder='00000-000'"),
         inputField("street", "Rua / Logradouro", item.street || legacyAddress.street || "", "required"),
-        inputField("number", "Numero", item.number || legacyAddress.number || "", "required inputmode='numeric'"),
+        inputField("number", "Número", item.number || legacyAddress.number || "", "required inputmode='numeric'"),
         inputField("complement", "Complemento", item.complement || legacyAddress.complement || ""),
         inputField("district", "Bairro", item.district || legacyAddress.district || "", "required"),
         inputField("city", "Cidade", item.city || legacyAddress.city || "", "required"),
         inputField("uf", "Estado / UF", normalizeUf(item.uf || legacyAddress.uf || ""), "required inputmode='text' maxlength='2' data-mask='uf' placeholder='UF'"),
       ]),
-      textAreaField("notes", "Observacoes", item.notes),
+      textAreaField("notes", "Observações", item.notes),
     ],
     save(form) {
       if (supplierWorkflowLocked) {
-        alert("Funcionario em avaliacao. A edicao fica bloqueada ate haver solicitacao de revisao ou revalidacao.");
+        alert("Funcionário em avaliacao. A edicao fica bloqueada ate haver solicitacao de revisao ou revalidacao.");
         return;
       }
       const validation = validateEmployeeRegistration({
@@ -7138,13 +7174,13 @@ function documentForm(id) {
     title: id ? "Editar documento" : "Novo documento",
     fields: [
       selectField("companyId", "Empresa", item.companyId || companyOptions[0]?.value, companyOptions),
-      selectField("employeeId", "Funcionario", item.employeeId || "", employees),
+      selectField("employeeId", "Funcionário", item.employeeId || "", employees),
       selectField("type", "Tipo de documento", item.type || documentTypes[0], documentTypes.map(option)),
       inputField("dueDate", "Vencimento", item.dueDate || today(), "type='date'"),
       selectField("status", "Status manual", item.status || "Pendente", ["Aprovado", "Pendente", "Reprovado"].map(option)),
       inputField("filePath", "Arquivo ou URL do documento", item.filePath || ""),
       fileField("documentFile", "Enviar arquivo"),
-      textAreaField("notes", "Observacoes gerais", documentVisibleNotes(item)),
+      textAreaField("notes", "Observações gerais", documentVisibleNotes(item)),
       textAreaField("commentFiscal", "Comentario Fiscal", comments.Fiscal || ""),
       textAreaField("commentMedicina", "Comentario Medicina", comments.Medicina || ""),
       textAreaField("commentEHS", "Comentario EHS", comments.EHS || ""),
@@ -7277,8 +7313,8 @@ function userForm(id, context = {}) {
     fields: [
       !id
         ? radioGroupField("creationMode", "Tipo de criacao", creationMode, [
-            { value: "test", label: "Usuario de teste" },
-            { value: "real", label: "Usuario real / enviar convite" },
+            { value: "test", label: "Usuário de teste" },
+            { value: "real", label: "Usuário real / enviar convite" },
           ])
         : `<div class="wide item-card"><strong>Modo de criacao</strong><span class="muted">Edicao de usuario existente.</span></div>`,
       !id ? `<div class="wide item-card"><span class="muted" data-user-creation-hint>Modo teste: senha temporaria definida pelo administrador, sem envio de convite.</span></div>` : "",
@@ -7350,7 +7386,7 @@ function userForm(id, context = {}) {
           if (!id && creationType === "real") {
             alert("Convite enviado para o e-mail informado.");
           } else {
-            alert(id ? "Usuario atualizado com sucesso." : "Usuario criado com sucesso.");
+            alert(id ? "Usuário atualizado com sucesso." : "Usuário criado com sucesso.");
           }
         } catch (error) {
           const message = id ? "Erro ao atualizar usuario" : "Erro ao criar usuario";
@@ -7359,7 +7395,7 @@ function userForm(id, context = {}) {
         return;
       }
       upsert("users", id, payload);
-      alert(id ? "Usuario atualizado com sucesso." : "Usuario criado com sucesso.");
+      alert(id ? "Usuário atualizado com sucesso." : "Usuário criado com sucesso.");
     },
   };
 }
@@ -7378,7 +7414,7 @@ async function toggleUserAccess(user) {
     renderApp();
     alert(nextActive ? "Acesso reativado com sucesso." : "Acesso inativado com sucesso.");
   } catch (error) {
-    console.error("[Usuarios] Falha ao alternar acesso", error);
+    console.error("[Usuários] Falha ao alternar acesso", error);
     alert(`Nao foi possivel alterar o acesso.\n\n${persistenceMessage(error)}`);
   }
 }
@@ -7393,7 +7429,7 @@ async function resendUserAccessInvite(user, isReset = false) {
     await sendFirstAccessInviteEmail(email);
     alert(isReset ? "Link de redefinicao enviado." : "Convite reenviado com sucesso.");
   } catch (error) {
-    console.error("[Usuarios] Falha ao reenviar convite/redefinir senha", error);
+    console.error("[Usuários] Falha ao reenviar convite/redefinir senha", error);
     alert(`Nao foi possivel enviar o e-mail.\n\n${persistenceMessage(error)}`);
   }
 }
@@ -7906,11 +7942,11 @@ async function saveEmployeeFromForm(form) {
     if (reviewStep) {
       workflowActions[reviewStep.id] = {
         ...(workflowActions[reviewStep.id] || {}),
-        status: "Em revalidaÃ§Ã£o",
+        status: "Em revalidação",
         sector: reviewStep.sector,
         label: reviewStep.label,
         updatedAt: new Date().toISOString(),
-        updatedBy: currentUser()?.name || currentUser()?.email || "Usuario do sistema",
+        updatedBy: currentUser()?.name || currentUser()?.email || "Usuário do sistema",
         action: "resubmit",
       };
     } else {
@@ -7920,7 +7956,7 @@ async function saveEmployeeFromForm(form) {
         sector: "Fiscal",
         label: "Fiscal / Documentos pessoais",
         updatedAt: new Date().toISOString(),
-        updatedBy: currentUser()?.name || currentUser()?.email || "Usuario do sistema",
+        updatedBy: currentUser()?.name || currentUser()?.email || "Usuário do sistema",
         action: "submit",
       };
     }
@@ -7958,10 +7994,10 @@ async function saveEmployeeFromForm(form) {
     return;
   }
   try {
-    recordManualStatusHistory("funcionario", saved.id, previousStatus, saved.status, `Funcionario ${saved.name} salvo pelo formulario.`);
-    persistAutomaticStatusChanges(applyAutomaticStatusRules({ source: "Funcionario salvo", scope: { employeeId: saved.id, companyId: saved.companyId } }));
+    recordManualStatusHistory("funcionario", saved.id, previousStatus, saved.status, `Funcionário ${saved.name} salvo pelo formulario.`);
+    persistAutomaticStatusChanges(applyAutomaticStatusRules({ source: "Funcionário salvo", scope: { employeeId: saved.id, companyId: saved.companyId } }));
   } catch (error) {
-    console.warn("Funcionario salvo, mas uma rotina secundaria de historico/status falhou.", error);
+    console.warn("Funcionário salvo, mas uma rotina secundaria de historico/status falhou.", error);
   }
   saveState();
   editingEmployeeId = null;
@@ -7995,8 +8031,8 @@ function updateEmployeeOperationalStatus(id, action) {
   }
 
   const actions = {
-    demobilize: { label: "desmobilizar", status: "Desmobilizado", historyStatus: "DesmobilizaÃ§Ã£o" },
-    inactivate: { label: "inativar", status: "Inativo", historyStatus: "InativaÃ§Ã£o" },
+    demobilize: { label: "desmobilizar", status: "Desmobilizado", historyStatus: "Desmobilização" },
+    inactivate: { label: "inativar", status: "Inativo", historyStatus: "Inativação" },
     block: { label: "bloquear", status: "Bloqueado", historyStatus: "Bloqueio" },
   };
   const config = actions[action];
@@ -8008,7 +8044,7 @@ function updateEmployeeOperationalStatus(id, action) {
     return;
   }
 
-  const actor = currentUser()?.name || currentUser()?.email || "Usuario do sistema";
+  const actor = currentUser()?.name || currentUser()?.email || "Usuário do sistema";
   const timestamp = new Intl.DateTimeFormat("pt-BR", {
     dateStyle: "short",
     timeStyle: "short",
@@ -8020,13 +8056,13 @@ function updateEmployeeOperationalStatus(id, action) {
   if (action === "demobilize") {
     const approver = prompt("Informe o responsavel que aprovou a desmobilizacao:");
     if (!approver || !approver.trim()) {
-      const pendingLine = `[${timestamp}] ${actor}: Solicitacao de desmobilizacao pendente de aprovacao. Motivo: ${reason.trim()}`;
+      const pendingLine = `[${timestamp}] ${actor}: Solicitação de desmobilizacao pendente de aprovacao. Motivo: ${reason.trim()}`;
       employee.notes = currentNotes ? `${currentNotes}\n${pendingLine}` : pendingLine;
-      employee.status = "DesmobilizaÃ§Ã£o solicitada";
+      employee.status = "Desmobilização solicitada";
       const history = createHistoryEvent({
         entityType: "funcionario",
         entityId: employee.id,
-        action: "Desmobilizacao solicitada",
+        action: "Desmobilização solicitada",
         previousStatus,
         nextStatus: employee.status,
         observation: `Motivo: ${reason.trim()}. Aguardando aprovacao do responsavel.`,
@@ -8036,7 +8072,7 @@ function updateEmployeeOperationalStatus(id, action) {
       syncCollection("employees", employee).catch((error) => alert(`Nao foi possivel atualizar online: ${error.message}`));
       saveState();
       render();
-      alert("Desmobilizacao registrada como pendente. O status so muda apos aprovacao do responsavel.");
+      alert("Desmobilização registrada como pendente. O status so muda apos aprovacao do responsavel.");
       return;
     }
     historyLine = `${historyLine}. Aprovado por: ${approver.trim()}`;
@@ -8093,7 +8129,7 @@ async function saveEmployeePatrimonialFields(employeeId, form) {
   employee.releaseDate = employee.patrimonialReleaseDate;
   employee.patrimonialNotes = String(form.get("patrimonialNotes") || "").trim();
   const visibleNotes = employeeVisibleNotes(employee);
-  const patrimonialLine = `[${new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date())}] ${currentUser()?.name || currentUser()?.email || "Usuario do sistema"}: Atualizacao patrimonial. Matricula: ${employee.registration || "Nao informada"}. Cracha: ${employee.badgeNumber || "Nao informado"}. Liberacao: ${employee.patrimonialReleaseDate || "Nao informada"}. Observacoes: ${employee.patrimonialNotes || "Sem observacoes"}`;
+  const patrimonialLine = `[${new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date())}] ${currentUser()?.name || currentUser()?.email || "Usuário do sistema"}: Atualizacao patrimonial. Matrícula: ${employee.registration || "Nao informada"}. Crachá: ${employee.badgeNumber || "Nao informado"}. Liberação: ${employee.patrimonialReleaseDate || "Nao informada"}. Observações: ${employee.patrimonialNotes || "Sem observacoes"}`;
   employee.notes = visibleNotes ? `${visibleNotes}\n${patrimonialLine}` : patrimonialLine;
   employee.updatedAt = new Date().toISOString();
   const history = createHistoryEvent({
@@ -8102,7 +8138,7 @@ async function saveEmployeePatrimonialFields(employeeId, form) {
     action: "Atualizacao patrimonial",
     previousStatus,
     nextStatus: employee.status || previousStatus,
-    observation: `Matricula ${employee.registration || "Nao informada"}; cracha ${employee.badgeNumber || "Nao informado"}; liberacao ${employee.patrimonialReleaseDate || "Nao informada"}. ${employee.patrimonialNotes || ""}`.trim(),
+    observation: `Matrícula ${employee.registration || "Nao informada"}; cracha ${employee.badgeNumber || "Nao informado"}; liberacao ${employee.patrimonialReleaseDate || "Nao informada"}. ${employee.patrimonialNotes || ""}`.trim(),
   });
   state.historico = upsertById(state.historico, history);
   syncHistoryEvent(history);
@@ -8162,7 +8198,7 @@ function updateDocumentStatus(id, status) {
     return;
   }
   if (!can("approveDocuments", doc)) return;
-  const isReviewRequest = statusMatches(status, "RevisÃ£o solicitada", "RevalidaÃ§Ã£o solicitada", "Em revalidaÃ§Ã£o");
+  const isReviewRequest = statusMatches(status, "Revisão solicitada", "Revalidação solicitada", "Em revalidação");
   let reviewReason = "";
   if (isReviewRequest) {
     reviewReason = prompt(`Informe o motivo obrigatorio para solicitar revisao do documento ${doc.type}:`);
@@ -8223,7 +8259,7 @@ function demobilizeCompany(id) {
   const history = createHistoryEvent({
     entityType: "contrato",
     entityId: company.id,
-    action: "Desmobilizacao de contrato",
+    action: "Desmobilização de contrato",
     previousStatus,
     nextStatus: company.status,
     observation: `Contrato ${company.contract || company.name} desmobilizado manualmente.`,
@@ -8247,7 +8283,7 @@ function removeItem(type, id) {
     return;
   }
   if (type === "employee") {
-    alert("Funcionarios nao sao excluidos fisicamente. Use Desmobilizar, Inativar ou Bloquear para manter o historico.");
+    alert("Funcionários nao sao excluidos fisicamente. Use Desmobilizar, Inativar ou Bloquear para manter o historico.");
     return;
   }
   const collections = {
@@ -8283,7 +8319,7 @@ function normalizeCompany(company) {
     fiscal: fiscal?.nome || company.fiscal || "Nao informado",
     fiscalEmail: fiscal?.email || company.fiscalEmail || company.fiscal_email || "",
     fiscalTelefone: fiscal?.telefone || company.fiscalTelefone || company.fiscal_telefone || "",
-    fiscalMatricula: fiscal?.matricula || company.fiscalMatricula || company.fiscal_matricula || "",
+    fiscalMatrícula: fiscal?.matricula || company.fiscalMatrícula || company.fiscal_matricula || "",
     fiscalSetor: fiscal?.setor || company.fiscalSetor || company.fiscal_setor || "",
     supplierName: meta.supplierName || company.supplierName || company.contact || company.responsible || "",
     supplierEmail: meta.supplierEmail || company.supplierEmail || "",
@@ -8447,7 +8483,7 @@ function mapUserFromDb(profile) {
   const roleKey = String(dbPerfil).trim().toLowerCase();
   return {
     id: profile.id,
-    name: profile.nome || profile.name || profile.email || "Usuario",
+    name: profile.nome || profile.name || profile.email || "Usuário",
     email: profile.email || "",
     role: DB_PROFILE_TO_APP_ROLE[dbPerfil] || DB_PROFILE_TO_APP_ROLE[roleKey] || "visitor",
     active: profile.ativo ?? profile.active ?? true,
@@ -8463,7 +8499,7 @@ function mapUserFromDb(profile) {
 }
 
 function mapProfileToDb(user) {
-  const perfil = normalizePerfilUsuario(user.role);
+  const perfil = normalizePerfilUsuário(user.role);
   return {
     id: user.id,
     nome: optionalText(user.name),
@@ -8475,7 +8511,7 @@ function mapProfileToDb(user) {
 }
 
 function mapUserToDb(user, { includeId = true } = {}) {
-  const perfil = normalizePerfilUsuario(user.role || user.perfil).toLowerCase();
+  const perfil = normalizePerfilUsuário(user.role || user.perfil).toLowerCase();
   const payload = {
     nome: optionalText(user.name),
     email: optionalText(user.email),
@@ -8491,7 +8527,7 @@ function mapUserToDb(user, { includeId = true } = {}) {
 }
 
 function validateUserPayload(payload) {
-  payload.perfil = normalizePerfilUsuario(payload.perfil).toLowerCase();
+  payload.perfil = normalizePerfilUsuário(payload.perfil).toLowerCase();
   if (!DB_PROFILE_VALUES.includes(payload.perfil)) {
     throw new PersistenceError(`Perfil invalido. Valores aceitos pelo enum perfil_usuario: ${DB_PROFILE_VALUES.join(", ")}.`, {
       table: "public.usuarios",
@@ -8514,8 +8550,8 @@ function validateUserPayload(payload) {
       hint: "nome/email obrigatorios",
     });
   }
-  if (profileRequiresMatricula(payload.perfil) && !payload.matricula) {
-    throw new PersistenceError("Matricula obrigatoria para este perfil.", {
+  if (profileRequiresMatrícula(payload.perfil) && !payload.matricula) {
+    throw new PersistenceError("Matrícula obrigatoria para este perfil.", {
       table: "public.usuarios",
       operation: "validacao",
       payload,
@@ -8524,7 +8560,7 @@ function validateUserPayload(payload) {
   }
 }
 
-function normalizePerfilUsuario(value = "visitante") {
+function normalizePerfilUsuário(value = "visitante") {
   const raw = String(value || "visitante").trim();
   const mapped = APP_ROLE_TO_DB_PROFILE[raw] || APP_ROLE_TO_DB_PROFILE[raw.toLowerCase()];
   if (mapped) return mapped;
@@ -8560,7 +8596,7 @@ function defaultSetorForPerfil(perfil) {
   }[perfil] || null;
 }
 
-function profileRequiresMatricula(perfil) {
+function profileRequiresMatrícula(perfil) {
   return false;
 }
 
@@ -8890,7 +8926,7 @@ function companyEmployeeGroups(company) {
   const employees = state.employees.filter((employee) => sameId(employee.companyId, company.id));
   const active = employees.filter((employee) => {
     const status = normalizeEmployee(employee).status;
-    return !statusMatches(status, "Inativo", "Desmobilizado", "DesmobilizaÃ§Ã£o solicitada");
+    return !statusMatches(status, "Inativo", "Desmobilizado", "Desmobilização solicitada");
   });
   const inactive = employees.filter((employee) => !active.some((item) => sameId(item.id, employee.id)));
   return { active, inactive, all: employees };
@@ -8927,14 +8963,14 @@ function employeeName(id) {
 
 function docStatus(doc) {
   if (statusMatches(doc.status, "Arquivado")) return "Arquivado";
-  if (doc.status === "Reprovado" || doc.status === "RevisÃ£o solicitada") return "RevisÃ£o solicitada";
+  if (doc.status === "Reprovado" || doc.status === "Revisão solicitada") return "Revisão solicitada";
   const todayDate = new Date(today());
   const due = new Date(doc.dueDate);
   if (Number.isNaN(due.getTime())) return doc.status || "Pendente";
   const diffDays = Math.ceil((due - todayDate) / 86400000);
   if (diffDays < 0) return "Vencido";
   if (diffDays <= 30) return "A vencer";
-  return ["Aprovado", "Regular", "Aprovado com pendÃªncia"].includes(doc.status) ? "Aprovado" : "Pendente";
+  return ["Aprovado", "Regular", "Aprovado com pendência"].includes(doc.status) ? "Aprovado" : "Pendente";
 }
 
 function contractDays(company) {
@@ -9131,7 +9167,7 @@ function renderCompanyOperationalSummary(company, employees = [], docs = []) {
   const docsExpiring = docs.filter((doc) => ["A vencer", "Vencido", "Pendente", "Reprovado"].includes(docStatus(doc))).length;
   return `
     <div class="company-summary-strip">
-      <div class="stat-card success"><span>Funcionarios ativos</span><strong>${normalizedEmployees.filter((employee) => !statusMatches(employee.status, "Inativo", "Desmobilizado", "DesmobilizaÃ§Ã£o solicitada")).length}</strong></div>
+      <div class="stat-card success"><span>Funcionários ativos</span><strong>${normalizedEmployees.filter((employee) => !statusMatches(employee.status, "Inativo", "Desmobilizado", "Desmobilização solicitada")).length}</strong></div>
       <div class="stat-card warn"><span>Pendencias</span><strong>${companyPendingDocumentsCount(company.id)}</strong></div>
       <div class="stat-card analysis"><span>Medicina</span><strong>${medicineWaiting}</strong><small>${medicineApproved} aprovados / ${medicineRejected} reprovados</small></div>
       <div class="stat-card analysis"><span>EHS / SSMA</span><strong>${ehsWaiting}</strong><small>${ehsApproved} aprovados / ${ehsRejected} reprovados</small></div>
@@ -9146,7 +9182,7 @@ function companyDocumentActions(doc) {
     <div class="actions wrap">
       <button class="btn secondary compact" type="button" data-document-detail="${doc.id}">${icon("docs")} Visualizar</button>
       ${can("approveDocuments", doc) ? `<button class="btn success compact" type="button" data-doc-status="Aprovado" data-id="${doc.id}">Aprovar</button>` : ""}
-      ${can("approveDocuments", doc) ? `<button class="btn warning compact" type="button" data-doc-status="RevisÃ£o solicitada" data-id="${doc.id}">Solicitar RevisÃ£o</button>` : ""}
+      ${can("approveDocuments", doc) ? `<button class="btn warning compact" type="button" data-doc-status="Revisão solicitada" data-id="${doc.id}">Solicitar Revisão</button>` : ""}
       ${can("edit.document", doc) ? `<button class="btn secondary compact" type="button" data-edit="document" data-id="${doc.id}">${icon("edit")} Editar</button>` : ""}
       ${can("edit.document", doc) ? `<button class="btn secondary compact" type="button" data-document-archive="${doc.id}">Arquivar</button>` : ""}
     </div>
@@ -9207,17 +9243,17 @@ function renderCompanyTab(company, tab) {
     return `
       ${renderCompanyOperationalSummary(item, employees, documents)}
       <div class="detail-grid">
-        ${detailCard("Razao social", item.name)}
+        ${detailCard("Razão social", item.name)}
         ${detailCard("Nome fantasia", companyTradeName(item))}
         ${detailCard("CNPJ", item.cnpj)}
         ${detailCard("Telefone", item.phone || "Nao informado")}
         ${detailCard("CEP", item.cep || "Nao informado")}
-        ${detailCard("Endereco", companyAddress(item))}
+        ${detailCard("Endereço", companyAddress(item))}
         ${detailCard("E-mail", item.email || "Nao informado")}
         ${detailCard("Status", statusBadge(item.status))}
-        ${detailCard("Observacoes", item.notes || item.observacoes || "Sem observacoes")}
+        ${detailCard("Observações", item.notes || item.observacoes || "Sem observacoes")}
       </div>
-      ${renderCompanyTabHistory(company, "general", "Historico geral da empresa")}
+      ${renderCompanyTabHistory(company, "general", "Histórico geral da empresa")}
     `;
   }
   if (tab === "contracts") {
@@ -9266,7 +9302,7 @@ function renderCompanyTab(company, tab) {
           </table>
         </div>
       </section>
-      ${renderCompanyTabHistory(company, "contracts", "Historico de contratos")}
+      ${renderCompanyTabHistory(company, "contracts", "Histórico de contratos")}
     `;
   }
   if (tab === "people") {
@@ -9276,27 +9312,27 @@ function renderCompanyTab(company, tab) {
     };
     return `
       <div class="contract-inner-toolbar">
-        ${can("create.employee") ? `<button class="btn primary compact" type="button" data-company-employee-new data-company-id="${company.id}">${icon("plus")} Novo FuncionÃ¡rio</button>` : ""}
+        ${can("create.employee") ? `<button class="btn primary compact" type="button" data-company-employee-new data-company-id="${company.id}">${icon("plus")} Novo Funcionário</button>` : ""}
       </div>
       <section class="company-split-section">
-        <div class="record-section-title"><h3>FuncionÃ¡rios ativos</h3><span class="mini-pill">${activeEmployees.length}</span></div>
+        <div class="record-section-title"><h3>Funcionários ativos</h3><span class="mini-pill">${activeEmployees.length}</span></div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Matricula/ID</th><th>Nome</th><th>CPF</th><th>Funcao</th><th>Contrato</th><th>Status documental</th><th>Status contratacao</th><th>ASO</th><th>Treinamento</th><th>Acoes</th></tr></thead>
+            <thead><tr><th>Matrícula/ID</th><th>Nome</th><th>CPF</th><th>Funcao</th><th>Contrato</th><th>Status documental</th><th>Status contratacao</th><th>ASO</th><th>Treinamento</th><th>Acoes</th></tr></thead>
             <tbody>${activeEmployees.length ? activeEmployees.map(employeeRow).join("") : emptyRow(10)}</tbody>
           </table>
         </div>
       </section>
       <section class="company-split-section">
-        <div class="record-section-title"><h3>FuncionÃ¡rios inativos / desmobilizados</h3><span class="mini-pill">${inactiveEmployees.length}</span></div>
+        <div class="record-section-title"><h3>Funcionários inativos / desmobilizados</h3><span class="mini-pill">${inactiveEmployees.length}</span></div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Matricula/ID</th><th>Nome</th><th>CPF</th><th>Funcao</th><th>Contrato</th><th>Status documental</th><th>Status contratacao</th><th>ASO</th><th>Treinamento</th><th>Acoes</th></tr></thead>
+            <thead><tr><th>Matrícula/ID</th><th>Nome</th><th>CPF</th><th>Funcao</th><th>Contrato</th><th>Status documental</th><th>Status contratacao</th><th>ASO</th><th>Treinamento</th><th>Acoes</th></tr></thead>
             <tbody>${inactiveEmployees.length ? inactiveEmployees.map(employeeRow).join("") : emptyRow(10)}</tbody>
           </table>
         </div>
       </section>
-      ${renderCompanyTabHistory(company, "people", "Historico de funcionarios / FIT")}
+      ${renderCompanyTabHistory(company, "people", "Histórico de funcionarios / FIT")}
     `;
   }
   if (tab === "docs") {
@@ -9330,7 +9366,7 @@ function renderCompanyTab(company, tab) {
           </table>
         </div>
       </section>
-      ${renderCompanyTabHistory(company, "docs", "Historico de documentos da empresa")}
+      ${renderCompanyTabHistory(company, "docs", "Histórico de documentos da empresa")}
     `;
   }
   if (tab === "medicine") {
@@ -9346,7 +9382,7 @@ function renderCompanyTab(company, tab) {
         ${detailCard("ASO vencido / vencendo", asoExpiring)}
       </div>
       ${renderEmployeeDocsTable(medicineDocs, "Documentos de medicina ocupacional")}
-      ${renderCompanyTabHistory(company, "medicine", "Historico de medicina ocupacional")}
+      ${renderCompanyTabHistory(company, "medicine", "Histórico de medicina ocupacional")}
     `;
   }
   if (tab === "ehs") {
@@ -9362,7 +9398,7 @@ function renderCompanyTab(company, tab) {
         ${detailCard("Treinamentos vencidos / vencendo", trainings)}
       </div>
       ${renderEmployeeDocsTable(ehsDocs, "Documentos de EHS / SSMA")}
-      ${renderCompanyTabHistory(company, "ehs", "Historico de EHS / SSMA")}
+      ${renderCompanyTabHistory(company, "ehs", "Histórico de EHS / SSMA")}
     `;
   }
   if (tab === "patrimonial") {
@@ -9375,10 +9411,10 @@ function renderCompanyTab(company, tab) {
         ${detailCard("Aguardando liberacao", pending)}
         ${detailCard("Liberados", released)}
         ${detailCard("Bloqueados", blocked)}
-        ${detailCard("Matricula / cracha", badges)}
+        ${detailCard("Matrícula / cracha", badges)}
       </div>
       ${renderEmployeeDocsTable(patrimonialDocs, "Documentos de seguranca patrimonial")}
-      ${renderCompanyTabHistory(company, "patrimonial", "Historico de seguranca patrimonial")}
+      ${renderCompanyTabHistory(company, "patrimonial", "Histórico de seguranca patrimonial")}
     `;
   }
   if (tab === "managers") {
@@ -9398,13 +9434,13 @@ function renderCompanyTab(company, tab) {
           <tbody>${allContracts.length ? contractRows : emptyRow(5)}</tbody>
         </table>
       </div>
-      ${renderCompanyTabHistory(company, "managers", "Historico de fiscais e gestores")}
+      ${renderCompanyTabHistory(company, "managers", "Histórico de fiscais e gestores")}
     `;
   }
   if (tab === "requests") {
     const rows = requests.map((event) => `
       <tr>
-        <td><strong>${event.action || "Solicitacao"}</strong><br><span class="muted">${event.observation || event.observacao || "Sem descricao"}</span></td>
+        <td><strong>${event.action || "Solicitação"}</strong><br><span class="muted">${event.observation || event.observacao || "Sem descricao"}</span></td>
         <td>${event.user || event.usuario || "Sistema"}</td>
         <td>${formatDateTime(event.createdAt || event.criado_em)}</td>
         <td>${statusBadge(event.nextStatus || event.status || "Pendente")}</td>
@@ -9419,18 +9455,18 @@ function renderCompanyTab(company, tab) {
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Solicitacao</th><th>Usuario</th><th>Data/Hora</th><th>Status</th></tr></thead>
+          <thead><tr><th>Solicitação</th><th>Usuário</th><th>Data/Hora</th><th>Status</th></tr></thead>
           <tbody>${rows || emptyRow(4)}</tbody>
         </table>
       </div>
-      ${renderCompanyTabHistory(company, "general", "Historico da central de solicitacoes")}
+      ${renderCompanyTabHistory(company, "general", "Histórico da central de solicitacoes")}
     `;
   }
   if (tab === "history") {
     return renderHistoryTimeline("empresa", company.id, [
       `<div class="item-card"><strong>Empresa cadastrada</strong><span class="muted">${item.name} - ${item.cnpj}</span></div>`,
       `<div class="item-card"><strong>Contratos vinculados</strong><span class="muted">${allContracts.length} contrato(s)</span></div>`,
-      `<div class="item-card"><strong>Funcionarios vinculados</strong><span class="muted">${employees.length} funcionario(s)</span></div>`,
+      `<div class="item-card"><strong>Funcionários vinculados</strong><span class="muted">${employees.length} funcionario(s)</span></div>`,
       `<div class="item-card"><strong>Documentos vinculados</strong><span class="muted">${documents.length} documento(s)</span></div>`,
     ]);
   }
@@ -9449,7 +9485,7 @@ function employeeWorkflowSteps(employee) {
     { id: "fiscal", sector: "Fiscal", label: "Fiscal / Documentos pessoais", icon: "docs", docs: fiscalDocs, detail: "Cadastro, CPF, vinculo e documentos pessoais" },
     { id: "medicina", sector: "Medicina", label: "Medicina", icon: "shield", docs: medicineDocs, detail: "ASO, exames e validade ocupacional" },
     { id: "ehs", sector: "EHS", label: "EHS / SSMA", icon: "factory", docs: ehsDocs, detail: "Treinamentos, NR, EPI e seguranca" },
-    { id: "patrimonial", sector: "Patrimonial", label: "Seguranca Patrimonial", icon: "block", docs: patrimonialDocs, detail: "Acesso, credencial e liberacao patrimonial" },
+    { id: "patrimonial", sector: "Patrimonial", label: "Segurança Patrimonial", icon: "block", docs: patrimonialDocs, detail: "Acesso, credencial e liberacao patrimonial" },
   ];
   const steps = [];
   sequence.forEach((step, index) => {
@@ -9464,16 +9500,16 @@ function employeeWorkflowSteps(employee) {
       } else {
         status = `Enviado para ${step.sector}`;
       }
-    } else if (statusMatches(status, "Reprovado", "RevisÃ£o solicitada")) {
-      status = `RevisÃ£o solicitada pelo ${step.sector}`;
-    } else if (statusMatches(status, "RevalidaÃ§Ã£o solicitada")) {
-      status = "RevalidaÃ§Ã£o solicitada";
-    } else if (statusMatches(status, "Em revalidaÃ§Ã£o")) {
-      status = `Em revalidaÃ§Ã£o ${step.sector}`;
-    } else if (statusMatches(status, "Em avaliaÃ§Ã£o")) {
-      status = `Em avaliaÃ§Ã£o ${step.sector}`;
+    } else if (statusMatches(status, "Reprovado", "Revisão solicitada")) {
+      status = `Revisão solicitada pelo ${step.sector}`;
+    } else if (statusMatches(status, "Revalidação solicitada")) {
+      status = "Revalidação solicitada";
+    } else if (statusMatches(status, "Em revalidação")) {
+      status = `Em revalidação ${step.sector}`;
+    } else if (statusMatches(status, "Em avaliação")) {
+      status = `Em avaliação ${step.sector}`;
     }
-    if (statusMatches(status, "Aprovado com pendencia")) status = "Aprovado com pendÃªncia";
+    if (statusMatches(status, "Aprovado com pendencia")) status = "Aprovado com pendência";
     steps.push({
       id: step.id,
       sector: step.sector,
@@ -9489,7 +9525,7 @@ function employeeWorkflowSteps(employee) {
   steps.push({
     id: "liberacao",
     sector: "Fiscal",
-    label: "Liberacao final",
+    label: "Liberação final",
     icon: "approve",
     status:
       workflow.liberacao?.status ||
@@ -9497,7 +9533,7 @@ function employeeWorkflowSteps(employee) {
         ? "Liberado"
         : workflowIsConcludedStatus(item.status)
           ? item.status
-          : steps.find((step) => !workflowIsConcludedStatus(step.status))?.status || "Em avaliaÃ§Ã£o Fiscal"),
+          : steps.find((step) => !workflowIsConcludedStatus(step.status))?.status || "Em avaliação Fiscal"),
     detail: "Consolidacao fiscal para inicio ou manutencao",
     reason: allApproved ? "Fluxo completo concluido." : "Aguardando conclusao das etapas anteriores.",
   });
@@ -9513,9 +9549,9 @@ function renderWorkflowStepActions(employee, step) {
   return `
     <div class="workflow-step-actions">
       ${canActNow ? `<button class="btn success compact" type="button" data-employee-id="${employee.id}" data-workflow-step="${step.id}" data-workflow-action="approve">${icon("approve")} Aprovar</button>` : ""}
-      ${canActNow ? `<button class="btn warning compact" type="button" data-employee-id="${employee.id}" data-workflow-step="${step.id}" data-workflow-action="review">${icon("block")} Solicitar RevisÃ£o</button>` : ""}
-      ${canActNow ? `<button class="btn special compact" type="button" data-employee-id="${employee.id}" data-workflow-step="${step.id}" data-workflow-action="approve_pending">${icon("clock")} Aprovar com pendÃªncia</button>` : ""}
-      ${canRequestRevalidation ? `<button class="btn secondary compact" type="button" data-employee-id="${employee.id}" data-workflow-step="${step.id}" data-workflow-action="revalidate">${icon("reload")} Solicitar revalidaÃ§Ã£o</button>` : ""}
+      ${canActNow ? `<button class="btn warning compact" type="button" data-employee-id="${employee.id}" data-workflow-step="${step.id}" data-workflow-action="review">${icon("block")} Solicitar Revisão</button>` : ""}
+      ${canActNow ? `<button class="btn special compact" type="button" data-employee-id="${employee.id}" data-workflow-step="${step.id}" data-workflow-action="approve_pending">${icon("clock")} Aprovar com pendência</button>` : ""}
+      ${canRequestRevalidation ? `<button class="btn secondary compact" type="button" data-employee-id="${employee.id}" data-workflow-step="${step.id}" data-workflow-action="revalidate">${icon("reload")} Solicitar revalidação</button>` : ""}
     </div>
   `;
 }
@@ -9531,7 +9567,7 @@ function canActOnWorkflowStep(step) {
 }
 
 function collectWorkflowActionData(action, step, employee) {
-  const actor = currentUser()?.name || currentUser()?.email || "Usuario do sistema";
+  const actor = currentUser()?.name || currentUser()?.email || "Usuário do sistema";
   const base = {
     action,
     sector: step.sector,
@@ -9556,9 +9592,9 @@ function collectWorkflowActionData(action, step, employee) {
     }
     return {
       ...base,
-      status: "RevisÃ£o solicitada",
+      status: "Revisão solicitada",
       motivo: reason.trim(),
-      observation: `RevisÃ£o solicitada. Motivo: ${reason.trim()}`,
+      observation: `Revisão solicitada. Motivo: ${reason.trim()}`,
     };
   }
 
@@ -9570,7 +9606,7 @@ function collectWorkflowActionData(action, step, employee) {
     }
     const managerRegistration = prompt("Informe a matricula do gestor responsavel:");
     if (!managerRegistration || !managerRegistration.trim()) {
-      alert("Matricula do gestor obrigatoria. A aprovacao com pendencia nao foi salva.");
+      alert("Matrícula do gestor obrigatoria. A aprovacao com pendencia nao foi salva.");
       return null;
     }
     const reason = prompt("Informe o motivo da aprovacao com pendencia:");
@@ -9602,7 +9638,7 @@ function collectWorkflowActionData(action, step, employee) {
     }
     return {
       ...base,
-      status: "RevalidaÃ§Ã£o solicitada",
+      status: "Revalidação solicitada",
       motivo: reason.trim(),
       observation: `Revalidacao solicitada. Motivo: ${reason.trim()}`,
     };
@@ -9647,7 +9683,7 @@ function updateEmployeeWorkflowStep(employeeId, stepId, action) {
     entityId: employee.id,
     action:
       action === "review"
-        ? `Solicitacao de revisao - ${step.label}`
+        ? `Solicitação de revisao - ${step.label}`
         : action === "revalidate"
           ? `Revalidacao solicitada - ${step.label}`
           : `Workflow ${step.label}`,
