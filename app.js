@@ -2391,6 +2391,7 @@ function renderCompanyEditor(company = null, context = {}) {
       <form id="companyEditorForm" class="form-grid company-form">
         <input type="hidden" name="id" value="${escapeAttr(company?.id || "")}" />
         ${formSection("Dados da empresa", [
+          inputField("logoUrl", "Logo da empresa (URL)", companyLogoUrl(item), "type='url' placeholder='https://.../logo.png'"),
           inputField("name", "Razão social", item.name, "required"),
           inputField("tradeName", "Nome fantasia", companyTradeName(item) === item.name ? "" : companyTradeName(item)),
           inputField("cnpj", "CNPJ", item.cnpj, "required inputmode='numeric' maxlength='18' data-mask='cnpj' placeholder='00.000.000/0000-00'"),
@@ -2460,6 +2461,23 @@ function companyCostCenter(company = {}) {
   return company.costCenter || company.centroCusto || company.centerCost || "Nao informado";
 }
 
+function companyLogoUrl(company = {}) {
+  const meta = companyMeta(company);
+  return company.logoUrl || company.logo || company.logo_url || meta.logoUrl || meta.logo || meta.logo_url || "";
+}
+
+function employeePhotoUrl(employee = {}) {
+  const meta = employeeMeta(employee);
+  return employee.photoUrl || employee.photo || employee.photo_url || meta.photoUrl || meta.photo || meta.photo_url || "";
+}
+
+function avatarMarkup(src, fallbackText, altText) {
+  if (String(src || "").trim()) {
+    return `<img class="entity-avatar-image" src="${escapeAttr(src)}" alt="${escapeAttr(altText)}" />`;
+  }
+  return `<span>${escapeHtml(fallbackText)}</span>`;
+}
+
 function companyAddress(company = {}) {
   return company.address || company.endereco || [company.street || company.rua, company.number || company.numero, company.complement || company.complemento, company.district || company.bairro, company.city || company.municipio, company.uf].filter(Boolean).join(", ") || "Nao informado";
 }
@@ -2503,6 +2521,7 @@ function serializeCompanyNotes(company = {}) {
     serviceType: company.serviceType || "",
     contractServiceType: company.contractServiceType || "",
     contractStatus: company.contractStatus || "",
+    logoUrl: company.logoUrl || company.logo || company.logo_url || "",
     contractFiscal: company.contractFiscal || "",
     supplierName: company.supplierName || "",
     supplierEmail: company.supplierEmail || "",
@@ -3383,7 +3402,7 @@ function openEmployeeRecord(id) {
     <section class="modal employee-record-modal">
       ${renderRecordActionBar("employee", item)}
       <div class="employee-record-header">
-        <div class="employee-avatar">${employeeInitials(item.name)}</div>
+        <div class="employee-avatar">${avatarMarkup(employeePhotoUrl(item), employeeInitials(item.name), `Foto de ${item.name || ""}`)}</div>
         <div class="employee-record-title">
           <span class="eyebrow">Ficha detalhada do funcionario / FIT</span>
           <h2>${item.name}</h2>
@@ -4557,7 +4576,7 @@ function openCompanyDetails(id) {
     <section class="modal contract-detail-modal company-detail-modal">
       ${renderRecordActionBar("company", item)}
       <div class="employee-record-header company-record-header">
-        <div class="employee-avatar">${employeeInitials(item.name)}</div>
+        <div class="employee-avatar company-avatar">${avatarMarkup(companyLogoUrl(item), employeeInitials(item.name), `Logo da empresa ${item.name || ""}`)}</div>
         <div class="employee-record-title">
           <span class="eyebrow">Ficha detalhada da empresa</span>
           <h2>${item.name}</h2>
@@ -6979,6 +6998,7 @@ function companyForm(id, context = {}) {
     title: id ? "Editar empresa" : "Nova empresa",
     fields: [
       formSection("Dados da empresa", [
+        inputField("logoUrl", "Logo da empresa (URL)", companyLogoUrl(item), "type='url' placeholder='https://.../logo.png'"),
         inputField("name", "Razão social", item.name, "required"),
         inputField("tradeName", "Nome fantasia", companyTradeName(item) === item.name ? "" : companyTradeName(item)),
         inputField("cnpj", "CNPJ", item.cnpj, "required inputmode='numeric' maxlength='18' data-mask='cnpj' placeholder='00.000.000/0000-00'"),
@@ -7074,6 +7094,7 @@ function employeeForm(id, context = {}) {
       inputField("motherName", "Nome da mae", item.motherName, "required"),
       inputField("fatherName", "Nome do pai", item.fatherName),
       inputField("role", "Funcao", item.role, "required"),
+      inputField("photoUrl", "Foto do funcionário (URL)", item.photoUrl || "", "type='url' placeholder='https://.../foto.jpg'"),
       companyField,
       hasCompanyContext
         ? formSection("Vinculo contratual", [
@@ -7528,6 +7549,7 @@ async function saveCompanyFromForm(form) {
   const effectiveResponsible = isSupplier && previous ? previous.responsible || previous.contact || supplierName || manager : supplierName || manager;
   const effectiveCostCenter = isSupplier && previous ? previous.costCenter || costCenter : costCenter;
   const saved = upsert("companies", id, {
+    logoUrl: optionalText(form.get("logoUrl")) || previous?.logoUrl || previous?.logo || previous?.logo_url || "",
     name: form.get("name"),
     tradeName: optionalText(form.get("tradeName")) || previous?.tradeName || previous?.nomeFantasia || null,
     cnpj: validation.cnpj,
@@ -7928,6 +7950,7 @@ async function saveEmployeeFromForm(form) {
     complement: form.get("complement"),
     asoValidity: form.get("asoValidity"),
     trainingValidity: form.get("trainingValidity"),
+    photoUrl: optionalText(form.get("photoUrl")) || existing?.photoUrl || existing?.photo || existing?.photo_url || "",
     address: buildEmployeeAddressFromParts({
       street: form.get("street"),
       number: form.get("number"),
@@ -7940,7 +7963,7 @@ async function saveEmployeeFromForm(form) {
     notes: form.get("notes"),
   };
   const fiscalPayload = existing
-    ? { ...existing, notes: form.get("notes") }
+    ? { ...existing, notes: form.get("notes"), photoUrl: payload.photoUrl }
     : payload;
   const draft = { ...(canEditFullEmployee ? payload : fiscalPayload), id: id || existing?.id || crypto.randomUUID() };
   if ((currentUser()?.role || "visitor") === "supplier") {
@@ -8332,6 +8355,7 @@ function normalizeCompany(company) {
     supplierEmail: meta.supplierEmail || company.supplierEmail || "",
     supplierPhone: meta.supplierPhone || company.supplierPhone || "",
     supplierRole: meta.supplierRole || company.supplierRole || "",
+    logoUrl: meta.logoUrl || company.logoUrl || company.logo || company.logo_url || "",
     contractFiscal: meta.contractFiscal || company.contractFiscal || company.fiscal || "",
     manager: company.manager || company.gestorContrato || company.responsible || company.contact || "Nao informado",
     responsible: company.responsible || company.contact || "Nao informado",
@@ -8408,6 +8432,7 @@ function normalizeEmployee(employee) {
     complement: employee.complement || employee.complemento || meta.complement || "",
     uf: normalizeUf(employee.uf || employee.estado || employee.state || meta.uf || ""),
     badgeNumber: employee.badgeNumber || employee.cracha || employee.crachaNumber || meta.badgeNumber || meta.cracha || meta.crachaNumber || "",
+    photoUrl: employee.photoUrl || employee.photo || employee.photo_url || meta.photoUrl || meta.photo || meta.photo_url || "",
     patrimonialReleaseDate: employee.patrimonialReleaseDate || employee.releaseDate || meta.patrimonialReleaseDate || meta.releaseDate || "",
     patrimonialNotes: employee.patrimonialNotes || meta.patrimonialNotes || "",
     asoValidity: employee.asoValidity || employee.admission || "",
@@ -8474,6 +8499,7 @@ function serializeEmployeeNotes(employee) {
     complement: item.complement || "",
     uf: normalizeUf(item.uf || ""),
     badgeNumber: item.badgeNumber || "",
+    photoUrl: item.photoUrl || item.photo || item.photo_url || "",
     patrimonialReleaseDate: item.patrimonialReleaseDate || "",
     patrimonialNotes: item.patrimonialNotes || "",
     workflowActions: item.workflowActions || existingMeta.workflowActions || {},
