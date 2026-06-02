@@ -1593,9 +1593,10 @@ function renderApp() {
     },
   ];
   const views = groups.flatMap((group) => group.items).filter(([id]) => canView(id));
+  const visibleViewIds = views.map(([id]) => id);
   const hiddenViews = ["contracts", "workflow", "thirdparty", "compliance", "blocks", "users", "integrations", "settings"].filter((id) => canView(id));
-  const availableViews = [...new Set([...views, ...hiddenViews])];
-  if (!availableViews.includes(currentView)) currentView = views[0]?.[0] || availableViews[0] || "dashboard";
+  const availableViews = [...new Set([...visibleViewIds, ...hiddenViews])];
+  if (!availableViews.includes(currentView)) currentView = visibleViewIds[0] || availableViews[0] || "dashboard";
 
   app.innerHTML = `
     <section class="app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}">
@@ -1665,11 +1666,9 @@ function renderApp() {
   if (!app.dataset.navBound) {
     app.dataset.navBound = "1";
     app.addEventListener("click", (event) => {
-      console.log("click target", event.target);
       const target = event.target.closest("[data-view]");
       if (!target) return;
       const view = target.dataset.view;
-      console.log("clicked view", view);
       if (!view) return;
       if (!canView(view)) {
         alert("Seu perfil nao possui acesso a esta area.");
@@ -5817,7 +5816,6 @@ function bindViewEvents() {
     const openTarget = () => {
       const target = card.dataset.targetView;
       if (!target || !canView(target)) return;
-      console.log("clicked action", card.dataset.targetView);
       currentView = target;
       searchTerm = card.dataset.targetSearch || "";
       if (target === "employees" && card.dataset.targetFilter) employeeStatusFilter = card.dataset.targetFilter;
@@ -5867,7 +5865,6 @@ function bindViewEvents() {
 
   document.querySelectorAll("[data-delete]").forEach((button) => {
     button.addEventListener("click", () => {
-      console.log("clicked action", button.dataset.delete);
       removeItem(button.dataset.delete, button.dataset.id);
     });
   });
@@ -5875,7 +5872,6 @@ function bindViewEvents() {
   document.querySelectorAll("[data-user-action]").forEach((button) => {
     button.addEventListener("click", async () => {
       const action = button.dataset.userAction;
-      console.log("clicked action", action);
       const user = state.users.find((item) => sameId(item.id, button.dataset.id));
       if (!user) return;
       if (action === "toggle-access") {
@@ -5899,7 +5895,6 @@ function bindViewEvents() {
         inactivate: "Inativar",
         block: "Bloquear",
       }[button.dataset.employeeAction] || button.dataset.employeeAction;
-      console.log("clicked action", button.dataset.employeeAction);
       console.log(label, button.dataset.id);
       updateEmployeeOperationalStatus(button.dataset.id, button.dataset.employeeAction);
     });
@@ -5908,7 +5903,6 @@ function bindViewEvents() {
   document.querySelectorAll("[data-doc-status]").forEach((button) => {
     button.addEventListener("click", () => {
       const label = button.dataset.docStatus === "Aprovado" ? "Aprovar documento" : "Reprovar documento";
-      console.log("clicked action", button.dataset.docStatus);
       console.log(label, button.dataset.id);
       updateDocumentStatus(button.dataset.id, button.dataset.docStatus);
     });
