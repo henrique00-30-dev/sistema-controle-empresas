@@ -2363,11 +2363,11 @@ function renderCompanies() {
   `;
 }
 
-function renderCompanyEditor(company = null) {
+function renderCompanyEditor(company = null, context = {}) {
   if (!can("create.company") && !can("edit.company", company)) {
     return "";
   }
-  const item = normalizeCompany(company || {});
+  const item = normalizeCompany(company || context.template || {});
   const activeFiscais = state.fiscais.map(normalizeFiscal).filter((fiscal) => fiscal.status !== "inativo");
   const fiscalOptions = [{ value: "", label: "Selecione um fiscal" }].concat(activeFiscais.map((fiscal) => ({ value: fiscal.id, label: `${fiscal.nome}${fiscal.matricula ? ` - ${fiscal.matricula}` : ""}` })));
   return `
@@ -2941,10 +2941,10 @@ function renderCompanyRow(company) {
 
 function companyRowActions(id) {
   return `
-    <div class="actions wrap">
-      <button class="btn secondary compact" type="button" data-company-detail="${id}">${icon("company")} Ver empresa</button>
-    </div>
-  `;
+      <div class="actions wrap">
+        <button class="btn secondary compact" type="button" data-company-detail="${id}">${icon("company")} Abrir Empresa</button>
+      </div>
+    `;
 }
 
 function renderEmployees() {
@@ -4147,7 +4147,7 @@ function renderContractOperationalSummary(company) {
   `;
 }
 
-function openCompanyEditorModal(id = null) {
+function openCompanyEditorModal(id = null, context = {}) {
   const company = id ? state.companies.find((item) => sameId(item.id, id)) : null;
   if (!can("create.company") && !can("edit.company", company)) return;
   const modal = document.createElement("div");
@@ -4162,7 +4162,7 @@ function openCompanyEditorModal(id = null) {
         <button class="btn icon" type="button" data-close title="Fechar">${icon("close")}</button>
       </div>
       <div class="modal-body">
-        ${renderCompanyEditor(company)}
+        ${renderCompanyEditor(company, context)}
       </div>
     </section>
   `;
@@ -4229,16 +4229,18 @@ function openCompanyDetails(id) {
         <div class="employee-record-status">${statusBadge(item.status)}</div>
         <button class="btn icon" type="button" data-close title="Fechar">${icon("close")}</button>
       </div>
+      ${renderCompanyOperationalSummary(item, employees, companyDocuments(company.id))}
       <div class="contract-tabs" role="tablist">
         ${[
           ["general", "Dados Gerais"],
           ["contracts", "Contratos"],
-          ["people", "Funcionarios / FIT"],
-          ["docs", "Documentos"],
+          ["people", "Funcionários"],
+          ["docs", "Documentos da Empresa"],
           ["medicine", "Medicina Ocupacional"],
           ["ehs", "EHS / SSMA"],
           ["patrimonial", "Seguranca Patrimonial"],
           ["managers", "Fiscais e Gestores"],
+          ["requests", "Solicitações"],
           ["history", "Historico"],
         ]
           .map(([tab, label], index) => `<button class="${index === 0 ? "active" : ""}" type="button" data-company-tab="${tab}">${label}</button>`)
@@ -4279,18 +4281,25 @@ function openCompanyDetails(id) {
 
 function bindCompanyDetailEvents(modal, company) {
   modal.querySelector("[data-company-contract-new]")?.addEventListener("click", () => {
-    alert("A estrutura atual possui um contrato por cadastro de empresa. Para atualizar dados contratuais, edite esta empresa.");
     modal.remove();
-    openCompanyEditorModal(company.id);
+    openCompanyEditorModal(null, { template: normalizeCompany(company) });
   });
   modal.querySelector("[data-company-employee-new]")?.addEventListener("click", () => {
     const companyId = modal.querySelector("[data-company-employee-new]")?.dataset.companyId || company.id;
     modal.remove();
     openForm("employee", null, { companyId });
   });
-  modal.querySelector("[data-company-contract-open]")?.addEventListener("click", () => openContractDetails(company.id));
-  modal.querySelector("[data-company-contract-close]")?.addEventListener("click", () => {
-    if (closeCompanyContract(company.id)) modal.remove();
+  modal.querySelectorAll("[data-company-contract-open]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openCompanyDetails(button.dataset.companyContractOpen);
+    });
+  });
+  modal.querySelectorAll("[data-company-contract-close]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (closeCompanyContract(button.dataset.companyContractClose)) modal.remove();
+    });
   });
   modal.querySelectorAll("[data-employee-record]").forEach((button) => button.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -4303,6 +4312,12 @@ function bindCompanyDetailEvents(modal, company) {
   modal.querySelectorAll("[data-doc-status]").forEach((button) => button.addEventListener("click", (event) => {
     event.stopPropagation();
     updateDocumentStatus(button.dataset.id, button.dataset.docStatus);
+  }));
+  modal.querySelectorAll("[data-document-archive]").forEach((button) => button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    archiveDocument(button.dataset.documentArchive);
+    modal.querySelector(".company-tab-content").innerHTML = renderCompanyTab(company, modal.querySelector("[data-company-tab].active")?.dataset.companyTab || "general");
+    bindCompanyDetailEvents(modal, company);
   }));
   modal.querySelector("#fiscalQuickForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -4392,7 +4407,7 @@ function renderCompanyTab(company, tab) {
           </tbody>
         </table>
       </div>
-      ${renderCompanyTabHistory(company, "contracts", "Historico de contratos")}
+      ${renderCompanyTabHistory(company, "general", "Historico da empresa")}
     `;
   }
   if (tab === "contracts") {
@@ -5619,6 +5634,7 @@ function statusBadge(status) {
     "Pendente Patrimonial": "warn",
     "Aguardando Correção": "analysis",
     "Ativo com pendência": "analysis",
+    Arquivado: "info",
     Vencido: "bad",
     Inativa: "bad",
     Inativo: "bad",
@@ -5666,6 +5682,7 @@ function statusClass(status) {
     "Pendente Patrimonial": "warn",
     "Aguardando Correção": "analysis",
     "Ativo com pendência": "analysis",
+    Arquivado: "info",
     Vencido: "bad",
     Bloqueado: "bad",
     Bloqueada: "bad",
@@ -6133,7 +6150,7 @@ function bindUserCreationMode(root, type, id = null) {
 
 function formConfig(type, id, context = {}) {
   const maps = {
-    company: companyForm,
+    company: (companyId) => companyForm(companyId, context),
     employee: (employeeId) => employeeForm(employeeId, context),
     document: documentForm,
     user: userForm,
@@ -6246,8 +6263,8 @@ function bindDocumentUpload(scope) {
   input.addEventListener("change", showPreview);
 }
 
-function companyForm(id) {
-  const item = state.companies.find((company) => sameId(company.id, id)) || {};
+function companyForm(id, context = {}) {
+  const item = normalizeCompany(state.companies.find((company) => sameId(company.id, id)) || context.template || {});
   return {
     title: id ? "Editar empresa" : "Nova empresa",
     fields: [
@@ -7926,6 +7943,43 @@ function employeeContractContext(companyId, contractSourceId = "") {
   };
 }
 
+function companyContractsFor(company) {
+  const familyKey = companyFamilyKey(company);
+  const family = uniqueById(
+    visibleCompanies()
+      .map((entry) => normalizeCompany(entry))
+      .filter((entry) => entry.id && companyFamilyKey(entry) === familyKey),
+  );
+  const active = family.filter((entry) => !statusMatches(entry.status, "Inativa", "Inativo", "Desmobilizada", "Desmobilizado", "Encerrada", "Encerrado"));
+  const inactive = family.filter((entry) => !active.some((item) => sameId(item.id, entry.id)));
+  return { active, inactive, all: family };
+}
+
+function companyEmployeeGroups(company) {
+  const employees = state.employees.filter((employee) => sameId(employee.companyId, company.id));
+  const active = employees.filter((employee) => {
+    const status = normalizeEmployee(employee).status;
+    return !statusMatches(status, "Inativo", "Desmobilizado", "Desmobilização solicitada");
+  });
+  const inactive = employees.filter((employee) => !active.some((item) => sameId(item.id, employee.id)));
+  return { active, inactive, all: employees };
+}
+
+function companyRequestItems(company) {
+  const companyId = String(company.id);
+  return (state.historico || [])
+    .filter((event) => canAccessHistory(event))
+    .filter((event) => {
+      const entityType = String(event.entityType || event.entidade_tipo || "").toLowerCase();
+      const entityId = String(event.entityId || event.entidade_id || "");
+      const text = normalizeSearchValue(`${event.action || event.acao || ""} ${event.observation || event.observacao || ""}`);
+      const matchesCompany = ["empresa", "company", "companies", "contrato", "contract", "contracts"].includes(entityType) && entityId === companyId;
+      return matchesCompany || text.includes("solicit");
+    })
+    .sort((a, b) => String(b.createdAt || b.criado_em || "").localeCompare(String(a.createdAt || a.criado_em || "")))
+    .slice(0, 8);
+}
+
 function fiscalNames(ids = []) {
   const names = ids
     .map((id) => state.fiscais.find((fiscal) => sameId(fiscal.id, id)))
@@ -7941,6 +7995,7 @@ function employeeName(id) {
 }
 
 function docStatus(doc) {
+  if (statusMatches(doc.status, "Arquivado")) return "Arquivado";
   if (doc.status === "Reprovado") return "Reprovado";
   const todayDate = new Date(today());
   const due = new Date(doc.dueDate);
@@ -8129,6 +8184,326 @@ function escapeHtml(value = "") {
 
 function escapeAttr(value = "") {
   return escapeHtml(value).replaceAll("'", "&#039;");
+}
+
+function renderCompanyOperationalSummary(company, employees = [], docs = []) {
+  const normalizedEmployees = employees.map((employee) => normalizeEmployee(employee));
+  const medicineWaiting = normalizedEmployees.filter((employee) => statusMatches(employee.status, "Aguardando medicina") || employeeMedicineStatus(employee, docs) === "Pendente").length;
+  const medicineApproved = normalizedEmployees.filter((employee) => employeeMedicineStatus(employee, docs) === "Aprovado").length;
+  const medicineRejected = normalizedEmployees.filter((employee) => statusMatches(employee.status, "Bloqueado") || statusMatches(employee.docStatus, "Reprovado")).length;
+  const ehsWaiting = normalizedEmployees.filter((employee) => statusMatches(employee.status, "Aguardando EHS/RH") || employeeEhsStatus(employee, docs) === "Pendente").length;
+  const ehsApproved = normalizedEmployees.filter((employee) => employeeEhsStatus(employee, docs) === "Aprovado").length;
+  const ehsRejected = normalizedEmployees.filter((employee) => statusMatches(employee.status, "Bloqueado") || statusMatches(employee.docStatus, "Reprovado")).length;
+  const patrimonialWaiting = normalizedEmployees.filter((employee) => statusMatches(employee.status, "Aguardando patrimonial") || employeePatrimonialStatus(employee, docs) === "Pendente").length;
+  const patrimonialReleased = normalizedEmployees.filter((employee) => employeePatrimonialStatus(employee, docs) === "Aprovado").length;
+  const blockedEmployees = normalizedEmployees.filter((employee) => statusMatches(employee.status, "Bloqueado")).length;
+  const docsExpiring = docs.filter((doc) => ["A vencer", "Vencido", "Pendente", "Reprovado"].includes(docStatus(doc))).length;
+  return `
+    <div class="company-summary-strip">
+      <div class="stat-card success"><span>Funcionarios ativos</span><strong>${normalizedEmployees.filter((employee) => !statusMatches(employee.status, "Inativo", "Desmobilizado", "Desmobilização solicitada")).length}</strong></div>
+      <div class="stat-card warn"><span>Pendencias</span><strong>${companyPendingDocumentsCount(company.id)}</strong></div>
+      <div class="stat-card analysis"><span>Medicina</span><strong>${medicineWaiting}</strong><small>${medicineApproved} aprovados / ${medicineRejected} reprovados</small></div>
+      <div class="stat-card analysis"><span>EHS / SSMA</span><strong>${ehsWaiting}</strong><small>${ehsApproved} aprovados / ${ehsRejected} reprovados</small></div>
+      <div class="stat-card analysis"><span>Patrimonial</span><strong>${patrimonialWaiting}</strong><small>${patrimonialReleased} liberados</small></div>
+      <div class="stat-card danger"><span>Bloqueios</span><strong>${blockedEmployees}</strong><small>${docsExpiring} documentos pendentes</small></div>
+    </div>
+  `;
+}
+
+function companyDocumentActions(doc) {
+  return `
+    <div class="actions wrap">
+      <button class="btn secondary compact" type="button" data-document-detail="${doc.id}">${icon("docs")} Visualizar</button>
+      ${can("approveDocuments", doc) ? `<button class="btn success compact" type="button" data-doc-status="Aprovado" data-id="${doc.id}">Aprovar</button>` : ""}
+      ${can("approveDocuments", doc) ? `<button class="btn warning compact" type="button" data-doc-status="Reprovado" data-id="${doc.id}">Reprovar</button>` : ""}
+      ${can("edit.document", doc) ? `<button class="btn secondary compact" type="button" data-edit="document" data-id="${doc.id}">${icon("edit")} Editar</button>` : ""}
+      ${can("edit.document", doc) ? `<button class="btn secondary compact" type="button" data-document-archive="${doc.id}">Arquivar</button>` : ""}
+    </div>
+  `;
+}
+
+function archiveDocument(id) {
+  const doc = state.documents.find((item) => sameId(item.id, id));
+  if (!doc) return;
+  if (!canAccessDocument(doc) || !can("edit.document", doc)) {
+    alert("Seu perfil nao possui permissao para arquivar este documento.");
+    return;
+  }
+  const previousStatus = doc.status || "";
+  doc.status = "Arquivado";
+  const history = createHistoryEvent({
+    entityType: "documento",
+    entityId: doc.id,
+    action: "Arquivamento de documento",
+    previousStatus,
+    nextStatus: doc.status,
+    observation: `Documento ${doc.type || "sem tipo"} arquivado pela ficha da empresa.`,
+  });
+  state.historico = upsertById(state.historico, history);
+  syncHistoryEvent(history);
+  syncCollection("documents", doc).catch((error) => {
+    logPersistenceError(error, { table: "public.documents", operation: "arquivar documento", payload: mapDocumentToDb(doc) });
+    alert(`Nao foi possivel arquivar online.\n\n${persistenceMessage(error)}`);
+  });
+  saveState();
+  render();
+}
+
+function renderCompanyTab(company, tab) {
+  const item = normalizeCompany(company);
+  const employees = state.employees.filter((employee) => sameId(employee.companyId, company.id));
+  const documents = state.documents.filter((doc) => sameId(doc.companyId, company.id));
+  const { active: activeContracts, inactive: inactiveContracts, all: allContracts } = companyContractsFor(item);
+  const { active: activeEmployees, inactive: inactiveEmployees } = companyEmployeeGroups(item);
+  const medicineDocs = documents.filter((doc) => documentOperationalSector(doc) === "Medicina" || /pcmso|pca|aso|exame/i.test(doc.type || ""));
+  const ehsDocs = documents.filter((doc) => documentOperationalSector(doc) === "EHS" || /pgr|ltcat|treinamento|nr-|epi|ppra|pcmat|ppr/i.test(doc.type || ""));
+  const patrimonialDocs = documents.filter((doc) => documentOperationalSector(doc) === "Patrimonial" || /patrimonial|cracha|acesso|liberacao/i.test(doc.type || ""));
+  const activeCompanyDocs = documents.filter((doc) => !statusMatches(docStatus(doc), "Arquivado"));
+  const archivedCompanyDocs = documents.filter((doc) => statusMatches(docStatus(doc), "Arquivado"));
+  const requests = companyRequestItems(item);
+  const requestCounts = requests.reduce(
+    (acc, event) => {
+      const token = statusToken(event.nextStatus || event.status || event.observation || event.action || "");
+      if (token.includes("execut")) acc.executed += 1;
+      else if (token.includes("rejeit") || token.includes("reprov")) acc.rejected += 1;
+      else if (token.includes("aprov")) acc.approved += 1;
+      else acc.pending += 1;
+      return acc;
+    },
+    { pending: 0, approved: 0, rejected: 0, executed: 0 },
+  );
+  if (tab === "general") {
+    return `
+      ${renderCompanyOperationalSummary(item, employees, documents)}
+      <div class="detail-grid">
+        ${detailCard("Razao social", item.name)}
+        ${detailCard("Nome fantasia", companyTradeName(item))}
+        ${detailCard("CNPJ", item.cnpj)}
+        ${detailCard("Telefone", item.phone || "Nao informado")}
+        ${detailCard("CEP", item.cep || "Nao informado")}
+        ${detailCard("Endereco", companyAddress(item))}
+        ${detailCard("E-mail", item.email || "Nao informado")}
+        ${detailCard("Status", statusBadge(item.status))}
+        ${detailCard("Observacoes", item.notes || item.observacoes || "Sem observacoes")}
+      </div>
+      ${renderCompanyTabHistory(company, "general", "Historico geral da empresa")}
+    `;
+  }
+  if (tab === "contracts") {
+    const contractRow = (contractCompany) => {
+      const entry = normalizeCompany(contractCompany);
+      return `
+        <tr>
+          <td><strong>${entry.contract || "Nao informado"}</strong><br><span class="muted">${entry.name}</span></td>
+          <td>${employeeCostCenter({}, entry)}</td>
+          <td>${entry.fiscal || "Nao informado"}</td>
+          <td>${entry.manager || entry.responsible || "Nao informado"}</td>
+          <td>${entry.serviceType || entry.risk || "Nao informado"}</td>
+          <td>${entry.unitSector || contractUnit(entry)}</td>
+          <td>${formatDate(entry.startDate)}<br><span class="muted">ate ${formatDate(entry.endDate)}</span></td>
+          <td>${statusBadge(entry.status)}</td>
+          <td class="actions wrap">
+            <button class="btn secondary compact" type="button" data-company-contract-open="${entry.id}">${icon("docs")} Abrir contrato</button>
+            ${can("edit.company", entry) ? `<button class="btn warning compact" type="button" data-company-contract-close="${entry.id}">Encerrar contrato</button>` : ""}
+          </td>
+        </tr>
+      `;
+    };
+    return `
+      <div class="contract-inner-toolbar">
+        ${can("create.company") ? `<button class="btn primary compact" type="button" data-company-contract-new data-company-id="${company.id}">${icon("plus")} Novo Contrato</button>` : ""}
+      </div>
+      <div class="company-contract-summary">
+        <div class="stat-card success"><span>Contratos ativos</span><strong>${activeContracts.length}</strong></div>
+        <div class="stat-card neutral"><span>Encerrados / inativos</span><strong>${inactiveContracts.length}</strong></div>
+      </div>
+      <section class="company-split-section">
+        <div class="record-section-title"><h3>Contratos ativos</h3><span class="mini-pill">${activeContracts.length}</span></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Contrato</th><th>Centro de custo</th><th>Fiscal</th><th>Gestor</th><th>Tipo de servico</th><th>Unidade/Setor</th><th>Vigencia</th><th>Status</th><th>Acoes</th></tr></thead>
+            <tbody>${activeContracts.length ? activeContracts.map(contractRow).join("") : emptyRow(9)}</tbody>
+          </table>
+        </div>
+      </section>
+      <section class="company-split-section">
+        <div class="record-section-title"><h3>Contratos encerrados / inativos</h3><span class="mini-pill">${inactiveContracts.length}</span></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Contrato</th><th>Centro de custo</th><th>Fiscal</th><th>Gestor</th><th>Tipo de servico</th><th>Unidade/Setor</th><th>Vigencia</th><th>Status</th><th>Acoes</th></tr></thead>
+            <tbody>${inactiveContracts.length ? inactiveContracts.map(contractRow).join("") : emptyRow(9)}</tbody>
+          </table>
+        </div>
+      </section>
+      ${renderCompanyTabHistory(company, "contracts", "Historico de contratos")}
+    `;
+  }
+  if (tab === "people") {
+    const employeeRow = (employee) => {
+      const normalized = normalizeEmployee(employee);
+      return `<tr><td><strong>${employeeRegistration(normalized)}</strong></td><td><strong>${normalized.name}</strong></td><td>${normalized.cpf}</td><td>${normalized.role}</td><td>${normalized.contract || item.contract || "Nao informado"}</td><td>${statusBadge(normalized.docStatus)}</td><td>${statusBadge(normalized.status)}</td><td>${formatDate(normalized.asoValidity)}</td><td>${formatDate(normalized.trainingValidity)}</td><td><button class="btn secondary compact" type="button" data-employee-record="${employee.id}">${icon("users")} Abrir FIT</button></td></tr>`;
+    };
+    return `
+      <div class="contract-inner-toolbar">
+        ${can("create.employee") ? `<button class="btn primary compact" type="button" data-company-employee-new data-company-id="${company.id}">${icon("plus")} Novo Funcionário</button>` : ""}
+      </div>
+      <section class="company-split-section">
+        <div class="record-section-title"><h3>Funcionários ativos</h3><span class="mini-pill">${activeEmployees.length}</span></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Matricula/ID</th><th>Nome</th><th>CPF</th><th>Funcao</th><th>Contrato</th><th>Status documental</th><th>Status contratacao</th><th>ASO</th><th>Treinamento</th><th>Acoes</th></tr></thead>
+            <tbody>${activeEmployees.length ? activeEmployees.map(employeeRow).join("") : emptyRow(10)}</tbody>
+          </table>
+        </div>
+      </section>
+      <section class="company-split-section">
+        <div class="record-section-title"><h3>Funcionários inativos / desmobilizados</h3><span class="mini-pill">${inactiveEmployees.length}</span></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Matricula/ID</th><th>Nome</th><th>CPF</th><th>Funcao</th><th>Contrato</th><th>Status documental</th><th>Status contratacao</th><th>ASO</th><th>Treinamento</th><th>Acoes</th></tr></thead>
+            <tbody>${inactiveEmployees.length ? inactiveEmployees.map(employeeRow).join("") : emptyRow(10)}</tbody>
+          </table>
+        </div>
+      </section>
+      ${renderCompanyTabHistory(company, "people", "Historico de funcionarios / FIT")}
+    `;
+  }
+  if (tab === "docs") {
+    const docRow = (doc) => `
+      <tr>
+        <td><strong>${doc.type}</strong><br><span class="muted">${doc.employeeId ? employeeName(doc.employeeId) : "Empresa"}</span></td>
+        <td>${statusBadge(docStatus(doc))}</td>
+        <td>${formatDate(doc.dueDate)}${docStatus(doc) === "Vencido" ? `<br>${statusBadge("Vencido")}` : ""}</td>
+        <td>${documentOperationalSector(doc)}</td>
+        <td><span class="mini-pill">Preparado</span></td>
+        <td><button class="btn secondary compact" type="button" data-document-detail="${doc.id}">${icon("docs")} Visualizar</button></td>
+        <td>${companyDocumentActions(doc)}</td>
+      </tr>
+    `;
+    return `
+      <div class="company-split-section">
+        <div class="record-section-title"><h3>Documentos ativos</h3><span class="mini-pill">${activeCompanyDocs.length}</span></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Documento</th><th>Status</th><th>Validade</th><th>Area</th><th>Anexo</th><th>Visualizar</th><th>Acoes</th></tr></thead>
+            <tbody>${activeCompanyDocs.length ? activeCompanyDocs.map(docRow).join("") : emptyRow(7)}</tbody>
+          </table>
+        </div>
+      </section>
+      <section class="company-split-section">
+        <div class="record-section-title"><h3>Documentos arquivados</h3><span class="mini-pill">${archivedCompanyDocs.length}</span></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Documento</th><th>Status</th><th>Validade</th><th>Area</th><th>Anexo</th><th>Visualizar</th><th>Acoes</th></tr></thead>
+            <tbody>${archivedCompanyDocs.length ? archivedCompanyDocs.map(docRow).join("") : emptyRow(7)}</tbody>
+          </table>
+        </div>
+      </section>
+      ${renderCompanyTabHistory(company, "docs", "Historico de documentos da empresa")}
+    `;
+  }
+  if (tab === "medicine") {
+    const pending = employees.filter((employee) => statusMatches(normalizeEmployee(employee).status, "Aguardando medicina") || employeeMedicineStatus(employee, documents) === "Pendente").length;
+    const approved = employees.filter((employee) => employeeMedicineStatus(employee, documents) === "Aprovado").length;
+    const rejected = employees.filter((employee) => statusMatches(normalizeEmployee(employee).status, "Bloqueado") || statusMatches(normalizeEmployee(employee).docStatus, "Reprovado")).length;
+    const asoExpiring = employees.filter((employee) => isPastDate(normalizeEmployee(employee).asoValidity) || employeeHasExpiredDocuments(employee)).length;
+    return `
+      <div class="detail-grid">
+        ${detailCard("Aguardando medicina", pending)}
+        ${detailCard("Aprovados medicina", approved)}
+        ${detailCard("Reprovados medicina", rejected)}
+        ${detailCard("ASO vencido / vencendo", asoExpiring)}
+      </div>
+      ${renderEmployeeDocsTable(medicineDocs, "Documentos de medicina ocupacional")}
+      ${renderCompanyTabHistory(company, "medicine", "Historico de medicina ocupacional")}
+    `;
+  }
+  if (tab === "ehs") {
+    const pending = employees.filter((employee) => statusMatches(normalizeEmployee(employee).status, "Aguardando EHS/RH") || employeeEhsStatus(employee, documents) === "Pendente").length;
+    const approved = employees.filter((employee) => employeeEhsStatus(employee, documents) === "Aprovado").length;
+    const rejected = employees.filter((employee) => statusMatches(normalizeEmployee(employee).status, "Bloqueado") || statusMatches(normalizeEmployee(employee).docStatus, "Reprovado")).length;
+    const trainings = employees.filter((employee) => isPastDate(normalizeEmployee(employee).trainingValidity) || employeeHasExpiredDocuments(employee)).length;
+    return `
+      <div class="detail-grid">
+        ${detailCard("Aguardando EHS", pending)}
+        ${detailCard("Aprovados EHS", approved)}
+        ${detailCard("Reprovados EHS", rejected)}
+        ${detailCard("Treinamentos vencidos / vencendo", trainings)}
+      </div>
+      ${renderEmployeeDocsTable(ehsDocs, "Documentos de EHS / SSMA")}
+      ${renderCompanyTabHistory(company, "ehs", "Historico de EHS / SSMA")}
+    `;
+  }
+  if (tab === "patrimonial") {
+    const pending = employees.filter((employee) => statusMatches(normalizeEmployee(employee).status, "Aguardando patrimonial") || employeePatrimonialStatus(employee, documents) === "Pendente").length;
+    const released = employees.filter((employee) => employeePatrimonialStatus(employee, documents) === "Aprovado").length;
+    const blocked = employees.filter((employee) => statusMatches(normalizeEmployee(employee).status, "Bloqueado")).length;
+    const badges = employees.filter((employee) => employee.registration || employee.matricula).length;
+    return `
+      <div class="detail-grid">
+        ${detailCard("Aguardando liberacao", pending)}
+        ${detailCard("Liberados", released)}
+        ${detailCard("Bloqueados", blocked)}
+        ${detailCard("Matricula / cracha", badges)}
+      </div>
+      ${renderEmployeeDocsTable(patrimonialDocs, "Documentos de seguranca patrimonial")}
+      ${renderCompanyTabHistory(company, "patrimonial", "Historico de seguranca patrimonial")}
+    `;
+  }
+  if (tab === "managers") {
+    const fiscalIds = [item.fiscalId, ...(item.fiscaisAdicionais || [])].filter(Boolean);
+    const linkedFiscais = fiscalIds.map((id) => state.fiscais.find((fiscal) => sameId(fiscal.id, id))).filter(Boolean).map(normalizeFiscal);
+    const contractRows = allContracts.map((entry) => `<tr><td><strong>${entry.contract || "Nao informado"}</strong></td><td>${entry.fiscal || "Nao informado"}</td><td>${entry.manager || entry.responsible || "Nao informado"}</td><td>${entry.unitSector || contractUnit(entry)}</td><td>${statusBadge(entry.status)}</td></tr>`).join("");
+    return `
+      <div class="detail-grid">
+        ${detailCard("Fiscal principal", item.fiscal || "Nao informado")}
+        ${detailCard("Fiscais vinculados", linkedFiscais.length ? linkedFiscais.map((fiscal) => fiscal.nome).join(", ") : "Nao informado")}
+        ${detailCard("Gestor principal", item.manager || item.responsible || "Nao informado")}
+        ${detailCard("Contratos relacionados", allContracts.length)}
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Contrato</th><th>Fiscal</th><th>Gestor</th><th>Unidade/Setor</th><th>Status</th></tr></thead>
+          <tbody>${allContracts.length ? contractRows : emptyRow(5)}</tbody>
+        </table>
+      </div>
+      ${renderCompanyTabHistory(company, "managers", "Historico de fiscais e gestores")}
+    `;
+  }
+  if (tab === "requests") {
+    const rows = requests.map((event) => `
+      <tr>
+        <td><strong>${event.action || "Solicitacao"}</strong><br><span class="muted">${event.observation || event.observacao || "Sem descricao"}</span></td>
+        <td>${event.user || event.usuario || "Sistema"}</td>
+        <td>${formatDateTime(event.createdAt || event.criado_em)}</td>
+        <td>${statusBadge(event.nextStatus || event.status || "Pendente")}</td>
+      </tr>
+    `).join("");
+    return `
+      <div class="detail-grid">
+        ${detailCard("Pendentes", requestCounts.pending)}
+        ${detailCard("Aprovadas", requestCounts.approved)}
+        ${detailCard("Rejeitadas", requestCounts.rejected)}
+        ${detailCard("Executadas", requestCounts.executed)}
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Solicitacao</th><th>Usuario</th><th>Data/Hora</th><th>Status</th></tr></thead>
+          <tbody>${rows || emptyRow(4)}</tbody>
+        </table>
+      </div>
+      ${renderCompanyTabHistory(company, "general", "Historico da central de solicitacoes")}
+    `;
+  }
+  if (tab === "history") {
+    return renderHistoryTimeline("empresa", company.id, [
+      `<div class="item-card"><strong>Empresa cadastrada</strong><span class="muted">${item.name} - ${item.cnpj}</span></div>`,
+      `<div class="item-card"><strong>Contratos vinculados</strong><span class="muted">${allContracts.length} contrato(s)</span></div>`,
+      `<div class="item-card"><strong>Funcionarios vinculados</strong><span class="muted">${employees.length} funcionario(s)</span></div>`,
+      `<div class="item-card"><strong>Documentos vinculados</strong><span class="muted">${documents.length} documento(s)</span></div>`,
+    ]);
+  }
+  return renderCompanyTab(company, "general");
 }
 
 boot();

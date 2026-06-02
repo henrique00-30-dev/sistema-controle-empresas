@@ -1195,10 +1195,13 @@ textarea {
 }
 
 .stat-card.success::after { background: var(--ok); }
+.stat-card.warn::after { background: var(--warn); }
+.stat-card.analysis::after { background: var(--info); }
 .stat-card.warning::after { background: var(--warn); }
 .stat-card.danger::after { background: var(--bad); }
 .stat-card.info::after { background: var(--info); }
 .stat-card.special::after { background: var(--special); }
+.stat-card.neutral::after { background: var(--line-strong); }
 
 .stat-card span {
   color: var(--muted);
@@ -2261,6 +2264,44 @@ tr:last-child td {
   gap: 12px;
 }
 
+.company-summary-strip {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+  margin: 14px 0;
+}
+
+.company-summary-strip .stat-card strong {
+  font-size: 1.45rem;
+}
+
+.company-summary-strip .stat-card small {
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
+.company-contract-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 14px 0;
+}
+
+.company-split-section {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(245, 241, 234, 0.03);
+}
+
+.company-split-section .table-wrap {
+  margin-top: 0;
+}
+
 .employee-record-modal {
   width: min(1220px, calc(100vw - 28px));
 }
@@ -2714,6 +2755,8 @@ tr:last-child td {
   .report-grid,
   .integration-grid,
   .supplier-grid,
+  .company-summary-strip,
+  .company-contract-summary,
   .compliance-shell {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2760,6 +2803,8 @@ tr:last-child td {
   .report-grid,
   .integration-grid,
   .supplier-grid,
+  .company-summary-strip,
+  .company-contract-summary,
   .compliance-grid,
   .form-grid.two,
   .company-form,
