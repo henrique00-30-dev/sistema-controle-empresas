@@ -5509,45 +5509,38 @@ function renderUsers() {
   ]);
   const totalUsers = state.users.length;
   const activeUsers = state.users.filter((user) => user.active !== false).length;
-  const testUsers = state.users.filter((user) => user.creationMode === "test").length;
-  const realUsers = state.users.filter((user) => user.creationMode === "real").length;
   const linkedUsers = state.users.filter((user) => Boolean(user.companyId)).length;
+  const inviteUsers = state.users.filter((user) => user.creationMode === "real").length;
   return `
-    <section class="hero-panel compact-hero">
-      <div>
-        <span class="eyebrow">Administracao</span>
-        <h2>Usuarios e Acessos</h2>
-        <p>Central administrativa para criaÃ§Ã£o, ediÃ§Ã£o e acompanhamento dos acessos do portal.</p>
-      </div>
-    </section>
-    <div class="stats-grid four">
-      <div class="stat-card info"><span>Total de usuarios</span><strong>${totalUsers}</strong><small>Contas cadastradas</small></div>
-      <div class="stat-card success"><span>Usuarios ativos</span><strong>${activeUsers}</strong><small>Acessos liberados</small></div>
-      <div class="stat-card warning"><span>Usuarios teste</span><strong>${testUsers}</strong><small>Validacoes internas</small></div>
-      <div class="stat-card special"><span>Usuarios reais</span><strong>${realUsers}</strong><small>Convites e primeiro acesso</small></div>
-    </div>
-    <div class="dashboard-grid">
-      <section class="bi-card wide">
-        <div class="bi-head">
-          <div><span class="eyebrow">Lista operacional</span><h2>Usuarios existentes</h2></div>
+    <section class="panel table-wrap">
+      <div class="modal-head">
+        <div>
+          <span class="eyebrow">Administracao</span>
+          <h2>Usuarios e Acessos</h2>
+          <span class="muted">Visao consolidada dos acessos do portal, alinhada as demais secoes administrativas.</span>
+        </div>
+        <div class="actions wrap">
           <button class="btn primary" type="button" data-create="user">${icon("plus")} Novo Usuario</button>
         </div>
-        <div class="enterprise-strip users-strip">
-          <div><span>Vinculados</span><strong>${linkedUsers}</strong></div>
-          <div><span>Sem vinculo</span><strong>${totalUsers - linkedUsers}</strong></div>
-          <div><span>Ultimo acesso</span><strong>Disponivel na lista</strong></div>
-          <div><span>Central</span><strong>AdministraÃ§Ã£o</strong></div>
-        </div>
-        ${toolbar("Buscar por nome, e-mail, perfil, empresa, contrato, tipo ou status")}
-        <section class="panel table-wrap inner-table">
+      </div>
+      <div class="access-summary-grid">
+        <div class="item-card"><strong>Total de usuarios</strong><span class="muted">${totalUsers} conta(s) cadastrada(s).</span></div>
+        <div class="item-card"><strong>Usuarios ativos</strong><span class="muted">${activeUsers} acesso(s) liberado(s).</span></div>
+        <div class="item-card"><strong>Convites ativos</strong><span class="muted">${inviteUsers} usuario(s) em fluxo de primeiro acesso.</span></div>
+      </div>
+      <div class="enterprise-strip users-strip">
+        <div><span>Vinculados</span><strong>${linkedUsers}</strong></div>
+        <div><span>Sem vinculo</span><strong>${totalUsers - linkedUsers}</strong></div>
+        <div><span>Ultimo acesso</span><strong>Disponivel na lista</strong></div>
+        <div><span>Central</span><strong>Administracao</strong></div>
+      </div>
+      ${toolbar("Buscar por nome, e-mail, perfil, empresa, contrato, tipo ou status")}
       <table>
         <thead><tr><th>Nome</th><th>E-mail</th><th>Perfil</th><th>Empresa</th><th>Contrato</th><th>Tipo</th><th>Status</th><th>Ultimo acesso</th><th>Acoes</th></tr></thead>
         <tbody>
           ${items.length ? items.map(renderUserRow).join("") : emptyRow(9)}
         </tbody>
       </table>
-        </section>
-      </section>
     </section>
   `;
 }
