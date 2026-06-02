@@ -1148,6 +1148,10 @@ textarea {
   margin-bottom: 18px;
 }
 
+.stats-grid.four {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .stats-grid.six {
   grid-template-columns: repeat(6, minmax(145px, 1fr));
 }
@@ -1260,6 +1264,14 @@ textarea {
 
 .table-wrap {
   overflow-x: auto;
+}
+
+.inner-table {
+  margin-top: 14px;
+}
+
+.users-strip {
+  margin: 10px 0 12px;
 }
 
 table {

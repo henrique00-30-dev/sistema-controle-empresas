@@ -1662,13 +1662,22 @@ function renderApp() {
     </section>
   `;
 
-  document.querySelectorAll("[data-view]").forEach((button) => {
-    button.addEventListener("click", () => {
-      currentView = button.dataset.view;
+  if (!app.dataset.navBound) {
+    app.dataset.navBound = "1";
+    app.addEventListener("click", (event) => {
+      const target = event.target.closest("[data-view]");
+      if (!target) return;
+      const view = target.dataset.view;
+      if (!view) return;
+      if (!canView(view)) {
+        alert("Seu perfil nao possui acesso a esta area.");
+        return;
+      }
+      currentView = view;
       searchTerm = "";
       render();
     });
-  });
+  }
 
   document.querySelector("#logoutBtn").addEventListener("click", async () => {
     if (isOnlineMode()) await supabaseClient.auth.signOut();
@@ -5216,17 +5225,57 @@ function renderDocumentAuditTrail(doc) {
 }
 
 function renderUsers() {
-  const items = filtered(state.users, [(item) => item.name, (item) => item.email, (item) => roleName(item.role)]);
+  const items = filtered(state.users, [
+    (item) => item.name,
+    (item) => item.email,
+    (item) => roleName(item.role),
+    (item) => companyName(item.companyId),
+    (item) => companyContractFromUser(item),
+    (item) => userCreationTypeLabel(item),
+    (item) => (item.active === false ? "Inativo" : "Ativo"),
+    (item) => formatDateTime(item.lastAccessAt || item.lastAccess || item.updatedAt || item.createdAt),
+  ]);
+  const totalUsers = state.users.length;
+  const activeUsers = state.users.filter((user) => user.active !== false).length;
+  const testUsers = state.users.filter((user) => user.creationMode === "test").length;
+  const realUsers = state.users.filter((user) => user.creationMode === "real").length;
+  const linkedUsers = state.users.filter((user) => Boolean(user.companyId)).length;
   return `
-    ${sectionHead("Usuarios", "Gerencie perfis por setor, fornecedor e visitantes.", "Novo usuario", "user")}
-    ${toolbar("Buscar por nome, e-mail ou perfil")}
-    <section class="panel table-wrap">
+    <section class="hero-panel compact-hero">
+      <div>
+        <span class="eyebrow">Administracao</span>
+        <h2>Usuarios e Acessos</h2>
+        <p>Central administrativa para criação, edição e acompanhamento dos acessos do portal.</p>
+      </div>
+    </section>
+    <div class="stats-grid four">
+      <div class="stat-card info"><span>Total de usuarios</span><strong>${totalUsers}</strong><small>Contas cadastradas</small></div>
+      <div class="stat-card success"><span>Usuarios ativos</span><strong>${activeUsers}</strong><small>Acessos liberados</small></div>
+      <div class="stat-card warning"><span>Usuarios teste</span><strong>${testUsers}</strong><small>Validacoes internas</small></div>
+      <div class="stat-card special"><span>Usuarios reais</span><strong>${realUsers}</strong><small>Convites e primeiro acesso</small></div>
+    </div>
+    <div class="dashboard-grid">
+      <section class="bi-card wide">
+        <div class="bi-head">
+          <div><span class="eyebrow">Lista operacional</span><h2>Usuarios existentes</h2></div>
+          <button class="btn primary" type="button" data-create="user">${icon("plus")} Novo Usuario</button>
+        </div>
+        <div class="enterprise-strip users-strip">
+          <div><span>Vinculados</span><strong>${linkedUsers}</strong></div>
+          <div><span>Sem vinculo</span><strong>${totalUsers - linkedUsers}</strong></div>
+          <div><span>Ultimo acesso</span><strong>Disponivel na lista</strong></div>
+          <div><span>Central</span><strong>Administração</strong></div>
+        </div>
+        ${toolbar("Buscar por nome, e-mail, perfil, empresa, contrato, tipo ou status")}
+        <section class="panel table-wrap inner-table">
       <table>
-        <thead><tr><th>Nome</th><th>E-mail</th><th>Perfil</th><th>Status</th><th>Acoes</th></tr></thead>
+        <thead><tr><th>Nome</th><th>E-mail</th><th>Perfil</th><th>Empresa</th><th>Contrato</th><th>Tipo</th><th>Status</th><th>Ultimo acesso</th><th>Acoes</th></tr></thead>
         <tbody>
-          ${items.length ? items.map(renderUserRow).join("") : emptyRow(5)}
+          ${items.length ? items.map(renderUserRow).join("") : emptyRow(9)}
         </tbody>
       </table>
+        </section>
+      </section>
     </section>
   `;
 }
@@ -5342,7 +5391,7 @@ function renderRequests() {
 
 function renderAdministration() {
   const hubs = [
-    ["users", "Usuarios e perfis", "Gerencie acessos, perfis e convites.", "users"],
+    ["users", "Usuarios e Acessos", "Gerencie acessos, perfis e convites.", "users"],
     ["integrations", "Integracoes", "Pontos de conexao com servicos externos.", "integrations"],
     ["settings", "Configuracoes", "Parametros operacionais do portal.", "settings"],
   ].filter(([view]) => canView(view));
@@ -5356,7 +5405,7 @@ function renderAdministration() {
     </section>
     <div class="enterprise-strip">
       <div><span>Usuarios</span><strong>Convites e perfis</strong></div>
-      <div><span>Integracoes</span><strong>Conexoes externas</strong></div>
+      <div><span>Acessos</span><strong>Controle centralizado</strong></div>
       <div><span>Parametros</span><strong>Configuracao geral</strong></div>
       <div><span>Auditoria</span><strong>Base para rastreio</strong></div>
     </div>
@@ -5413,15 +5462,43 @@ function renderReportTable(title, subtitle, exportKey, columns, rows) {
 }
 
 function renderUserRow(user) {
-  const userTypeBadge = user.creationMode === "test" ? `<span class="mini-pill">Usuario de teste</span>` : "";
+  const userTypeBadge = user.creationMode === "test" ? `<span class="mini-pill">Usuario de teste</span>` : `<span class="mini-pill">Usuario real</span>`;
+  const company = state.companies.find((item) => sameId(item.id, user.companyId));
   return `
     <tr>
       <td><strong>${user.name}</strong>${userTypeBadge ? `<br>${userTypeBadge}` : ""}</td>
       <td>${user.email}</td>
       <td>${roleName(user.role)}</td>
+      <td>${company?.name || "Nao vinculado"}</td>
+      <td>${companyContractFromUser(user)}</td>
+      <td>${userCreationTypeLabel(user)}</td>
       <td>${statusBadge(user.active ? "Ativo" : "Inativo")}</td>
-      <td>${rowActions("user", user.id)}</td>
+      <td>${formatDateTime(user.lastAccessAt || user.lastAccess || user.updatedAt || user.createdAt)}</td>
+      <td>${userRowActions(user)}</td>
     </tr>
+  `;
+}
+
+function userCreationTypeLabel(user = {}) {
+  return user.creationMode === "real" ? "Real" : "Teste";
+}
+
+function companyContractFromUser(user = {}) {
+  const company = state.companies.find((item) => sameId(item.id, user.companyId));
+  return company?.contract || "Nao vinculado";
+}
+
+function userRowActions(user) {
+  const item = mapUserFromDb(user);
+  return `
+    <div class="actions wrap">
+      <button class="btn secondary compact" type="button" data-edit="user" data-id="${user.id}">${icon("edit")} Editar</button>
+      <button class="btn warning compact" type="button" data-user-action="toggle-access" data-id="${user.id}">${item.active ? "Inativar acesso" : "Reativar acesso"}</button>
+      <button class="btn secondary compact" type="button" data-user-action="reset-password" data-id="${user.id}">Redefinir senha</button>
+      <button class="btn secondary compact" type="button" data-user-action="resend-invite" data-id="${user.id}">Reenviar convite</button>
+      <button class="btn secondary compact" type="button" data-user-action="change-role" data-id="${user.id}">Alterar perfil</button>
+      <button class="btn secondary compact" type="button" data-user-action="change-link" data-id="${user.id}">Alterar vínculo</button>
+    </div>
   `;
 }
 
@@ -5787,6 +5864,25 @@ function bindViewEvents() {
 
   document.querySelectorAll("[data-delete]").forEach((button) => {
     button.addEventListener("click", () => removeItem(button.dataset.delete, button.dataset.id));
+  });
+
+  document.querySelectorAll("[data-user-action]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const action = button.dataset.userAction;
+      const user = state.users.find((item) => sameId(item.id, button.dataset.id));
+      if (!user) return;
+      if (action === "toggle-access") {
+        await toggleUserAccess(user);
+        return;
+      }
+      if (action === "reset-password" || action === "resend-invite") {
+        await resendUserAccessInvite(user, action === "reset-password");
+        return;
+      }
+      if (action === "change-role" || action === "change-link") {
+        openForm("user", user.id);
+      }
+    });
   });
 
   document.querySelectorAll("[data-employee-action]").forEach((button) => {
@@ -6467,6 +6563,40 @@ function userForm(id) {
       alert(id ? "Usuario atualizado com sucesso." : "Usuario criado com sucesso.");
     },
   };
+}
+
+async function toggleUserAccess(user) {
+  const nextActive = user.active === false;
+  const updated = { ...user, active: nextActive, updatedAt: new Date().toISOString() };
+  try {
+    if (isOnlineMode()) {
+      const saved = await syncUserRecord(updated);
+      state.users = state.users.map((item) => (sameId(item.id, saved.id) ? { ...item, ...saved } : item));
+    } else {
+      upsert("users", user.id, updated);
+      saveState();
+    }
+    renderApp();
+    alert(nextActive ? "Acesso reativado com sucesso." : "Acesso inativado com sucesso.");
+  } catch (error) {
+    console.error("[Usuarios] Falha ao alternar acesso", error);
+    alert(`Nao foi possivel alterar o acesso.\n\n${persistenceMessage(error)}`);
+  }
+}
+
+async function resendUserAccessInvite(user, isReset = false) {
+  const email = String(user.email || "").trim().toLowerCase();
+  if (!isValidEmail(email)) {
+    alert("O usuario selecionado nao possui e-mail valido.");
+    return;
+  }
+  try {
+    await sendFirstAccessInviteEmail(email);
+    alert(isReset ? "Link de redefinicao enviado." : "Convite reenviado com sucesso.");
+  } catch (error) {
+    console.error("[Usuarios] Falha ao reenviar convite/redefinir senha", error);
+    alert(`Nao foi possivel enviar o e-mail.\n\n${persistenceMessage(error)}`);
+  }
 }
 
 function upsert(collection, id, data) {
