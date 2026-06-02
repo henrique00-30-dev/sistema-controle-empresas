@@ -1160,14 +1160,17 @@ function icon(name) {
     shield: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Zm-3-10 2 2 4-5",
     search: "M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z",
     menu: "M4 6h16M4 12h16M4 18h16",
+    clock: "M12 6v6l4 2M12 22a10 10 0 1 1 0-20 10 10 0 0 1 0 20Z",
     moon: "M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z",
     sun: "M12 1v2m0 18v2m11-11h-2M3 12H1m18.36 6.36-1.41-1.41M6.05 6.05 4.64 4.64m14.72 0-1.41 1.41M6.05 17.95l-1.41 1.41M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z",
     plus: "M12 5v14M5 12h14",
     edit: "M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z",
+    download: "M12 3v10m0 0 4-4m-4 4-4-4M4 17v3h16v-3",
     trash: "M3 6h18M8 6V4h8v2m-9 0 1 14h8l1-14",
     close: "M18 6 6 18M6 6l12 12",
     arrow: "M19 12H5m7-7-7 7 7 7",
     logout: "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4m7 14 5-5-5-5m5 5H9",
+    reload: "M3 12a9 9 0 0 1 15-6.7L21 8M21 8V3m0 5h-5M21 12a9 9 0 0 1-15 6.7L3 16M3 16v5m0-5h5",
     save: "M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2ZM17 21v-8H7v8M7 3v5h8",
   };
   return `<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${icons[name]}"/></svg>`;
