@@ -242,6 +242,7 @@ const documentStatuses = ["Pendente", "Em anÃ¡lise", "Aprovado", "RevisÃ£o s
 const fiscalStatuses = ["sem_acesso", "com_acesso", "inativo"];
 const DOC_META_MARKER = "\n\n[SCT_ENTERPRISE_META]";
 const EMPLOYEE_META_MARKER = "\n\n[SCT_EMPLOYEE_META]";
+const COMPANY_META_MARKER = "\n\n[SCT_COMPANY_META]";
 const DOCUMENT_WORKFLOW_SECTORS = ["Fiscal", "Medicina", "EHS", "Patrimonial"];
 
 const app = document.querySelector("#app") || document.querySelector("#root");
@@ -2472,8 +2473,6 @@ function parseLegacyCompanyAddress(address = "") {
     uf: String(uf || "").trim().toUpperCase().slice(0, 2),
   };
 }
-
-const COMPANY_META_MARKER = "\n\n[SCT_COMPANY_META]";
 
 function companyVisibleNotes(company = {}) {
   return String(company.notes || company.observacoes || "").split(COMPANY_META_MARKER)[0].trim();
