@@ -1,4 +1,4 @@
-const STORAGE_KEY = "sctempresas.v1";
+﻿const STORAGE_KEY = "sctempresas.v1";
 const ONLINE_STORAGE_NOTE =
   "Modo online ativo com projeto Supabase oficial fixado em supabase-config.js.";
 
@@ -222,23 +222,23 @@ const documentTypes = [
 
 const hiringStatuses = [
   "Em cadastro",
-  "Em análise documental",
-  "Pendente Documentação",
+  "Em anÃ¡lise documental",
+  "Pendente DocumentaÃ§Ã£o",
   "Pendente Medicina",
   "Pendente EHS",
   "Pendente Patrimonial",
-  "Aguardando Correção",
+  "Aguardando CorreÃ§Ã£o",
   "Aguardando medicina",
   "Aguardando EHS/RH",
   "Aguardando patrimonial",
   "Liberado",
   "Bloqueado",
   "Inativo",
-  "Desmobilização solicitada",
+  "DesmobilizaÃ§Ã£o solicitada",
   "Desmobilizado",
 ];
 
-const documentStatuses = ["Pendente", "Em análise", "Aprovado", "Revisão solicitada", "Reprovado", "Vencido", "Aprovado com pendência", "Arquivado"];
+const documentStatuses = ["Pendente", "Em anÃ¡lise", "Aprovado", "RevisÃ£o solicitada", "Reprovado", "Vencido", "Aprovado com pendÃªncia", "Arquivado"];
 const fiscalStatuses = ["sem_acesso", "com_acesso", "inativo"];
 const DOC_META_MARKER = "\n\n[SCT_ENTERPRISE_META]";
 const EMPLOYEE_META_MARKER = "\n\n[SCT_EMPLOYEE_META]";
@@ -265,6 +265,7 @@ if (supabaseConfigError) console.error("[Supabase Config] Configuracao bloqueada
 let state = loadState();
 let currentView = "dashboard";
 let searchTerm = "";
+let administrationSection = localStorage.getItem("sctempresas.adminSection") || "users";
 let editingCompanyId = null;
 let editingEmployeeId = null;
 let employeeStatusFilter = "Todos";
@@ -1303,6 +1304,10 @@ async function createAccessForFiscal(fiscal) {
     alert("Informe o e-mail do fiscal antes de criar acesso.");
     return;
   }
+  if (!fiscalLinkedCompanies(item).length) {
+    alert("Vincule o fiscal a uma empresa ou contrato antes de criar o acesso.");
+    return;
+  }
   const password = prompt(`Informe uma senha temporaria para ${item.nome}:`);
   if (!password || password.length < 6) {
     alert("Senha obrigatoria com no minimo 6 caracteres.");
@@ -1652,8 +1657,8 @@ function renderApp() {
             <button class="btn icon" id="themeToggle" type="button" title="Alternar tema">${darkMode ? icon("sun") : icon("moon")}</button>
             <div class="user-status-compact" aria-label="Usuario logado">
               <strong>${escapeHtml(user.name || user.email || "Usuario")}</strong>
-              <span>${roleName(user.role)} • Online</span>
-              <small>Atualizado às ${currentSystemTime()}</small>
+              <span>${roleName(user.role)} â€¢ Online</span>
+              <small>Atualizado Ã s ${currentSystemTime()}</small>
             </div>
             <button class="btn secondary" id="logoutBtn">${icon("logout")} Sair</button>
           </div>
@@ -1818,15 +1823,15 @@ function matchesQuickFilter(view, item, quick) {
   const employee = item.cpf || item.role ? item : item.employeeId ? state.employees.find((entry) => sameId(entry.id, item.employeeId)) : null;
   const status = item.dueDate ? docStatus(item) : employee ? normalizeEmployee(employee).status : normalizeCompany(company).status;
   if (quick === "Ativas") return ["Ativa", "Ativo", "Liberado", "Aprovado"].some((value) => statusMatches(status, value));
-  if (quick === "Pendentes") return ["Pendente", "Pendente Documentação", "Pendente Medicina", "Pendente EHS", "Pendente Patrimonial", "Aguardando Correção", "A vencer", "Reprovado", "Em análise documental", "Aguardando medicina", "Aguardando EHS/RH", "Aguardando patrimonial", "Desmobilização solicitada"].some((value) => statusMatches(status, value));
+  if (quick === "Pendentes") return ["Pendente", "Pendente DocumentaÃ§Ã£o", "Pendente Medicina", "Pendente EHS", "Pendente Patrimonial", "Aguardando CorreÃ§Ã£o", "A vencer", "Reprovado", "Em anÃ¡lise documental", "Aguardando medicina", "Aguardando EHS/RH", "Aguardando patrimonial", "DesmobilizaÃ§Ã£o solicitada"].some((value) => statusMatches(status, value));
   if (quick === "Bloqueadas") return ["Bloqueado", "Bloqueada"].some((value) => statusMatches(status, value));
   if (quick === "Contrato vencido") return company ? isPastDate(normalizeCompany(company).endDate) : false;
   if (quick === "Documentos vencidos") return employee ? employeeHasExpiredDocuments(employee) : company ? companyHasExpiredDocuments(company.id) : status === "Vencido";
   if (quick === "Sem fiscal vinculado") return company ? companyHasNoFiscal(company) : false;
   if (quick === "Ativo") return ["Ativa", "Ativo", "Aprovado", "Liberado"].some((value) => statusMatches(status, value));
   if (quick === "Bloqueado") return ["Bloqueado", "Bloqueada"].some((value) => statusMatches(status, value));
-  if (quick === "Critico") return ["Bloqueado", "Bloqueada", "Pendente", "Pendente Documentação", "Pendente Medicina", "Pendente EHS", "Pendente Patrimonial", "Aguardando Correção"].some((value) => statusMatches(status, value));
-  if (quick === "Pendente") return ["Pendente", "Pendente Documentação", "Pendente Medicina", "Pendente EHS", "Pendente Patrimonial", "Aguardando Correção", "A vencer", "Reprovado", "Em análise documental", "Aguardando medicina", "Aguardando EHS/RH", "Aguardando patrimonial", "Desmobilização solicitada"].some((value) => statusMatches(status, value));
+  if (quick === "Critico") return ["Bloqueado", "Bloqueada", "Pendente", "Pendente DocumentaÃ§Ã£o", "Pendente Medicina", "Pendente EHS", "Pendente Patrimonial", "Aguardando CorreÃ§Ã£o"].some((value) => statusMatches(status, value));
+  if (quick === "Pendente") return ["Pendente", "Pendente DocumentaÃ§Ã£o", "Pendente Medicina", "Pendente EHS", "Pendente Patrimonial", "Aguardando CorreÃ§Ã£o", "A vencer", "Reprovado", "Em anÃ¡lise documental", "Aguardando medicina", "Aguardando EHS/RH", "Aguardando patrimonial", "DesmobilizaÃ§Ã£o solicitada"].some((value) => statusMatches(status, value));
   if (quick === "Vencido") return status === "Vencido";
   if (quick === "Desmobilizado") return ["Desmobilizada", "Desmobilizado"].some((value) => statusMatches(status, value));
   if (quick === "Vencendo") return contractDays(company) >= 0 && contractDays(company) <= 60;
@@ -2123,7 +2128,7 @@ function visibleDocuments() {
 function operationalMetrics(companies = visibleCompanies(), employees = visibleEmployees(), documents = visibleDocuments()) {
   const normalizedCompanies = companies.map((company) => ({ ...normalizeCompany(company), raw: company }));
   const normalizedEmployees = employees.map((employee) => ({ ...normalizeEmployee(employee), raw: employee }));
-  const pendingEmployeeStatuses = ["Em cadastro", "Pendente Documentação", "Pendente Medicina", "Pendente EHS", "Pendente Patrimonial", "Aguardando Correção", "Em análise documental", "Aguardando medicina", "Aguardando EHS/RH", "Aguardando patrimonial", "Desmobilização solicitada"];
+  const pendingEmployeeStatuses = ["Em cadastro", "Pendente DocumentaÃ§Ã£o", "Pendente Medicina", "Pendente EHS", "Pendente Patrimonial", "Aguardando CorreÃ§Ã£o", "Em anÃ¡lise documental", "Aguardando medicina", "Aguardando EHS/RH", "Aguardando patrimonial", "DesmobilizaÃ§Ã£o solicitada"];
   const criticalCompanyStatuses = ["Bloqueada", "Bloqueado", "Pendente"];
   const pendingApprovalStatuses = ["Pendente", "Reprovado", "A vencer"];
   return {
@@ -2138,7 +2143,7 @@ function operationalMetrics(companies = visibleCompanies(), employees = visibleE
     expiredAso: normalizedEmployees.filter((employee) => isPastDate(employee.asoValidity)).map((employee) => employee.raw),
     expiredTrainings: normalizedEmployees.filter((employee) => isPastDate(employee.trainingValidity)).map((employee) => employee.raw),
     medicinePendencies: normalizedEmployees
-      .filter((employee) => statusMatches(employee.status, "Aguardando medicina") || ["Vencido", "Pendente", "Em análise", "Reprovado", "Aprovado com pendência"].some((status) => statusMatches(employee.docStatus, status)) || employeeMedicineStatus(employee.raw) === "Pendente")
+      .filter((employee) => statusMatches(employee.status, "Aguardando medicina") || ["Vencido", "Pendente", "Em anÃ¡lise", "Reprovado", "Aprovado com pendÃªncia"].some((status) => statusMatches(employee.docStatus, status)) || employeeMedicineStatus(employee.raw) === "Pendente")
       .map((employee) => employee.raw),
     ehsPendencies: normalizedEmployees
       .filter((employee) => statusMatches(employee.status, "Aguardando EHS/RH") || employeeEhsStatus(employee.raw) === "Pendente")
@@ -2489,16 +2494,16 @@ function normalizeDocumentStatusLabel(status = "") {
     regular: "Aprovado",
     aprovado: "Aprovado",
     pendente: "Pendente",
-    "em analise": "Em análise",
+    "em analise": "Em anÃ¡lise",
     "a vencer": "A vencer",
     vencido: "Vencido",
-    "revisao solicitada": "Revisão solicitada",
-    "revisao solicitada pelo fiscal": "Revisão solicitada",
-    "revisao solicitada pela medicina": "Revisão solicitada",
-    "revisao solicitada pela ehs": "Revisão solicitada",
-    "revisao solicitada pela seguranca patrimonial": "Revisão solicitada",
+    "revisao solicitada": "RevisÃ£o solicitada",
+    "revisao solicitada pelo fiscal": "RevisÃ£o solicitada",
+    "revisao solicitada pela medicina": "RevisÃ£o solicitada",
+    "revisao solicitada pela ehs": "RevisÃ£o solicitada",
+    "revisao solicitada pela seguranca patrimonial": "RevisÃ£o solicitada",
     reprovado: "Reprovado",
-    "aprovado com pendencia": "Aprovado com pendência",
+    "aprovado com pendencia": "Aprovado com pendÃªncia",
     arquivado: "Arquivado",
   };
   return map[statusToken(status)] || String(status || "").trim() || "Pendente";
@@ -2507,15 +2512,15 @@ function normalizeDocumentStatusLabel(status = "") {
 function normalizeHiringStatusLabel(status = "") {
   const map = {
     "em cadastro": "Em cadastro",
-    "em analise": "Pendente Documentação",
-    "em analise documental": "Pendente Documentação",
-    "documentos pendente": "Pendente Documentação",
-    "pendente": "Pendente Documentação",
-    "pendente documentacao": "Pendente Documentação",
+    "em analise": "Pendente DocumentaÃ§Ã£o",
+    "em analise documental": "Pendente DocumentaÃ§Ã£o",
+    "documentos pendente": "Pendente DocumentaÃ§Ã£o",
+    "pendente": "Pendente DocumentaÃ§Ã£o",
+    "pendente documentacao": "Pendente DocumentaÃ§Ã£o",
     "pendente medicina": "Pendente Medicina",
     "pendente ehs": "Pendente EHS",
     "pendente patrimonial": "Pendente Patrimonial",
-    "aguardando correcao": "Aguardando Correção",
+    "aguardando correcao": "Aguardando CorreÃ§Ã£o",
     "aguardando exames": "Pendente Medicina",
     "aguardando medicina": "Pendente Medicina",
     "em treinamento": "Pendente EHS",
@@ -2523,28 +2528,28 @@ function normalizeHiringStatusLabel(status = "") {
     "aguardando aprovacao do fiscal": "Pendente Patrimonial",
     "aguardando patrimonial": "Pendente Patrimonial",
     liberado: "Liberado",
-    "ativo com pendencia": "Aguardando Correção",
+    "ativo com pendencia": "Aguardando CorreÃ§Ã£o",
     bloqueado: "Bloqueado",
     desmobilizado: "Desmobilizado",
-    "desmobilizacao solicitada": "Desmobilização solicitada",
+    "desmobilizacao solicitada": "DesmobilizaÃ§Ã£o solicitada",
     inativo: "Inativo",
   };
   return map[statusToken(status)] || String(status || "").trim() || "Em cadastro";
 }
 
 function isManualEmployeeOperationalStatus(status = "") {
-  return ["Bloqueado", "Inativo", "Desmobilizado", "Desmobilização solicitada"].some((value) => statusMatches(status, value));
+  return ["Bloqueado", "Inativo", "Desmobilizado", "DesmobilizaÃ§Ã£o solicitada"].some((value) => statusMatches(status, value));
 }
 
 function isPendingHiringStatus(status = "") {
   return [
-    "Pendente Documentação",
+    "Pendente DocumentaÃ§Ã£o",
     "Pendente Medicina",
     "Pendente EHS",
     "Pendente Patrimonial",
-    "Aguardando Correção",
-    "Em análise documental",
-    "Desmobilização solicitada",
+    "Aguardando CorreÃ§Ã£o",
+    "Em anÃ¡lise documental",
+    "DesmobilizaÃ§Ã£o solicitada",
   ].some((value) => statusMatches(status, value));
 }
 
@@ -2593,10 +2598,10 @@ function normalizeWorkflowStatusLabel(status = "") {
     reprovado: "Reprovado",
     bloqueado: "Bloqueado",
   };
-  if (token.includes("revalidacao solicitada")) return "Revalidação solicitada";
-  if (token.includes("revisao solicitada")) return "Revisão solicitada";
-  if (token.includes("em revalidacao")) return "Em revalidação";
-  if (token.includes("em avaliacao")) return "Em avaliação";
+  if (token.includes("revalidacao solicitada")) return "RevalidaÃ§Ã£o solicitada";
+  if (token.includes("revisao solicitada")) return "RevisÃ£o solicitada";
+  if (token.includes("em revalidacao")) return "Em revalidaÃ§Ã£o";
+  if (token.includes("em avaliacao")) return "Em avaliaÃ§Ã£o";
   if (token.includes("enviado para")) return "Pendente";
   if (token.includes("rascunho pelo fornecedor")) return "Rascunho pelo Fornecedor";
   return map[token] || String(status || "").trim() || "Pendente";
@@ -2610,23 +2615,23 @@ function calculateDocumentStatus(employee = {}, docs = employeeDocsFor(employee)
   const attachedDocs = (docs || []).filter(Boolean);
   if (!attachedDocs.length) return "Pendente";
   const fiscalWorkflowStatus = employeeWorkflowActionStatus(employee, "fiscal");
-  if (statusMatches(fiscalWorkflowStatus, "Reprovado", "Revisão solicitada", "Revalidação solicitada", "Bloqueado")) return "Revisão solicitada";
+  if (statusMatches(fiscalWorkflowStatus, "Reprovado", "RevisÃ£o solicitada", "RevalidaÃ§Ã£o solicitada", "Bloqueado")) return "RevisÃ£o solicitada";
   if (statusMatches(fiscalWorkflowStatus, "Aprovado", "Aprovado com pendencia")) {
-    if (attachedDocs.some((doc) => statusMatches(docStatus(doc), "Reprovado", "Revisão solicitada", "Revalidação solicitada"))) return "Revisão solicitada";
+    if (attachedDocs.some((doc) => statusMatches(docStatus(doc), "Reprovado", "RevisÃ£o solicitada", "RevalidaÃ§Ã£o solicitada"))) return "RevisÃ£o solicitada";
     if (attachedDocs.some((doc) => statusMatches(docStatus(doc), "Vencido"))) return "Vencido";
-    return hasPendingApprovalException(employee) ? "Aprovado com pendência" : "Aprovado";
+    return hasPendingApprovalException(employee) ? "Aprovado com pendÃªncia" : "Aprovado";
   }
-  if (attachedDocs.some((doc) => statusMatches(docStatus(doc), "Reprovado", "Revisão solicitada", "Revalidação solicitada"))) return "Revisão solicitada";
+  if (attachedDocs.some((doc) => statusMatches(docStatus(doc), "Reprovado", "RevisÃ£o solicitada", "RevalidaÃ§Ã£o solicitada"))) return "RevisÃ£o solicitada";
   if (attachedDocs.some((doc) => statusMatches(docStatus(doc), "Vencido"))) return "Vencido";
-  if (attachedDocs.some((doc) => statusMatches(docStatus(doc), "Pendente", "Em análise"))) return "Em análise";
-  return hasPendingApprovalException(employee) ? "Aprovado com pendência" : "Aprovado";
+  if (attachedDocs.some((doc) => statusMatches(docStatus(doc), "Pendente", "Em anÃ¡lise"))) return "Em anÃ¡lise";
+  return hasPendingApprovalException(employee) ? "Aprovado com pendÃªncia" : "Aprovado";
 }
 
 function calculateHiringStatus(employee = {}, docs = employeeDocsFor(employee), documentStatus = calculateDocumentStatus(employee, docs)) {
   const rawStatus = normalizeHiringStatusLabel(employee.status || employee.hiringStatus || "");
   if (isManualEmployeeOperationalStatus(rawStatus)) return rawStatus;
   if (!employeeHasCoreData(employee)) return "Em cadastro";
-  if (statusMatches(documentStatus, "Reprovado", "Revisão solicitada", "Revalidação solicitada", "Vencido", "Pendente", "Em análise")) return "Pendente Documentação";
+  if (statusMatches(documentStatus, "Reprovado", "RevisÃ£o solicitada", "RevalidaÃ§Ã£o solicitada", "Vencido", "Pendente", "Em anÃ¡lise")) return "Pendente DocumentaÃ§Ã£o";
   if (employeeMedicineStatus(employee, docs) !== "Aprovado") return "Pendente Medicina";
   if (employeeEhsStatus(employee, docs) !== "Aprovado") return "Pendente EHS";
   if (employeePatrimonialStatus(employee, docs) !== "Aprovado") return "Pendente Patrimonial";
@@ -2639,17 +2644,17 @@ function employeeMatchesStatusFilter(employee, filter) {
   const normalizedFilter = normalizeHiringStatusLabel(filter);
   if (statusMatches(filter, "Documentos vencidos")) return employeeHasExpiredDocuments(item);
   if (statusMatches(normalizedFilter, "Em cadastro")) return statusMatches(item.status, "Em cadastro");
-  if (statusMatches(normalizedFilter, "Pendente Documentação", "Aguardando Correção")) return statusMatches(item.status, "Pendente Documentação", "Aguardando Correção", "Em análise documental");
+  if (statusMatches(normalizedFilter, "Pendente DocumentaÃ§Ã£o", "Aguardando CorreÃ§Ã£o")) return statusMatches(item.status, "Pendente DocumentaÃ§Ã£o", "Aguardando CorreÃ§Ã£o", "Em anÃ¡lise documental");
   if (statusMatches(normalizedFilter, "Pendente Medicina")) return statusMatches(item.status, "Pendente Medicina", "Aguardando medicina");
   if (statusMatches(normalizedFilter, "Pendente EHS")) return statusMatches(item.status, "Pendente EHS", "Aguardando EHS/RH");
   if (statusMatches(normalizedFilter, "Pendente Patrimonial")) return statusMatches(item.status, "Pendente Patrimonial", "Aguardando patrimonial");
   if (statusMatches(normalizedFilter, "Liberado")) return statusMatches(item.status, "Liberado");
   if (statusMatches(normalizedFilter, "Bloqueado")) return statusMatches(item.status, "Bloqueado");
-  if (statusMatches(normalizedFilter, "Desmobilização solicitada")) return statusMatches(item.status, "Desmobilização solicitada");
+  if (statusMatches(normalizedFilter, "DesmobilizaÃ§Ã£o solicitada")) return statusMatches(item.status, "DesmobilizaÃ§Ã£o solicitada");
   if (statusMatches(normalizedFilter, "Desmobilizado")) return statusMatches(item.status, "Desmobilizado");
   if (statusMatches(normalizedFilter, "Inativo")) return statusMatches(item.status, "Inativo");
-  if (statusMatches(normalizedFilter, "Pendente")) return ["Em cadastro", "Pendente Documentação", "Aguardando Correção", "Pendente Medicina", "Pendente EHS", "Pendente Patrimonial", "Desmobilização solicitada"].some((status) => statusMatches(item.status, status)) || statusMatches(item.docStatus, "Pendente", "Em análise", "Reprovado", "Vencido");
-  if (statusMatches(normalizedFilter, "Aprovado")) return statusMatches(item.status, "Liberado") || statusMatches(item.docStatus, "Aprovado", "Aprovado com pendência");
+  if (statusMatches(normalizedFilter, "Pendente")) return ["Em cadastro", "Pendente DocumentaÃ§Ã£o", "Aguardando CorreÃ§Ã£o", "Pendente Medicina", "Pendente EHS", "Pendente Patrimonial", "DesmobilizaÃ§Ã£o solicitada"].some((status) => statusMatches(item.status, status)) || statusMatches(item.docStatus, "Pendente", "Em anÃ¡lise", "Reprovado", "Vencido");
+  if (statusMatches(normalizedFilter, "Aprovado")) return statusMatches(item.status, "Liberado") || statusMatches(item.docStatus, "Aprovado", "Aprovado com pendÃªncia");
   if (statusMatches(normalizedFilter, "Reprovado")) return statusMatches(item.docStatus, "Reprovado");
   if (statusMatches(normalizedFilter, "Vencido")) return statusMatches(item.docStatus, "Vencido") || employeeHasExpiredDocuments(item);
   return statusMatches(item.status, normalizedFilter) || statusMatches(item.docStatus, normalizedFilter);
@@ -3076,7 +3081,7 @@ function renderEmployeeEditor(employee = null) {
 }
 
 function renderEmployeeStatusFilters() {
-  const filters = ["Todos", "Em cadastro", "Pendente Documentação", "Pendente Medicina", "Pendente EHS", "Pendente Patrimonial", "Aguardando Correção", "Liberado", "Bloqueado", "Desmobilização solicitada", "Desmobilizado", "Inativo", "Documentos vencidos"];
+  const filters = ["Todos", "Em cadastro", "Pendente DocumentaÃ§Ã£o", "Pendente Medicina", "Pendente EHS", "Pendente Patrimonial", "Aguardando CorreÃ§Ã£o", "Liberado", "Bloqueado", "DesmobilizaÃ§Ã£o solicitada", "Desmobilizado", "Inativo", "Documentos vencidos"];
   return `
     <div class="status-filter" aria-label="Filtros de funcionarios por status">
       ${filters
@@ -3122,7 +3127,7 @@ function employeeWorkflowReason(employee, step) {
   const action = employeeWorkflowActions(normalized)?.[step.id] || {};
   const actionReason = extractOperationalReasonText(action.motivo || action.observation || "");
   if (actionReason) return actionReason;
-  if (statusMatches(step.status, "Em avaliação", "Enviado para Fiscal", "Enviado para Medicina", "Enviado para EHS", "Enviado para Patrimonial", "Rascunho pelo Fornecedor")) {
+  if (statusMatches(step.status, "Em avaliaÃ§Ã£o", "Enviado para Fiscal", "Enviado para Medicina", "Enviado para EHS", "Enviado para Patrimonial", "Rascunho pelo Fornecedor")) {
     return "Aguardando avaliacao do setor responsavel.";
   }
   if (statusMatches(step.status, "Bloqueado por etapa anterior")) {
@@ -3133,7 +3138,7 @@ function employeeWorkflowReason(employee, step) {
   }
   if (step.id === "liberacao") return statusMatches(step.status, "Aprovado") ? "Fluxo completo concluido." : "Aguardando conclusao das etapas anteriores.";
   const stepDocs = state.documents.filter((doc) => sameId(doc.employeeId, normalized.id) && documentOperationalSector(doc) === step.sector);
-  const issueDoc = stepDocs.find((doc) => statusMatches(docStatus(doc), "Reprovado", "Revisão solicitada", "Revalidação solicitada", "Vencido", "Pendente", "Em analise", "A vencer"));
+  const issueDoc = stepDocs.find((doc) => statusMatches(docStatus(doc), "Reprovado", "RevisÃ£o solicitada", "RevalidaÃ§Ã£o solicitada", "Vencido", "Pendente", "Em analise", "A vencer"));
   if (!issueDoc) return "";
   const docReason = extractOperationalReasonText(documentVisibleNotes(issueDoc));
   if (docReason) return docReason;
@@ -3388,13 +3393,13 @@ function employeeRecordTabs() {
   const allTabs = [
     ["summary", "Resumo"],
     ["personal", "Dados Pessoais"],
-    ["contracts", "Vínculo / Contrato"],
+    ["contracts", "VÃ­nculo / Contrato"],
     ["docs", "Documentos Pessoais"],
     ["medicine", "Medicina"],
     ["ehs", "EHS / SSMA"],
-    ["patrimonial", "Segurança Patrimonial"],
-    ["requests", "Solicitações"],
-    ["history", "Histórico"],
+    ["patrimonial", "SeguranÃ§a Patrimonial"],
+    ["requests", "SolicitaÃ§Ãµes"],
+    ["history", "HistÃ³rico"],
   ];
   const allowed = new Set(["summary", "contracts", "requests", "history", ...allowedEmployeeTabs()]);
   return allTabs.filter(([tab]) => allowed.has(tab));
@@ -3711,8 +3716,8 @@ function employeeWorkflowSteps(employee) {
       label: "Fiscal / Documentos pessoais",
       icon: "docs",
       status: workflow.fiscal?.status || resolveWorkflowStepStatus(item, fiscalDocs, {
-        pending: statusMatches(documentStatus, "Pendente", "Em análise"),
-        approved: statusMatches(documentStatus, "Aprovado", "Aprovado com pendência") || fiscalDocs.some((doc) => statusMatches(docStatus(doc), "Aprovado", "A vencer")),
+        pending: statusMatches(documentStatus, "Pendente", "Em anÃ¡lise"),
+        approved: statusMatches(documentStatus, "Aprovado", "Aprovado com pendÃªncia") || fiscalDocs.some((doc) => statusMatches(docStatus(doc), "Aprovado", "A vencer")),
         exception,
       }),
       detail: "Cadastro, CPF, vinculo e documentos pessoais",
@@ -3763,7 +3768,7 @@ function employeeWorkflowSteps(employee) {
     icon: "approve",
     status:
       workflow.liberacao?.status ||
-      (statusMatches(hiringStatus, "Bloqueado", "Inativo", "Desmobilizado", "Desmobilização solicitada")
+      (statusMatches(hiringStatus, "Bloqueado", "Inativo", "Desmobilizado", "DesmobilizaÃ§Ã£o solicitada")
         ? hiringStatus
         : rejectedStatus
           ? "Reprovado"
@@ -3780,7 +3785,7 @@ function renderWorkflowStepActions(employee, step) {
   return `
     <div class="workflow-step-actions">
       <button class="btn success compact" type="button" data-employee-id="${employee.id}" data-workflow-step="${step.id}" data-workflow-action="approve">${icon("approve")} Aprovar</button>
-      <button class="btn danger compact" type="button" data-employee-id="${employee.id}" data-workflow-step="${step.id}" data-workflow-action="review">${icon("block")} Solicitar Revisão</button>
+      <button class="btn danger compact" type="button" data-employee-id="${employee.id}" data-workflow-step="${step.id}" data-workflow-action="review">${icon("block")} Solicitar RevisÃ£o</button>
       <button class="btn special compact" type="button" data-employee-id="${employee.id}" data-workflow-step="${step.id}" data-workflow-action="approve_pending">${icon("clock")} Aprovar com pend&ecirc;ncia</button>
     </div>
   `;
@@ -3922,30 +3927,30 @@ function workflowStatusBadge(status) {
   const labels = {
     Pendente: "Pendente",
     Aprovado: "Aprovado",
-    Reprovado: "Solicitar Revisão",
-    "Revisão solicitada": "Solicitar Revisão",
-    "Revalidação solicitada": "Revalidação solicitada",
-    "Em revalidação": "Em revalidação",
-    "Em avaliação": "Em avaliação",
+    Reprovado: "Solicitar RevisÃ£o",
+    "RevisÃ£o solicitada": "Solicitar RevisÃ£o",
+    "RevalidaÃ§Ã£o solicitada": "RevalidaÃ§Ã£o solicitada",
+    "Em revalidaÃ§Ã£o": "Em revalidaÃ§Ã£o",
+    "Em avaliaÃ§Ã£o": "Em avaliaÃ§Ã£o",
     "Rascunho pelo Fornecedor": "Rascunho pelo Fornecedor",
     "Bloqueado por etapa anterior": "Bloqueado por etapa anterior",
     Bloqueado: "Bloqueado",
     "Aprovado com pendencia": "Aprovado com pend&ecirc;ncia",
-    "Pendente Documentação": "Pendente Documentação",
+    "Pendente DocumentaÃ§Ã£o": "Pendente DocumentaÃ§Ã£o",
     "Pendente Medicina": "Pendente Medicina",
     "Pendente EHS": "Pendente EHS",
     "Pendente Patrimonial": "Pendente Patrimonial",
-    "Aguardando Correção": "Aguardando Correção",
+    "Aguardando CorreÃ§Ã£o": "Aguardando CorreÃ§Ã£o",
   };
   return `<span class="status ${workflowStatusClass(status)}">${labels[status] || status}</span>`;
 }
 
 function resolveWorkflowStepStatus(employee, docs, { pending = false, approved = false, exception = false } = {}) {
   if (statusMatches(employee.status, "Bloqueado")) return "Bloqueado";
-  if (docs.some((doc) => statusMatches(doc.status, "Revalidação solicitada") || statusMatches(docStatus(doc), "Revalidação solicitada"))) return "Revalidação solicitada";
-  if (docs.some((doc) => statusMatches(doc.status, "Revisão solicitada") || statusMatches(docStatus(doc), "Revisão solicitada"))) return "Revisão solicitada";
+  if (docs.some((doc) => statusMatches(doc.status, "RevalidaÃ§Ã£o solicitada") || statusMatches(docStatus(doc), "RevalidaÃ§Ã£o solicitada"))) return "RevalidaÃ§Ã£o solicitada";
+  if (docs.some((doc) => statusMatches(doc.status, "RevisÃ£o solicitada") || statusMatches(docStatus(doc), "RevisÃ£o solicitada"))) return "RevisÃ£o solicitada";
   if (docs.some((doc) => statusMatches(docStatus(doc), "Vencido"))) return exception ? "Aprovado com pendencia" : "Pendente";
-  if (pending || docs.some((doc) => ["Pendente", "A vencer", "Em análise"].some((value) => statusMatches(docStatus(doc), value)))) return exception ? "Aprovado com pendencia" : "Pendente";
+  if (pending || docs.some((doc) => ["Pendente", "A vencer", "Em anÃ¡lise"].some((value) => statusMatches(docStatus(doc), value)))) return exception ? "Aprovado com pendencia" : "Pendente";
   if (approved || docs.some((doc) => ["Aprovado", "A vencer"].some((value) => statusMatches(docStatus(doc), value)))) return "Aprovado";
   return exception ? "Aprovado com pendencia" : "Pendente";
 }
@@ -3960,22 +3965,27 @@ function workflowStatusClass(status) {
     "Aprovado com pendencia": "conditional",
     Pendente: "warn",
     Reprovado: "analysis",
-    "Revisão solicitada": "analysis",
-    "Revalidação solicitada": "analysis",
-    "Em revalidação": "analysis",
-    "Em avaliação": "analysis",
+    "RevisÃ£o solicitada": "analysis",
+    "RevalidaÃ§Ã£o solicitada": "analysis",
+    "Em revalidaÃ§Ã£o": "analysis",
+    "Em avaliaÃ§Ã£o": "analysis",
     "Rascunho pelo Fornecedor": "info",
     Bloqueado: "blocked",
-    "Pendente Documentação": "warn",
+    "Pendente DocumentaÃ§Ã£o": "warn",
     "Pendente Medicina": "warn",
     "Pendente EHS": "warn",
     "Pendente Patrimonial": "warn",
-    "Aguardando Correção": "analysis",
+    "Acesso ativo": "ok",
+    "Acesso inativo": "bad",
+    "Convite enviado": "analysis",
+    "Sem usuário de acesso": "warn",
+    "Aguardando liberação de acesso": "warn",
+    "Aguardando CorreÃ§Ã£o": "analysis",
   }[status] || statusClass(status);
 }
 
 function workflowIsConcludedStatus(status = "") {
-  return statusMatches(status, "Aprovado", "Aprovado com pendencia", "Aprovado com pendência", "Liberado");
+  return statusMatches(status, "Aprovado", "Aprovado com pendencia", "Aprovado com pendÃªncia", "Liberado");
 }
 
 function workflowIsReviewStatus(status = "") {
@@ -3994,16 +4004,16 @@ function workflowStepPresentationStatus(step, rawStatus, index, steps = []) {
   const role = currentUser()?.role || "";
   const sectorRole = { Fiscal: "fiscal", Medicina: "medicina", EHS: "ehs", Patrimonial: "patrimonial" }[step.sector] || "";
   const isSectorViewer = role === "admin" || role === sectorRole;
-  if (workflowIsConcludedStatus(normalizedRaw)) return normalizedRaw === "Aprovado com pendencia" ? "Aprovado com pendência" : normalizedRaw;
-  if (statusToken(normalizedRaw).includes("revalidacao solicitada")) return "Revalidação solicitada";
-  if (workflowIsReviewStatus(normalizedRaw)) return normalizedRaw === "Em revalidação" ? "Em revalidação" : `Revisão solicitada pelo ${step.sector}`;
+  if (workflowIsConcludedStatus(normalizedRaw)) return normalizedRaw === "Aprovado com pendencia" ? "Aprovado com pendÃªncia" : normalizedRaw;
+  if (statusToken(normalizedRaw).includes("revalidacao solicitada")) return "RevalidaÃ§Ã£o solicitada";
+  if (workflowIsReviewStatus(normalizedRaw)) return normalizedRaw === "Em revalidaÃ§Ã£o" ? "Em revalidaÃ§Ã£o" : `RevisÃ£o solicitada pelo ${step.sector}`;
   if (workflowIsEvaluationStatus(normalizedRaw)) {
-    if (statusToken(normalizedRaw).includes("enviado para") && isSectorViewer) return `Em avaliação ${step.sector}`;
-    return normalizedRaw === "Rascunho pelo Fornecedor" && isSectorViewer ? "Em avaliação Fiscal" : normalizedRaw;
+    if (statusToken(normalizedRaw).includes("enviado para") && isSectorViewer) return `Em avaliaÃ§Ã£o ${step.sector}`;
+    return normalizedRaw === "Rascunho pelo Fornecedor" && isSectorViewer ? "Em avaliaÃ§Ã£o Fiscal" : normalizedRaw;
   }
-  if (index === 0) return isSectorViewer ? "Em avaliação Fiscal" : "Rascunho pelo Fornecedor";
+  if (index === 0) return isSectorViewer ? "Em avaliaÃ§Ã£o Fiscal" : "Rascunho pelo Fornecedor";
   if (previousStep && !workflowIsConcludedStatus(previousStep.status)) return "Bloqueado por etapa anterior";
-  return isSectorViewer ? `Em avaliação ${step.sector}` : `Enviado para ${step.sector}`;
+  return isSectorViewer ? `Em avaliaÃ§Ã£o ${step.sector}` : `Enviado para ${step.sector}`;
 }
 
 function employeeWorkflowEditableBySupplier(employee) {
@@ -4040,18 +4050,18 @@ function employeeActiveState(employee) {
   const status = normalizeHiringStatusLabel(employee.status);
   if (statusMatches(status, "Bloqueado")) return "Bloqueado";
   if (statusMatches(status, "Desmobilizado", "Inativo")) return "Inativo";
-  if (isPendingHiringStatus(status)) return "Ativo com pendência";
+  if (isPendingHiringStatus(status)) return "Ativo com pendÃªncia";
   return "Ativo";
 }
 
 function employeeMedicineStatus(employee, docs = []) {
   const workflowStatus = employeeWorkflowActionStatus(employee, "medicina");
   if (statusMatches(workflowStatus, "Aprovado", "Aprovado com pendencia")) return "Aprovado";
-  if (statusMatches(workflowStatus, "Reprovado", "Revisão solicitada", "Revalidação solicitada", "Bloqueado")) return "Pendente";
-  if (statusMatches(employee.status, "Bloqueado", "Desmobilizado", "Desmobilização solicitada")) return "Pendente";
+  if (statusMatches(workflowStatus, "Reprovado", "RevisÃ£o solicitada", "RevalidaÃ§Ã£o solicitada", "Bloqueado")) return "Pendente";
+  if (statusMatches(employee.status, "Bloqueado", "Desmobilizado", "DesmobilizaÃ§Ã£o solicitada")) return "Pendente";
   if (statusMatches(employee.status, "Liberado", "Aprovado")) return "Aprovado";
   const medicineDocs = docs.filter((doc) => /aso|exame|medic/i.test(doc.type));
-  if (medicineDocs.some((doc) => statusMatches(docStatus(doc), "Reprovado", "Revisão solicitada", "Revalidação solicitada", "Vencido", "Pendente", "Em análise"))) return "Pendente";
+  if (medicineDocs.some((doc) => statusMatches(docStatus(doc), "Reprovado", "RevisÃ£o solicitada", "RevalidaÃ§Ã£o solicitada", "Vencido", "Pendente", "Em anÃ¡lise"))) return "Pendente";
   if (medicineDocs.some((doc) => statusMatches(docStatus(doc), "Aprovado", "A vencer"))) return "Aprovado";
   return employee.asoValidity && !isPastDate(employee.asoValidity) ? "Aprovado" : "Pendente";
 }
@@ -4059,11 +4069,11 @@ function employeeMedicineStatus(employee, docs = []) {
 function employeeEhsStatus(employee, docs = []) {
   const workflowStatus = employeeWorkflowActionStatus(employee, "ehs");
   if (statusMatches(workflowStatus, "Aprovado", "Aprovado com pendencia")) return "Aprovado";
-  if (statusMatches(workflowStatus, "Reprovado", "Revisão solicitada", "Revalidação solicitada", "Bloqueado")) return "Pendente";
-  if (statusMatches(employee.status, "Bloqueado", "Desmobilizado", "Desmobilização solicitada")) return "Pendente";
+  if (statusMatches(workflowStatus, "Reprovado", "RevisÃ£o solicitada", "RevalidaÃ§Ã£o solicitada", "Bloqueado")) return "Pendente";
+  if (statusMatches(employee.status, "Bloqueado", "Desmobilizado", "DesmobilizaÃ§Ã£o solicitada")) return "Pendente";
   if (statusMatches(employee.status, "Liberado", "Aprovado")) return "Aprovado";
   const ehsDocs = docs.filter((doc) => /nr-|treinamento|epi|segur/i.test(doc.type));
-  if (ehsDocs.some((doc) => statusMatches(docStatus(doc), "Reprovado", "Revisão solicitada", "Revalidação solicitada", "Vencido", "Pendente", "Em análise"))) return "Pendente";
+  if (ehsDocs.some((doc) => statusMatches(docStatus(doc), "Reprovado", "RevisÃ£o solicitada", "RevalidaÃ§Ã£o solicitada", "Vencido", "Pendente", "Em anÃ¡lise"))) return "Pendente";
   if (ehsDocs.some((doc) => statusMatches(docStatus(doc), "Aprovado", "A vencer"))) return "Aprovado";
   return employee.trainingValidity && !isPastDate(employee.trainingValidity) ? "Aprovado" : "Pendente";
 }
@@ -4071,11 +4081,11 @@ function employeeEhsStatus(employee, docs = []) {
 function employeePatrimonialStatus(employee, docs = []) {
   const workflowStatus = employeeWorkflowActionStatus(employee, "patrimonial");
   if (statusMatches(workflowStatus, "Aprovado", "Aprovado com pendencia")) return "Aprovado";
-  if (statusMatches(workflowStatus, "Reprovado", "Revisão solicitada", "Revalidação solicitada", "Bloqueado")) return "Pendente";
-  if (statusMatches(employee.status, "Bloqueado", "Desmobilizado", "Desmobilização solicitada")) return "Pendente";
+  if (statusMatches(workflowStatus, "Reprovado", "RevisÃ£o solicitada", "RevalidaÃ§Ã£o solicitada", "Bloqueado")) return "Pendente";
+  if (statusMatches(employee.status, "Bloqueado", "Desmobilizado", "DesmobilizaÃ§Ã£o solicitada")) return "Pendente";
   if (statusMatches(employee.status, "Liberado", "Aprovado")) return "Aprovado";
   const patrimonialDocs = docs.filter((doc) => documentOperationalSector(doc) === "Patrimonial");
-  if (patrimonialDocs.some((doc) => statusMatches(docStatus(doc), "Reprovado", "Revisão solicitada", "Revalidação solicitada", "Vencido", "Pendente", "Em análise"))) return "Pendente";
+  if (patrimonialDocs.some((doc) => statusMatches(docStatus(doc), "Reprovado", "RevisÃ£o solicitada", "RevalidaÃ§Ã£o solicitada", "Vencido", "Pendente", "Em anÃ¡lise"))) return "Pendente";
   if (patrimonialDocs.some((doc) => statusMatches(docStatus(doc), "Aprovado", "A vencer"))) return "Aprovado";
   return "Pendente";
 }
@@ -4084,7 +4094,7 @@ function applyAutomaticStatusRules({ syncRemote = false, source = "Motor automat
   if (!state?.companies || !state?.employees || !state?.documents) return [];
   state.historico ||= [];
   const changes = [];
-  const employeePendingStatuses = ["Em cadastro", "Pendente Documentação", "Pendente Medicina", "Pendente EHS", "Pendente Patrimonial", "Aguardando Correção", "Em análise documental", "Aguardando medicina", "Aguardando EHS/RH", "Aguardando patrimonial", "Desmobilização solicitada"];
+  const employeePendingStatuses = ["Em cadastro", "Pendente DocumentaÃ§Ã£o", "Pendente Medicina", "Pendente EHS", "Pendente Patrimonial", "Aguardando CorreÃ§Ã£o", "Em anÃ¡lise documental", "Aguardando medicina", "Aguardando EHS/RH", "Aguardando patrimonial", "DesmobilizaÃ§Ã£o solicitada"];
 
   const employeeTargets = scope?.employeeId ? state.employees.filter((employee) => sameId(employee.id, scope.employeeId)) : state.employees;
   const companyTargets = scope?.companyId ? state.companies.filter((company) => sameId(company.id, scope.companyId)) : state.companies;
@@ -4118,8 +4128,8 @@ function applyAutomaticStatusRules({ syncRemote = false, source = "Motor automat
     registerStatusChange("employees", "funcionario", employee, "docStatus", nextDocumentStatus, `status documental recalculado para ${nextDocumentStatus}`);
     registerStatusChange("employees", "funcionario", employee, "status", nextHiringStatus, `status de contratacao recalculado para ${nextHiringStatus}`);
 
-    if (hasPendingApprovalException(item) && statusMatches(nextDocumentStatus, "Aprovado com pendência")) {
-      registerStatusChange("employees", "funcionario", employee, "docStatus", "Aprovado com pendência", "aprovacao com pendencia formalizada com responsavel, motivo e prazo");
+    if (hasPendingApprovalException(item) && statusMatches(nextDocumentStatus, "Aprovado com pendÃªncia")) {
+      registerStatusChange("employees", "funcionario", employee, "docStatus", "Aprovado com pendÃªncia", "aprovacao com pendencia formalizada com responsavel, motivo e prazo");
       if (!statusMatches(nextHiringStatus, "Liberado")) {
         registerStatusChange("employees", "funcionario", employee, "status", "Liberado", "aprovacao com pendencia nao bloqueia a liberacao operacional");
       }
@@ -4372,7 +4382,7 @@ function openContractDetails(id) {
 function renderContractOperationalSummary(company) {
   const employees = state.employees.filter((employee) => sameId(employee.companyId, company.id));
   const documents = state.documents.filter((doc) => sameId(doc.companyId, company.id));
-  const pendencies = documents.filter((doc) => !statusMatches(docStatus(doc), "Aprovado")).length + employees.filter((employee) => ["Em análise documental", "Aguardando medicina", "Aguardando EHS/RH", "Aguardando patrimonial", "Desmobilização solicitada"].some((status) => statusMatches(normalizeEmployee(employee).status, status))).length;
+  const pendencies = documents.filter((doc) => !statusMatches(docStatus(doc), "Aprovado")).length + employees.filter((employee) => ["Em anÃ¡lise documental", "Aguardando medicina", "Aguardando EHS/RH", "Aguardando patrimonial", "DesmobilizaÃ§Ã£o solicitada"].some((status) => statusMatches(normalizeEmployee(employee).status, status))).length;
   const expiring = documents.filter((doc) => docStatus(doc) === "A vencer").length + (contractDays(company) >= 0 && contractDays(company) <= 60 ? 1 : 0);
   const blocks = employees.filter((employee) => statusMatches(normalizeEmployee(employee).status, "Bloqueado")).length + (["Bloqueada", "Bloqueado"].some((status) => statusMatches(normalizeCompany(company).status, status)) ? 1 : 0);
   return `
@@ -4472,13 +4482,13 @@ function openCompanyDetails(id) {
         ${[
           ["general", "Dados Gerais"],
           ["contracts", "Contratos"],
-          ["people", "Funcionários"],
+          ["people", "FuncionÃ¡rios"],
           ["docs", "Documentos da Empresa"],
           ["medicine", "Medicina Ocupacional"],
           ["ehs", "EHS / SSMA"],
           ["patrimonial", "Seguranca Patrimonial"],
           ["managers", "Fiscais e Gestores"],
-          ["requests", "Solicitações"],
+          ["requests", "SolicitaÃ§Ãµes"],
           ["history", "Historico"],
         ]
           .map(([tab, label], index) => `<button class="${index === 0 ? "active" : ""}" type="button" data-company-tab="${tab}">${label}</button>`)
@@ -4589,7 +4599,7 @@ function renderCompanyTab(company, tab) {
       const stages = employeeOperationalStages(normalized);
       const stage = (key) => stages.find((entry) => entry.key === key);
       if (statusMatches(normalized.status, "Bloqueado")) acc.blocked += 1;
-      if (statusMatches(normalized.status, "Desmobilizado", "Desmobilização solicitada", "Inativo")) acc.demobilized += 1;
+      if (statusMatches(normalized.status, "Desmobilizado", "DesmobilizaÃ§Ã£o solicitada", "Inativo")) acc.demobilized += 1;
       if (statusMatches(stage("released")?.status, "Concluido")) acc.released += 1;
       if (!statusMatches(stage("documentation")?.status, "Concluido")) acc.pendingDocumentation += 1;
       if (!statusMatches(stage("medicine")?.status, "Concluido")) acc.pendingMedicine += 1;
@@ -4679,7 +4689,7 @@ function renderCompanyTab(company, tab) {
   if (tab === "people") {
     return `
       <div class="contract-inner-toolbar">
-        ${can("create.employee") ? `<button class="btn primary compact" type="button" data-company-employee-new data-company-id="${company.id}">${icon("plus")} Novo Funcionário</button>` : ""}
+        ${can("create.employee") ? `<button class="btn primary compact" type="button" data-company-employee-new data-company-id="${company.id}">${icon("plus")} Novo FuncionÃ¡rio</button>` : ""}
       </div>
       <div class="table-wrap">
         <table>
@@ -4697,7 +4707,7 @@ function renderCompanyTab(company, tab) {
     return `
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Documento</th><th>Status</th><th>Validade</th><th>Responsavel pela analise</th><th>Anexar</th><th>Visualizar</th><th>Aprovar/Solicitar Revisão</th></tr></thead>
+          <thead><tr><th>Documento</th><th>Status</th><th>Validade</th><th>Responsavel pela analise</th><th>Anexar</th><th>Visualizar</th><th>Aprovar/Solicitar RevisÃ£o</th></tr></thead>
           <tbody>${documents.length ? documents.map((doc) => `<tr><td><strong>${doc.type}</strong><br><span class="muted">${doc.employeeId ? employeeName(doc.employeeId) : "Empresa"}</span></td><td>${statusBadge(docStatus(doc))}</td><td>${formatDate(doc.dueDate)}${docStatus(doc) === "Vencido" ? `<br>${statusBadge("Vencido")}` : ""}</td><td>${documentOperationalSector(doc)}</td><td><span class="mini-pill">Preparado</span></td><td><button class="btn secondary compact" type="button" data-document-detail="${doc.id}">${icon("docs")} Visualizar</button></td><td>${documentRowActions(doc) || `<span class="mini-pill">Sem permissao</span>`}</td></tr>`).join("") : emptyRow(7)}</tbody>
         </table>
       </div>
@@ -4990,7 +5000,7 @@ function detailCard(label, value) {
 }
 
 function renderApprovals() {
-  const baseItems = visibleDocuments().filter((doc) => ["Pendente", "Reprovado", "Revisão solicitada", "A vencer", "Vencido"].includes(docStatus(doc)));
+  const baseItems = visibleDocuments().filter((doc) => ["Pendente", "Reprovado", "RevisÃ£o solicitada", "A vencer", "Vencido"].includes(docStatus(doc)));
   const filteredItems = filtered(baseItems, [(doc) => doc.type, (doc) => companyName(doc.companyId), (doc) => employeeName(doc.employeeId), (doc) => docStatus(doc)]);
   const items = sortItems("approvals", applyOperationalFilters("approvals", filteredItems));
   const { pageItems, totalPages } = paginateItems("approvals", items);
@@ -5005,7 +5015,7 @@ function renderApprovals() {
       </div>
       <div class="modal-body">
         ${toolbar("Buscar por documento, empresa, funcionario ou status")}
-        ${renderOperationalFilters("approvals", baseItems, { quicks: ["Todos", "Pendente", "Revisão solicitada", "Vencido", "A vencer", "Medicina", "EHS"], exportKey: "pendencias-por-setor" })}
+        ${renderOperationalFilters("approvals", baseItems, { quicks: ["Todos", "Pendente", "RevisÃ£o solicitada", "Vencido", "A vencer", "Medicina", "EHS"], exportKey: "pendencias-por-setor" })}
       </div>
       <div class="modal-body item-list">
         ${
@@ -5507,7 +5517,7 @@ function renderUsers() {
       <div>
         <span class="eyebrow">Administracao</span>
         <h2>Usuarios e Acessos</h2>
-        <p>Central administrativa para criação, edição e acompanhamento dos acessos do portal.</p>
+        <p>Central administrativa para criaÃ§Ã£o, ediÃ§Ã£o e acompanhamento dos acessos do portal.</p>
       </div>
     </section>
     <div class="stats-grid four">
@@ -5526,7 +5536,7 @@ function renderUsers() {
           <div><span>Vinculados</span><strong>${linkedUsers}</strong></div>
           <div><span>Sem vinculo</span><strong>${totalUsers - linkedUsers}</strong></div>
           <div><span>Ultimo acesso</span><strong>Disponivel na lista</strong></div>
-          <div><span>Central</span><strong>Administração</strong></div>
+          <div><span>Central</span><strong>AdministraÃ§Ã£o</strong></div>
         </div>
         ${toolbar("Buscar por nome, e-mail, perfil, empresa, contrato, tipo ou status")}
         <section class="panel table-wrap inner-table">
@@ -5540,6 +5550,272 @@ function renderUsers() {
       </section>
     </section>
   `;
+}
+
+const ADMINISTRATION_SECTIONS = [
+  ["users", "Usuarios e Acessos", "Visao consolidada de acessos e convites."],
+  ["fiscais", "Fiscais", "Responsaveis operacionais por empresa e contrato."],
+  ["fornecedores", "Fornecedores", "Responsaveis da empresa e do portal."],
+  ["medicina", "Medicina", "Usuarios da fila de Medicina ocupacional."],
+  ["ehs", "EHS / SSMA", "Usuarios da fila de seguranca do trabalho."],
+  ["patrimonial", "Seguranca Patrimonial", "Usuarios da fila de liberacao final."],
+];
+
+function administrationSectionConfig(section = "users") {
+  return ADMINISTRATION_SECTIONS.find(([id]) => id === section) || ADMINISTRATION_SECTIONS[0];
+}
+
+function userAccessStatusLabel(user = {}) {
+  const item = mapUserFromDb(user);
+  const rawUser = typeof user === "object" ? user : {};
+  if (item.active === false || rawUser.active === false) return "Acesso inativo";
+  if (rawUser.creationMode === "real" && !rawUser.lastAccessAt && !rawUser.lastAccess) return "Convite enviado";
+  return "Acesso ativo";
+}
+
+function userLastAccessLabel(user = {}) {
+  return formatDateTime(user.lastAccessAt || user.lastAccess || user.updatedAt || user.createdAt);
+}
+
+function fiscalLinkedCompanies(fiscal = {}) {
+  const item = normalizeFiscal(fiscal);
+  return state.companies
+    .filter((company) => {
+      const normalized = normalizeCompany(company);
+      const fiscalIds = [normalized.fiscalId, ...(normalized.fiscaisAdicionais || [])].filter(Boolean).map((id) => String(id));
+      if (fiscalIds.includes(String(item.id))) return true;
+      const fiscalName = normalizeSearchValue(normalized.fiscal || "");
+      const itemName = normalizeSearchValue(item.nome || "");
+      const itemEmail = normalizeSearchValue(item.email || "");
+      return fiscalName && (fiscalName === itemName || fiscalName === itemEmail);
+    })
+    .map((company) => normalizeCompany(company));
+}
+
+function fiscalLinkedContracts(fiscal = {}) {
+  return fiscalLinkedCompanies(fiscal)
+    .map((company) => company.contract || "Nao informado")
+    .filter(Boolean);
+}
+
+function matchedUserForFiscal(fiscal = {}) {
+  const item = normalizeFiscal(fiscal);
+  return state.users.find((user) => {
+    const userEmail = normalizeSearchValue(user.email || "");
+    const fiscalEmail = normalizeSearchValue(item.usuarioEmail || item.email || "");
+    return (
+      (fiscalEmail && userEmail === fiscalEmail) ||
+      (item.usuarioId && sameId(user.id, item.usuarioId)) ||
+      (item.authUserId && sameId(user.authUserId, item.authUserId))
+    );
+  }) || null;
+}
+
+function fiscalAccessStatus(fiscal = {}) {
+  const item = normalizeFiscal(fiscal);
+  const user = matchedUserForFiscal(item);
+  if (item.status === "inativo") return "Acesso inativo";
+  if (user && user.active === false) return "Acesso inativo";
+  if (user) return userAccessStatusLabel(user);
+  if (item.usuarioEmail || item.usuarioId || item.authUserId) return "Convite enviado";
+  return "Sem usuÃ¡rio de acesso";
+}
+
+function supplierUserForCompany(company = {}) {
+  const item = normalizeCompany(company);
+  return state.users.find((user) => user.role === "supplier" && sameId(user.companyId, item.id)) || null;
+}
+
+function supplierAccessStatus(company = {}) {
+  const user = supplierUserForCompany(company);
+  if (!user) return "Aguardando liberaÃ§Ã£o de acesso";
+  return userAccessStatusLabel(user);
+}
+
+function renderAdministrationSectionTabs() {
+  const activeSection = administrationSectionConfig(administrationSection)[0];
+  return `
+    <div class="contract-tabs admin-tabs" role="tablist">
+      ${ADMINISTRATION_SECTIONS.map(([sectionId, title, helper]) => `<button class="${activeSection === sectionId ? "active" : ""}" type="button" data-admin-section="${sectionId}" title="${escapeAttr(helper)}">${title}</button>`).join("")}
+    </div>
+  `;
+}
+
+function renderAdministrationUserSection() {
+  return renderUsers();
+}
+
+function renderAdministrationFiscalSection() {
+  const items = filtered((state.fiscais || []).map(normalizeFiscal), [
+    (fiscal) => fiscal.nome,
+    (fiscal) => fiscal.email,
+    (fiscal) => fiscal.telefone,
+    (fiscal) => fiscal.matricula,
+    (fiscal) => fiscal.setor,
+    (fiscal) => fiscalAccessStatus(fiscal),
+    (fiscal) => fiscalLinkedCompanies(fiscal).map((company) => company.name).join(" "),
+    (fiscal) => fiscalLinkedContracts(fiscal).join(" "),
+  ]);
+  const rows = items.length
+    ? items
+        .map((fiscal) => {
+          const linkedCompanies = fiscalLinkedCompanies(fiscal);
+          const linkedContracts = fiscalLinkedContracts(fiscal);
+          const user = matchedUserForFiscal(fiscal);
+          return `
+            <tr>
+              <td><strong>${escapeHtml(fiscal.nome || "Fiscal nao informado")}</strong></td>
+              <td>${escapeHtml(fiscal.email || "Sem e-mail")}<br><span class="muted">${escapeHtml(fiscal.telefone || "Sem telefone")}</span></td>
+              <td>${escapeHtml(fiscal.matricula || "Sem matricula")}</td>
+              <td>${escapeHtml(fiscal.setor || "Nao informado")}</td>
+              <td>${escapeHtml(linkedCompanies.length ? linkedCompanies.map((company) => company.name).join(", ") : "Sem vinculo")}</td>
+              <td>${escapeHtml(linkedContracts.length ? linkedContracts.join(", ") : "Sem contrato")}</td>
+              <td>${statusBadge(fiscalAccessStatus(fiscal))}</td>
+              <td>
+                <div class="actions wrap">
+                  ${user ? `<button class="btn secondary compact" type="button" data-user-action="resend-invite" data-id="${user.id}">Enviar convite</button>` : ""}
+                  ${user ? `<button class="btn secondary compact" type="button" data-user-action="resend-invite" data-id="${user.id}" data-reset="1">Reenviar convite</button>` : ""}
+                  ${user ? `<button class="btn warning compact" type="button" data-user-action="toggle-access" data-id="${user.id}">${user.active === false ? "Reativar acesso" : "Inativar acesso"}</button>` : ""}
+                  ${user ? `<button class="btn secondary compact" type="button" data-user-action="change-link" data-id="${user.id}">Editar vÃ­nculo</button>` : ""}
+                  ${!user && fiscal.status !== "inativo" ? `<button class="btn secondary compact" type="button" data-fiscal-access="${fiscal.id}">${icon("users")} Criar acesso ao sistema</button>` : ""}
+                  ${!user && linkedCompanies.length ? `<button class="btn secondary compact" type="button" data-company-detail="${linkedCompanies[0].id}">Editar vÃ­nculo</button>` : ""}
+                  ${fiscal.status !== "inativo" ? `<button class="btn warning compact" type="button" data-fiscal-inactivate="${fiscal.id}">Inativar fiscal</button>` : `<span class="mini-pill">Inativo</span>`}
+                </div>
+              </td>
+            </tr>
+          `;
+        })
+        .join("")
+    : emptyRow(8);
+  return `
+    <section class="panel table-wrap">
+      <div class="modal-head">
+        <div>
+          <h2>Fiscais</h2>
+          <span class="muted">Fiscais podem existir sem usuario de acesso e sao vinculados por empresa ou contrato.</span>
+        </div>
+      </div>
+      <table>
+        <thead><tr><th>Nome</th><th>Contato</th><th>Matricula</th><th>Setor</th><th>Empresa vinculada</th><th>Contrato vinculado</th><th>Status do acesso</th><th>Acoes</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </section>
+  `;
+}
+
+function renderAdministrationSupplierSection() {
+  const companies = filtered(state.companies.map(normalizeCompany), [
+    (company) => company.name,
+    (company) => company.tradeName,
+    (company) => company.cnpj,
+    (company) => company.contract,
+    (company) => supplierAccessStatus(company),
+    (company) => supplierUserForCompany(company)?.name || company.contact || company.responsible,
+    (company) => supplierUserForCompany(company)?.email || company.email,
+  ]);
+  const rows = companies.length
+    ? companies
+        .map((company) => {
+          const supplierUser = supplierUserForCompany(company);
+          const contracts = [company.contract].filter(Boolean);
+          return `
+            <tr>
+              <td><strong>${escapeHtml(company.contact || company.responsible || "Responsavel nao informado")}</strong><br><span class="muted">${escapeHtml(company.name)}</span></td>
+              <td>${escapeHtml(supplierUser?.email || company.email || "Sem e-mail")}</td>
+              <td>${escapeHtml(supplierUser?.phone || supplierUser?.telefone || company.phone || "Sem telefone")}</td>
+              <td>${escapeHtml(company.name)}</td>
+              <td>${escapeHtml(contracts.join(", ") || "Sem contrato")}</td>
+              <td>${statusBadge(supplierAccessStatus(company))}</td>
+              <td>${escapeHtml(supplierUser ? userCreationTypeLabel(supplierUser) : "Sem usuario")}</td>
+              <td>
+                <div class="actions wrap">
+                  ${supplierUser ? `<button class="btn secondary compact" type="button" data-edit="user" data-id="${supplierUser.id}">${icon("edit")} Editar vinculo</button>` : ""}
+                  ${supplierUser ? `<button class="btn secondary compact" type="button" data-user-action="resend-invite" data-id="${supplierUser.id}">Enviar convite</button>` : `<button class="btn primary compact" type="button" data-create="user" data-role="supplier" data-company-id="${company.id}" data-creation-mode="real">${icon("plus")} Criar acesso</button>`}
+                  ${supplierUser ? `<button class="btn secondary compact" type="button" data-user-action="resend-invite" data-id="${supplierUser.id}" data-reset="1">Reenviar convite</button>` : ""}
+                  ${supplierUser ? `<button class="btn warning compact" type="button" data-user-action="toggle-access" data-id="${supplierUser.id}">${supplierUser.active === false ? "Reativar acesso" : "Inativar acesso"}</button>` : ""}
+                </div>
+              </td>
+            </tr>
+          `;
+        })
+        .join("")
+    : emptyRow(8);
+  return `
+    <section class="panel table-wrap">
+      <div class="modal-head">
+        <div>
+          <h2>Fornecedores</h2>
+          <span class="muted">Responsaveis vinculados a empresas e contratos com liberaÃ§Ã£o de acesso ao portal.</span>
+        </div>
+      </div>
+      <table>
+        <thead><tr><th>Responsavel</th><th>E-mail</th><th>Telefone</th><th>Empresa vinculada</th><th>Contratos vinculados</th><th>Status do acesso</th><th>Tipo de usuario</th><th>Acoes</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </section>
+  `;
+}
+
+function renderAdministrationSectorSection(role, title, helper) {
+  const items = filtered((state.users || []).filter((user) => user.role === role), [
+    (user) => user.name,
+    (user) => user.email,
+    (user) => roleName(user.role),
+    (user) => userAccessStatusLabel(user),
+    (user) => userCreationTypeLabel(user),
+    (user) => userLastAccessLabel(user),
+  ]);
+  const rows = items.length
+    ? items.map((user) => `
+        <tr>
+          <td><strong>${escapeHtml(user.name)}</strong></td>
+          <td>${escapeHtml(user.email || "Sem e-mail")}</td>
+          <td>${statusBadge(userAccessStatusLabel(user))}</td>
+          <td>${escapeHtml(userCreationTypeLabel(user))}</td>
+          <td>${escapeHtml(userLastAccessLabel(user))}</td>
+          <td>
+            <div class="actions wrap">
+              <button class="btn secondary compact" type="button" data-edit="user" data-id="${user.id}">${icon("edit")} Editar</button>
+              <button class="btn secondary compact" type="button" data-user-action="resend-invite" data-id="${user.id}">Enviar convite</button>
+              <button class="btn secondary compact" type="button" data-user-action="resend-invite" data-id="${user.id}" data-reset="1">Reenviar convite</button>
+              <button class="btn warning compact" type="button" data-user-action="toggle-access" data-id="${user.id}">${user.active === false ? "Reativar acesso" : "Inativar acesso"}</button>
+            </div>
+          </td>
+        </tr>
+      `).join("")
+    : emptyRow(6);
+  return `
+    <section class="panel table-wrap">
+      <div class="modal-head">
+        <div>
+          <h2>${title}</h2>
+          <span class="muted">${helper}</span>
+        </div>
+        <div class="actions wrap">
+          <button class="btn primary compact" type="button" data-create="user" data-role="${role}" data-creation-mode="real">${icon("plus")} Novo usuario</button>
+        </div>
+      </div>
+      <div class="access-summary-grid">
+        <div class="item-card"><strong>Perfis registrados</strong><span class="muted">${items.length} usuario(s) nesta fila.</span></div>
+        <div class="item-card"><strong>Status ativo</strong><span class="muted">${items.filter((user) => user.active !== false).length} usuario(s) com acesso liberado.</span></div>
+        <div class="item-card"><strong>Convites</strong><span class="muted">${items.filter((user) => user.creationMode === "real").length} usuario(s) com primeiro acesso em convite.</span></div>
+      </div>
+      <table>
+        <thead><tr><th>Nome</th><th>E-mail</th><th>Status do acesso</th><th>Tipo</th><th>Ultimo acesso</th><th>Acoes</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </section>
+  `;
+}
+
+function renderAdministrationSection(section) {
+  if (section === "users") return renderUsers();
+  if (section === "fiscais") return renderAdministrationFiscalSection();
+  if (section === "fornecedores") return renderAdministrationSupplierSection();
+  if (section === "medicina") return renderAdministrationSectorSection("medicina", "Medicina", "Usuarios que atuam na fila de Medicina ocupacional.");
+  if (section === "ehs") return renderAdministrationSectorSection("ehs", "EHS / SSMA", "Usuarios que atuam na fila de EHS / SSMA.");
+  if (section === "patrimonial") return renderAdministrationSectorSection("patrimonial", "Seguranca Patrimonial", "Usuarios que atuam na fila de liberacao final.");
+  return `<div class="empty">Secao administrativa indisponivel.</div>`;
 }
 
 function renderReports() {
@@ -5652,48 +5928,54 @@ function renderRequests() {
 }
 
 function renderAdministration() {
-  const hubs = [
-    ["users", "Usuarios e Acessos", "Gerencie acessos, perfis e convites.", "users"],
-    ["integrations", "Integracoes", "Pontos de conexao com servicos externos.", "integrations"],
-    ["settings", "Configuracoes", "Parametros operacionais do portal.", "settings"],
-  ].filter(([view]) => canView(view));
+  const section = administrationSectionConfig(administrationSection)[0];
+  const totalUsers = state.users.length;
+  const totalFiscais = state.fiscais.length;
+  const activeFiscais = state.fiscais.filter((fiscal) => fiscal.status === "com_acesso").length;
+  const supplierUsers = state.users.filter((user) => user.role === "supplier");
+  const sectorUsers = state.users.filter((user) => ["medicina", "ehs", "patrimonial"].includes(user.role)).length;
   return `
     <section class="hero-panel compact-hero">
       <div>
         <span class="eyebrow">Administracao</span>
-        <h2>Base de gestao do portal</h2>
-        <p>Entrada para usuarios, integracoes e configuracoes gerais, organizada como central administrativa.</p>
+        <h2>Base de gestao de acessos</h2>
+        <p>Entrada consolidada para usuarios, fiscais, fornecedores e equipes setoriais.</p>
       </div>
     </section>
-    <div class="enterprise-strip">
-      <div><span>Usuarios</span><strong>Convites e perfis</strong></div>
-      <div><span>Acessos</span><strong>Controle centralizado</strong></div>
-      <div><span>Parametros</span><strong>Configuracao geral</strong></div>
-      <div><span>Auditoria</span><strong>Base para rastreio</strong></div>
+    <div class="stats-grid four">
+      <div class="stat-card info"><span>Usuarios</span><strong>${totalUsers}</strong><small>Contas registradas</small></div>
+      <div class="stat-card warning"><span>Fiscais</span><strong>${totalFiscais}</strong><small>${activeFiscais} com acesso ativo</small></div>
+      <div class="stat-card special"><span>Fornecedores</span><strong>${supplierUsers.length}</strong><small>Acessos por empresa</small></div>
+      <div class="stat-card success"><span>Setoriais</span><strong>${sectorUsers}</strong><small>Medicina, EHS e Patrimonial</small></div>
     </div>
+    ${renderAdministrationSectionTabs()}
+    <section class="panel admin-section-shell">
+      <div class="modal-head">
+        <div>
+          <span class="eyebrow">Secao administrativa</span>
+          <h2>${section === "users" ? "Usuarios e Acessos" : administrationSectionConfig(section)[1]}</h2>
+          <span class="muted">${administrationSectionConfig(section)[2]}</span>
+        </div>
+      </div>
+      <div class="admin-section-content">
+        ${renderAdministrationSection(section)}
+      </div>
+    </section>
     <div class="dashboard-grid">
       <section class="bi-card wide">
-        <div class="bi-head"><div><span class="eyebrow">Acesso rapido</span><h2>Subareas administrativas</h2></div></div>
-        <div class="quick-launch-grid">
-          ${hubs
-            .map(
-              ([view, title, helper, iconName]) => `
-                <button class="launch-card" type="button" data-view="${view}">
-                  <div class="launch-icon">${icon(iconName)}</div>
-                  <strong>${title}</strong>
-                  <span>${helper}</span>
-                </button>
-              `,
-            )
-            .join("") || `<div class="empty">Nenhuma subarea disponivel para o perfil atual.</div>`}
+        <div class="bi-head"><div><span class="eyebrow">Estrutura</span><h2>Organizacao administrativa</h2></div></div>
+        <div class="item-list dense-list">
+          <div class="item-card"><strong>Usuarios e Acessos</strong><span class="muted">Visao consolidada dos acessos do portal.</span></div>
+          <div class="item-card"><strong>Fiscais</strong><span class="muted">Base operacional de responsaveis vinculados a empresas.</span></div>
+          <div class="item-card"><strong>Fornecedores</strong><span class="muted">Responsaveis da empresa com liberacao de acesso.</span></div>
         </div>
       </section>
       <section class="bi-card">
-        <div class="bi-head"><div><span class="eyebrow">Estrutura</span><h2>Ficha administrativa</h2></div></div>
+        <div class="bi-head"><div><span class="eyebrow">Escopo</span><h2>Perfis setoriais</h2></div></div>
         <div class="item-list dense-list">
-          <div class="item-card"><strong>Usuarios</strong><span class="muted">Tela dedicada a perfis, acessos e status.</span></div>
-          <div class="item-card"><strong>Integracoes</strong><span class="muted">Espaco para conexoes futuras e monitoramento.</span></div>
-          <div class="item-card"><strong>Configuracoes</strong><span class="muted">Painel de parametros e preferencia do portal.</span></div>
+          <div class="item-card"><strong>Medicina</strong><span class="muted">Fila medica e aprovacoes de ASO/exames.</span></div>
+          <div class="item-card"><strong>EHS / SSMA</strong><span class="muted">Fila de treinamentos e requisitos de seguranca.</span></div>
+          <div class="item-card"><strong>Seguranca Patrimonial</strong><span class="muted">Liberacao final, matricula e cracha.</span></div>
         </div>
       </section>
     </div>
@@ -5759,7 +6041,7 @@ function userRowActions(user) {
       <button class="btn secondary compact" type="button" data-user-action="reset-password" data-id="${user.id}">Redefinir senha</button>
       <button class="btn secondary compact" type="button" data-user-action="resend-invite" data-id="${user.id}">Reenviar convite</button>
       <button class="btn secondary compact" type="button" data-user-action="change-role" data-id="${user.id}">Alterar perfil</button>
-      <button class="btn secondary compact" type="button" data-user-action="change-link" data-id="${user.id}">Alterar vínculo</button>
+      <button class="btn secondary compact" type="button" data-user-action="change-link" data-id="${user.id}">Alterar vÃ­nculo</button>
     </div>
   `;
 }
@@ -5822,7 +6104,7 @@ function documentRowActions(doc) {
   return `
     <div class="actions wrap">
       ${can("approveDocuments", doc) ? `<button class="btn secondary compact" type="button" data-doc-status="Aprovado" data-id="${doc.id}">Aprovar</button>` : ""}
-      ${can("approveDocuments", doc) ? `<button class="btn warning compact" type="button" data-doc-status="Revisão solicitada" data-id="${doc.id}">Solicitar Revisão</button>` : ""}
+      ${can("approveDocuments", doc) ? `<button class="btn warning compact" type="button" data-doc-status="RevisÃ£o solicitada" data-id="${doc.id}">Solicitar RevisÃ£o</button>` : ""}
       ${can("edit.document", doc) ? `<button class="btn secondary compact" type="button" data-edit="document" data-id="${doc.id}">${icon("edit")} Editar</button>` : ""}
       ${can("delete.document", doc) ? `<button class="btn danger compact" type="button" data-delete="document" data-id="${doc.id}">${icon("trash")} Excluir</button>` : ""}
       ${!can("approveDocuments", doc) && !can("edit.document", doc) && !can("delete.document", doc) ? `<span class="mini-pill">Somente leitura</span>` : ""}
@@ -5840,56 +6122,61 @@ function statusBadge(status) {
   const hireLabel = normalizeHiringStatusLabel(raw);
   const normalized = [
     "Pendente",
-    "Em análise",
+    "Em anÃ¡lise",
     "Aprovado",
     "Reprovado",
     "Vencido",
-    "Aprovado com pendência",
+    "Aprovado com pendÃªncia",
     "A vencer",
   ].includes(docLabel)
     ? docLabel
     : hireLabel;
   const kind = {
     Aprovado: "ok",
-    "Aprovado com pendência": "conditional",
+    "Aprovado com pendÃªncia": "conditional",
     Ativa: "ok",
     Ativo: "ok",
     Liberado: "ok",
     Integrado: "ok",
     Conectado: "ok",
     Estatico: "ok",
-    "Em análise": "analysis",
-    "Em análise documental": "analysis",
+    "Em anÃ¡lise": "analysis",
+    "Em anÃ¡lise documental": "analysis",
     "A vencer": "warn",
     Pendente: "warn",
     "Aguardando medicina": "exams",
     "Aguardando EHS/RH": "training",
     "Aguardando patrimonial": "fiscal",
-    "Desmobilização solicitada": "warn",
-    "Pendente Documentação": "warn",
+    "DesmobilizaÃ§Ã£o solicitada": "warn",
+    "Pendente DocumentaÃ§Ã£o": "warn",
     "Pendente Medicina": "warn",
     "Pendente EHS": "warn",
     "Pendente Patrimonial": "warn",
-    "Revisão solicitada": "analysis",
-    "Revisão solicitada pelo Fiscal": "analysis",
-    "Revisão solicitada pela Medicina": "analysis",
-    "Revisão solicitada pelo EHS": "analysis",
-    "Revisão solicitada pela Patrimonial": "analysis",
-    "Em avaliação": "analysis",
-    "Em avaliação Fiscal": "analysis",
-    "Em avaliação Medicina": "analysis",
-    "Em avaliação EHS": "analysis",
-    "Em avaliação Patrimonial": "analysis",
+    "Acesso ativo": "ok",
+    "Acesso inativo": "bad",
+    "Convite enviado": "analysis",
+    "Sem usuário de acesso": "warn",
+    "Aguardando liberação de acesso": "warn",
+    "RevisÃ£o solicitada": "analysis",
+    "RevisÃ£o solicitada pelo Fiscal": "analysis",
+    "RevisÃ£o solicitada pela Medicina": "analysis",
+    "RevisÃ£o solicitada pelo EHS": "analysis",
+    "RevisÃ£o solicitada pela Patrimonial": "analysis",
+    "Em avaliaÃ§Ã£o": "analysis",
+    "Em avaliaÃ§Ã£o Fiscal": "analysis",
+    "Em avaliaÃ§Ã£o Medicina": "analysis",
+    "Em avaliaÃ§Ã£o EHS": "analysis",
+    "Em avaliaÃ§Ã£o Patrimonial": "analysis",
     "Enviado para Fiscal": "info",
     "Enviado para Medicina": "info",
     "Enviado para EHS": "info",
     "Enviado para Patrimonial": "info",
     "Rascunho pelo Fornecedor": "info",
-    "Revalidação solicitada": "analysis",
-    "Em revalidação": "analysis",
+    "RevalidaÃ§Ã£o solicitada": "analysis",
+    "Em revalidaÃ§Ã£o": "analysis",
     "Bloqueado por etapa anterior": "warn",
-    "Aguardando Correção": "analysis",
-    "Ativo com pendência": "analysis",
+    "Aguardando CorreÃ§Ã£o": "analysis",
+    "Ativo com pendÃªncia": "analysis",
     Arquivado: "info",
     Vencido: "bad",
     Inativa: "bad",
@@ -5912,49 +6199,49 @@ function statusClass(status) {
   const hireLabel = normalizeHiringStatusLabel(raw);
   const normalized = [
     "Pendente",
-    "Em análise",
+    "Em anÃ¡lise",
     "Aprovado",
     "Reprovado",
     "Vencido",
-    "Aprovado com pendência",
+    "Aprovado com pendÃªncia",
     "A vencer",
   ].includes(docLabel)
     ? docLabel
     : hireLabel;
   return {
     Aprovado: "ok",
-    "Aprovado com pendência": "conditional",
+    "Aprovado com pendÃªncia": "conditional",
     Ativa: "ok",
     Ativo: "ok",
     Liberado: "ok",
     Pendente: "warn",
     "A vencer": "warn",
-    "Em análise": "analysis",
-    "Em análise documental": "analysis",
+    "Em anÃ¡lise": "analysis",
+    "Em anÃ¡lise documental": "analysis",
     Reprovado: "bad",
-    "Pendente Documentação": "warn",
+    "Pendente DocumentaÃ§Ã£o": "warn",
     "Pendente Medicina": "warn",
     "Pendente EHS": "warn",
     "Pendente Patrimonial": "warn",
-    "Revisão solicitada": "analysis",
-    "Revisão solicitada pelo Fiscal": "analysis",
-    "Revisão solicitada pela Medicina": "analysis",
-    "Revisão solicitada pela EHS": "analysis",
-    "Revisão solicitada pela Patrimonial": "analysis",
-    "Em avaliação": "analysis",
-    "Em avaliação Fiscal": "analysis",
-    "Em avaliação Medicina": "analysis",
-    "Em avaliação EHS": "analysis",
-    "Em avaliação Patrimonial": "analysis",
+    "RevisÃ£o solicitada": "analysis",
+    "RevisÃ£o solicitada pelo Fiscal": "analysis",
+    "RevisÃ£o solicitada pela Medicina": "analysis",
+    "RevisÃ£o solicitada pela EHS": "analysis",
+    "RevisÃ£o solicitada pela Patrimonial": "analysis",
+    "Em avaliaÃ§Ã£o": "analysis",
+    "Em avaliaÃ§Ã£o Fiscal": "analysis",
+    "Em avaliaÃ§Ã£o Medicina": "analysis",
+    "Em avaliaÃ§Ã£o EHS": "analysis",
+    "Em avaliaÃ§Ã£o Patrimonial": "analysis",
     "Enviado para Fiscal": "info",
     "Enviado para Medicina": "info",
     "Enviado para EHS": "info",
     "Enviado para Patrimonial": "info",
     "Rascunho pelo Fornecedor": "info",
-    "Revalidação solicitada": "analysis",
-    "Em revalidação": "analysis",
-    "Aguardando Correção": "analysis",
-    "Ativo com pendência": "analysis",
+    "RevalidaÃ§Ã£o solicitada": "analysis",
+    "Em revalidaÃ§Ã£o": "analysis",
+    "Aguardando CorreÃ§Ã£o": "analysis",
+    "Ativo com pendÃªncia": "analysis",
     Arquivado: "info",
     Vencido: "bad",
     Bloqueado: "bad",
@@ -5962,7 +6249,7 @@ function statusClass(status) {
     "Aguardando medicina": "exams",
     "Aguardando EHS/RH": "training",
     "Aguardando patrimonial": "fiscal",
-    "Desmobilização solicitada": "warn",
+    "DesmobilizaÃ§Ã£o solicitada": "warn",
     Inativo: "bad",
     Encerrado: "bad",
     Desmobilizado: "bad",
@@ -6010,7 +6297,23 @@ function bindViewEvents() {
         renderApp();
         return;
       }
+      if (button.dataset.create === "user") {
+        openForm("user", null, {
+          defaultRole: button.dataset.role || "fiscal",
+          companyId: button.dataset.companyId || "",
+          defaultCreationMode: button.dataset.creationMode || "test",
+        });
+        return;
+      }
       openForm(button.dataset.create);
+    });
+  });
+
+  document.querySelectorAll("[data-admin-section]").forEach((button) => {
+    button.addEventListener("click", () => {
+      administrationSection = button.dataset.adminSection || "users";
+      localStorage.setItem("sctempresas.adminSection", administrationSection);
+      renderApp();
     });
   });
 
@@ -6177,7 +6480,7 @@ function bindViewEvents() {
         return;
       }
       if (action === "reset-password" || action === "resend-invite") {
-        await resendUserAccessInvite(user, action === "reset-password");
+        await resendUserAccessInvite(user, action === "reset-password" || button.dataset.reset === "1");
         return;
       }
       if (action === "change-role" || action === "change-link") {
@@ -6200,7 +6503,7 @@ function bindViewEvents() {
 
   document.querySelectorAll("[data-doc-status]").forEach((button) => {
     button.addEventListener("click", () => {
-      const label = button.dataset.docStatus === "Aprovado" ? "Aprovar documento" : "Solicitar revisão do documento";
+      const label = button.dataset.docStatus === "Aprovado" ? "Aprovar documento" : "Solicitar revisÃ£o do documento";
       console.log(label, button.dataset.id);
       updateDocumentStatus(button.dataset.id, button.dataset.docStatus);
     });
@@ -6872,9 +7175,11 @@ function validateDocumentPayload(payload) {
   }
 }
 
-function userForm(id) {
+function userForm(id, context = {}) {
   const item = state.users.find((user) => sameId(user.id, id)) || {};
-  const creationMode = item.creationMode === "real" ? "real" : "test";
+  const creationMode = context.defaultCreationMode || (item.creationMode === "real" ? "real" : "test");
+  const defaultRole = context.defaultRole || item.role || "fiscal";
+  const defaultCompanyId = context.companyId ?? item.companyId ?? "";
   return {
     title: id ? "Editar usuario" : "Novo usuario",
     fields: [
@@ -6888,7 +7193,7 @@ function userForm(id) {
       inputField("name", "Nome", item.name, "required"),
       inputField("email", "E-mail", item.email, "type='email' required"),
       `<div class="wide" data-user-password-field>${inputField("password", "Senha temporaria", "", id ? "" : "minlength='6' required")}</div>`,
-      selectField("role", "Perfil", item.role || "fiscal", [
+      selectField("role", "Perfil", defaultRole, [
         { value: "admin", label: "Administrador" },
         { value: "fiscal", label: "Fiscal" },
         { value: "medicina", label: "Medicina" },
@@ -6897,7 +7202,12 @@ function userForm(id) {
         { value: "supplier", label: "Fornecedor" },
         { value: "visitor", label: "Visitante" },
       ]),
-      selectField("companyId", "Empresa vinculada opcional", item.companyId || "", [{ value: "", label: "Nao vinculado" }].concat(state.companies.map((company) => ({ value: company.id, label: company.name })))),
+      selectField(
+        "companyId",
+        "Empresa vinculada",
+        defaultCompanyId,
+        [{ value: "", label: "Selecione uma empresa" }].concat(state.companies.map((company) => ({ value: company.id, label: company.name }))),
+      ),
       selectField("active", "Status", item.active === false ? "false" : "true", [
         { value: "true", label: "Ativo" },
         { value: "false", label: "Inativo" },
@@ -6915,6 +7225,12 @@ function userForm(id) {
         alert("Informe um e-mail valido para criar o usuario.");
         return;
       }
+      const role = String(form.get("role") || "").trim();
+      const companyId = optionalNull(form.get("companyId"));
+      if (["fiscal", "supplier"].includes(role) && !companyId) {
+        alert("Fiscal e fornecedor precisam ser criados com um vinculo de empresa.");
+        return;
+      }
       const rawPassword = String(form.get("password") || "");
       if (!id && creationType === "test" && rawPassword.length < 6) {
         alert("Senha temporaria obrigatoria com no minimo 6 caracteres para usuario de teste.");
@@ -6926,8 +7242,8 @@ function userForm(id) {
         email,
         password: creationType === "test" ? optionalNull(rawPassword) : null,
         creationMode: creationType,
-        role: form.get("role"),
-        companyId: optionalNull(form.get("companyId")),
+        role,
+        companyId,
         setor: optionalNull(item.setor),
         matricula: optionalNull(item.matricula),
         active: form.get("active") === "true",
@@ -7385,7 +7701,7 @@ async function saveEmployeeFromForm(form) {
     if (reviewStep) {
       workflowActions[reviewStep.id] = {
         ...(workflowActions[reviewStep.id] || {}),
-        status: "Em revalidação",
+        status: "Em revalidaÃ§Ã£o",
         sector: reviewStep.sector,
         label: reviewStep.label,
         updatedAt: new Date().toISOString(),
@@ -7474,8 +7790,8 @@ function updateEmployeeOperationalStatus(id, action) {
   }
 
   const actions = {
-    demobilize: { label: "desmobilizar", status: "Desmobilizado", historyStatus: "Desmobilização" },
-    inactivate: { label: "inativar", status: "Inativo", historyStatus: "Inativação" },
+    demobilize: { label: "desmobilizar", status: "Desmobilizado", historyStatus: "DesmobilizaÃ§Ã£o" },
+    inactivate: { label: "inativar", status: "Inativo", historyStatus: "InativaÃ§Ã£o" },
     block: { label: "bloquear", status: "Bloqueado", historyStatus: "Bloqueio" },
   };
   const config = actions[action];
@@ -7501,7 +7817,7 @@ function updateEmployeeOperationalStatus(id, action) {
     if (!approver || !approver.trim()) {
       const pendingLine = `[${timestamp}] ${actor}: Solicitacao de desmobilizacao pendente de aprovacao. Motivo: ${reason.trim()}`;
       employee.notes = currentNotes ? `${currentNotes}\n${pendingLine}` : pendingLine;
-      employee.status = "Desmobilização solicitada";
+      employee.status = "DesmobilizaÃ§Ã£o solicitada";
       const history = createHistoryEvent({
         entityType: "funcionario",
         entityId: employee.id,
@@ -7641,7 +7957,7 @@ function updateDocumentStatus(id, status) {
     return;
   }
   if (!can("approveDocuments", doc)) return;
-  const isReviewRequest = statusMatches(status, "Revisão solicitada", "Revalidação solicitada", "Em revalidação");
+  const isReviewRequest = statusMatches(status, "RevisÃ£o solicitada", "RevalidaÃ§Ã£o solicitada", "Em revalidaÃ§Ã£o");
   let reviewReason = "";
   if (isReviewRequest) {
     reviewReason = prompt(`Informe o motivo obrigatorio para solicitar revisao do documento ${doc.type}:`);
@@ -7904,6 +8220,9 @@ function mapUserFromDb(profile) {
     authUserId: profile.auth_user_id || profile.authUserId || null,
     setor: profile.setor || null,
     matricula: profile.matricula || null,
+    creationMode: profile.creationMode || profile.creation_mode || null,
+    lastAccessAt: profile.lastAccessAt || profile.last_access_at || null,
+    lastAccess: profile.lastAccess || profile.last_access || null,
     createdAt: profile.created_at || profile.createdAt || null,
   };
 }
@@ -8324,7 +8643,7 @@ function companyEmployeeGroups(company) {
   const employees = state.employees.filter((employee) => sameId(employee.companyId, company.id));
   const active = employees.filter((employee) => {
     const status = normalizeEmployee(employee).status;
-    return !statusMatches(status, "Inativo", "Desmobilizado", "Desmobilização solicitada");
+    return !statusMatches(status, "Inativo", "Desmobilizado", "DesmobilizaÃ§Ã£o solicitada");
   });
   const inactive = employees.filter((employee) => !active.some((item) => sameId(item.id, employee.id)));
   return { active, inactive, all: employees };
@@ -8361,14 +8680,14 @@ function employeeName(id) {
 
 function docStatus(doc) {
   if (statusMatches(doc.status, "Arquivado")) return "Arquivado";
-  if (doc.status === "Reprovado" || doc.status === "Revisão solicitada") return "Revisão solicitada";
+  if (doc.status === "Reprovado" || doc.status === "RevisÃ£o solicitada") return "RevisÃ£o solicitada";
   const todayDate = new Date(today());
   const due = new Date(doc.dueDate);
   if (Number.isNaN(due.getTime())) return doc.status || "Pendente";
   const diffDays = Math.ceil((due - todayDate) / 86400000);
   if (diffDays < 0) return "Vencido";
   if (diffDays <= 30) return "A vencer";
-  return ["Aprovado", "Regular", "Aprovado com pendência"].includes(doc.status) ? "Aprovado" : "Pendente";
+  return ["Aprovado", "Regular", "Aprovado com pendÃªncia"].includes(doc.status) ? "Aprovado" : "Pendente";
 }
 
 function contractDays(company) {
@@ -8565,7 +8884,7 @@ function renderCompanyOperationalSummary(company, employees = [], docs = []) {
   const docsExpiring = docs.filter((doc) => ["A vencer", "Vencido", "Pendente", "Reprovado"].includes(docStatus(doc))).length;
   return `
     <div class="company-summary-strip">
-      <div class="stat-card success"><span>Funcionarios ativos</span><strong>${normalizedEmployees.filter((employee) => !statusMatches(employee.status, "Inativo", "Desmobilizado", "Desmobilização solicitada")).length}</strong></div>
+      <div class="stat-card success"><span>Funcionarios ativos</span><strong>${normalizedEmployees.filter((employee) => !statusMatches(employee.status, "Inativo", "Desmobilizado", "DesmobilizaÃ§Ã£o solicitada")).length}</strong></div>
       <div class="stat-card warn"><span>Pendencias</span><strong>${companyPendingDocumentsCount(company.id)}</strong></div>
       <div class="stat-card analysis"><span>Medicina</span><strong>${medicineWaiting}</strong><small>${medicineApproved} aprovados / ${medicineRejected} reprovados</small></div>
       <div class="stat-card analysis"><span>EHS / SSMA</span><strong>${ehsWaiting}</strong><small>${ehsApproved} aprovados / ${ehsRejected} reprovados</small></div>
@@ -8580,7 +8899,7 @@ function companyDocumentActions(doc) {
     <div class="actions wrap">
       <button class="btn secondary compact" type="button" data-document-detail="${doc.id}">${icon("docs")} Visualizar</button>
       ${can("approveDocuments", doc) ? `<button class="btn success compact" type="button" data-doc-status="Aprovado" data-id="${doc.id}">Aprovar</button>` : ""}
-      ${can("approveDocuments", doc) ? `<button class="btn warning compact" type="button" data-doc-status="Revisão solicitada" data-id="${doc.id}">Solicitar Revisão</button>` : ""}
+      ${can("approveDocuments", doc) ? `<button class="btn warning compact" type="button" data-doc-status="RevisÃ£o solicitada" data-id="${doc.id}">Solicitar RevisÃ£o</button>` : ""}
       ${can("edit.document", doc) ? `<button class="btn secondary compact" type="button" data-edit="document" data-id="${doc.id}">${icon("edit")} Editar</button>` : ""}
       ${can("edit.document", doc) ? `<button class="btn secondary compact" type="button" data-document-archive="${doc.id}">Arquivar</button>` : ""}
     </div>
@@ -8710,10 +9029,10 @@ function renderCompanyTab(company, tab) {
     };
     return `
       <div class="contract-inner-toolbar">
-        ${can("create.employee") ? `<button class="btn primary compact" type="button" data-company-employee-new data-company-id="${company.id}">${icon("plus")} Novo Funcionário</button>` : ""}
+        ${can("create.employee") ? `<button class="btn primary compact" type="button" data-company-employee-new data-company-id="${company.id}">${icon("plus")} Novo FuncionÃ¡rio</button>` : ""}
       </div>
       <section class="company-split-section">
-        <div class="record-section-title"><h3>Funcionários ativos</h3><span class="mini-pill">${activeEmployees.length}</span></div>
+        <div class="record-section-title"><h3>FuncionÃ¡rios ativos</h3><span class="mini-pill">${activeEmployees.length}</span></div>
         <div class="table-wrap">
           <table>
             <thead><tr><th>Matricula/ID</th><th>Nome</th><th>CPF</th><th>Funcao</th><th>Contrato</th><th>Status documental</th><th>Status contratacao</th><th>ASO</th><th>Treinamento</th><th>Acoes</th></tr></thead>
@@ -8722,7 +9041,7 @@ function renderCompanyTab(company, tab) {
         </div>
       </section>
       <section class="company-split-section">
-        <div class="record-section-title"><h3>Funcionários inativos / desmobilizados</h3><span class="mini-pill">${inactiveEmployees.length}</span></div>
+        <div class="record-section-title"><h3>FuncionÃ¡rios inativos / desmobilizados</h3><span class="mini-pill">${inactiveEmployees.length}</span></div>
         <div class="table-wrap">
           <table>
             <thead><tr><th>Matricula/ID</th><th>Nome</th><th>CPF</th><th>Funcao</th><th>Contrato</th><th>Status documental</th><th>Status contratacao</th><th>ASO</th><th>Treinamento</th><th>Acoes</th></tr></thead>
@@ -8898,16 +9217,16 @@ function employeeWorkflowSteps(employee) {
       } else {
         status = `Enviado para ${step.sector}`;
       }
-    } else if (statusMatches(status, "Reprovado", "Revisão solicitada")) {
-      status = `Revisão solicitada pelo ${step.sector}`;
-    } else if (statusMatches(status, "Revalidação solicitada")) {
-      status = "Revalidação solicitada";
-    } else if (statusMatches(status, "Em revalidação")) {
-      status = `Em revalidação ${step.sector}`;
-    } else if (statusMatches(status, "Em avaliação")) {
-      status = `Em avaliação ${step.sector}`;
+    } else if (statusMatches(status, "Reprovado", "RevisÃ£o solicitada")) {
+      status = `RevisÃ£o solicitada pelo ${step.sector}`;
+    } else if (statusMatches(status, "RevalidaÃ§Ã£o solicitada")) {
+      status = "RevalidaÃ§Ã£o solicitada";
+    } else if (statusMatches(status, "Em revalidaÃ§Ã£o")) {
+      status = `Em revalidaÃ§Ã£o ${step.sector}`;
+    } else if (statusMatches(status, "Em avaliaÃ§Ã£o")) {
+      status = `Em avaliaÃ§Ã£o ${step.sector}`;
     }
-    if (statusMatches(status, "Aprovado com pendencia")) status = "Aprovado com pendência";
+    if (statusMatches(status, "Aprovado com pendencia")) status = "Aprovado com pendÃªncia";
     steps.push({
       id: step.id,
       sector: step.sector,
@@ -8931,7 +9250,7 @@ function employeeWorkflowSteps(employee) {
         ? "Liberado"
         : workflowIsConcludedStatus(item.status)
           ? item.status
-          : steps.find((step) => !workflowIsConcludedStatus(step.status))?.status || "Em avaliação Fiscal"),
+          : steps.find((step) => !workflowIsConcludedStatus(step.status))?.status || "Em avaliaÃ§Ã£o Fiscal"),
     detail: "Consolidacao fiscal para inicio ou manutencao",
     reason: allApproved ? "Fluxo completo concluido." : "Aguardando conclusao das etapas anteriores.",
   });
@@ -8947,9 +9266,9 @@ function renderWorkflowStepActions(employee, step) {
   return `
     <div class="workflow-step-actions">
       ${canActNow ? `<button class="btn success compact" type="button" data-employee-id="${employee.id}" data-workflow-step="${step.id}" data-workflow-action="approve">${icon("approve")} Aprovar</button>` : ""}
-      ${canActNow ? `<button class="btn warning compact" type="button" data-employee-id="${employee.id}" data-workflow-step="${step.id}" data-workflow-action="review">${icon("block")} Solicitar Revisão</button>` : ""}
-      ${canActNow ? `<button class="btn special compact" type="button" data-employee-id="${employee.id}" data-workflow-step="${step.id}" data-workflow-action="approve_pending">${icon("clock")} Aprovar com pendência</button>` : ""}
-      ${canRequestRevalidation ? `<button class="btn secondary compact" type="button" data-employee-id="${employee.id}" data-workflow-step="${step.id}" data-workflow-action="revalidate">${icon("reload")} Solicitar revalidação</button>` : ""}
+      ${canActNow ? `<button class="btn warning compact" type="button" data-employee-id="${employee.id}" data-workflow-step="${step.id}" data-workflow-action="review">${icon("block")} Solicitar RevisÃ£o</button>` : ""}
+      ${canActNow ? `<button class="btn special compact" type="button" data-employee-id="${employee.id}" data-workflow-step="${step.id}" data-workflow-action="approve_pending">${icon("clock")} Aprovar com pendÃªncia</button>` : ""}
+      ${canRequestRevalidation ? `<button class="btn secondary compact" type="button" data-employee-id="${employee.id}" data-workflow-step="${step.id}" data-workflow-action="revalidate">${icon("reload")} Solicitar revalidaÃ§Ã£o</button>` : ""}
     </div>
   `;
 }
@@ -8990,9 +9309,9 @@ function collectWorkflowActionData(action, step, employee) {
     }
     return {
       ...base,
-      status: "Revisão solicitada",
+      status: "RevisÃ£o solicitada",
       motivo: reason.trim(),
-      observation: `Revisão solicitada. Motivo: ${reason.trim()}`,
+      observation: `RevisÃ£o solicitada. Motivo: ${reason.trim()}`,
     };
   }
 
@@ -9036,7 +9355,7 @@ function collectWorkflowActionData(action, step, employee) {
     }
     return {
       ...base,
-      status: "Revalidação solicitada",
+      status: "RevalidaÃ§Ã£o solicitada",
       motivo: reason.trim(),
       observation: `Revalidacao solicitada. Motivo: ${reason.trim()}`,
     };

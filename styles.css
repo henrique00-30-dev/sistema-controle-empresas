@@ -1277,6 +1277,27 @@ textarea {
   margin: 10px 0 12px;
 }
 
+.admin-tabs {
+  margin: 14px 0 12px;
+}
+
+.admin-section-shell {
+  display: grid;
+  gap: 14px;
+}
+
+.admin-section-content {
+  display: grid;
+  gap: 14px;
+}
+
+.access-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -2788,6 +2809,7 @@ tr:last-child td {
   .supplier-grid,
   .company-summary-strip,
   .company-contract-summary,
+  .access-summary-grid,
   .compliance-shell {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2837,6 +2859,7 @@ tr:last-child td {
   .company-summary-strip,
   .company-contract-summary,
   .compliance-grid,
+  .access-summary-grid,
   .form-grid.two,
   .company-form,
   .employee-form,
