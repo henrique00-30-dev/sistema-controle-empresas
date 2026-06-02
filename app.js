@@ -2389,8 +2389,14 @@ function renderCompanyEditor(company = null, context = {}) {
         ${inputField("name", "Razao social", item.name, "required")}
         ${inputField("tradeName", "Nome fantasia", companyTradeName(item) === item.name ? "" : companyTradeName(item))}
         ${inputField("cnpj", "CNPJ", item.cnpj, "required inputmode='numeric' maxlength='18' data-mask='cnpj' placeholder='00.000.000/0000-00'")}
-        ${selectField("fiscalId", "Fiscal principal", item.fiscalId || "", fiscalOptions)}
-        ${inputField("fiscal", "Fiscal do contrato", item.fiscal, "required")}
+        ${formSection("Fiscal responsavel", [
+          selectField("fiscalId", "Fiscal cadastrado (opcional)", item.fiscalId || "", [{ value: "", label: "Informar fiscal manualmente" }].concat(fiscalOptions.slice(1))),
+          inputField("fiscal", "Nome do fiscal responsavel", item.fiscal, "required"),
+          inputField("fiscalEmail", "E-mail do fiscal responsavel", item.fiscalEmail || item.fiscal_email || "", "type='email'"),
+          inputField("fiscalTelefone", "Telefone do fiscal responsavel", item.fiscalTelefone || item.fiscal_telefone || ""),
+          inputField("fiscalMatricula", "Matricula do fiscal responsavel", item.fiscalMatricula || item.fiscal_matricula || ""),
+          inputField("fiscalSetor", "Setor do fiscal responsavel", item.fiscalSetor || item.fiscal_setor || "Fiscalizacao"),
+        ])}
         ${inputField("manager", "Gestor do contrato", item.manager || item.responsible, "required")}
         ${inputField("costCenter", "Centro de custo padrao", item.costCenter || "", "required")}
         ${inputField("phone", "Telefone", item.phone, "required inputmode='numeric' maxlength='15' data-mask='phone' placeholder='(00) 00000-0000'")}
@@ -7377,6 +7383,17 @@ async function saveCompanyFromForm(form) {
   const isNewCompany = !previous;
   const previousStatus = previous?.status || "";
   const quickFiscal = createQuickFiscalFromCompanyForm(form);
+  console.log("company fiscal payload", {
+    companyId: id || null,
+    companyName: String(form.get("name") || "").trim(),
+    fiscalId: optionalNull(form.get("fiscalId")),
+    fiscal: String(form.get("fiscal") || "").trim(),
+    fiscalEmail: String(form.get("fiscalEmail") || "").trim(),
+    fiscalTelefone: String(form.get("fiscalTelefone") || "").trim(),
+    fiscalMatricula: String(form.get("fiscalMatricula") || "").trim(),
+    fiscalSetor: String(form.get("fiscalSetor") || "").trim(),
+    quickFiscalId: quickFiscal?.id || null,
+  });
   const selectedFiscalId = quickFiscal?.id || optionalNull(form.get("fiscalId"));
   const selectedFiscal = selectedFiscalId ? state.fiscais.find((fiscal) => sameId(fiscal.id, selectedFiscalId)) : null;
   const fiscalName = selectedFiscal?.nome || String(form.get("fiscal") || "").trim();
@@ -7538,6 +7555,7 @@ function createQuickFiscalFromCompanyForm(form) {
     updatedAt: new Date().toISOString(),
   });
   state.fiscais = upsertById(state.fiscais || [], fiscal);
+  console.log("quick fiscal created", fiscal);
   return fiscal;
 }
 
