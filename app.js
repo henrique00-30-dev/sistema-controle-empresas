@@ -3473,6 +3473,8 @@ function renderEmployeeRecordTab(employee, tab) {
         ${detailCard("Rua", normalized.street || "Nao informado")}
         ${detailCard("Numero", normalized.number || "Nao informado")}
         ${detailCard("Complemento", normalized.complement || "Nao informado")}
+        ${detailCard("UF", normalized.uf || "Nao informado")}
+        ${detailCard("Endereco completo", normalized.address || "Nao informado")}
         ${detailCard("Observacoes", normalized.notes || "Sem observacoes")}
       </div>
     `;
@@ -6593,6 +6595,13 @@ function bindInputMasks(root = document) {
       input.value = formatCep(input.value);
     });
   });
+  root.querySelectorAll("[data-mask='uf']").forEach((input) => {
+    input.setAttribute("maxlength", "2");
+    input.value = normalizeUf(input.value);
+    input.addEventListener("input", () => {
+      input.value = normalizeUf(input.value);
+    });
+  });
 }
 
 function bindEmployeeCompanyContractSync(root = document) {
@@ -6846,13 +6855,12 @@ function companyForm(id, context = {}) {
       inputField("contract", "Numero do contrato", item.contract, "required"),
       inputField("costCenter", "Centro de custo padrao", item.costCenter || "", "required"),
       formSection("Fiscal responsavel", [
-        selectField("fiscalId", "Fiscal principal cadastrado", item.fiscalId || "", [{ value: "", label: "Selecione um fiscal" }].concat(state.fiscais.map(normalizeFiscal).filter((fiscal) => fiscal.status !== "inativo").map((fiscal) => ({ value: fiscal.id, label: `${fiscal.nome}${fiscal.matricula ? ` - ${fiscal.matricula}` : ""}` })))),
-        inputField("fiscal", "Fiscal do contrato", item.fiscal, "required"),
-        inputField("novoFiscalNome", "Nome do fiscal novo", ""),
-        inputField("novoFiscalEmail", "E-mail do fiscal novo", "", "type='email'"),
-        inputField("novoFiscalTelefone", "Telefone do fiscal novo", ""),
-        inputField("novoFiscalMatricula", "Matricula do fiscal novo", ""),
-        inputField("novoFiscalSetor", "Setor do fiscal novo", "Fiscalizacao"),
+        selectField("fiscalId", "Fiscal cadastrado (opcional)", item.fiscalId || "", [{ value: "", label: "Informar fiscal manualmente" }].concat(state.fiscais.map(normalizeFiscal).filter((fiscal) => fiscal.status !== "inativo").map((fiscal) => ({ value: fiscal.id, label: `${fiscal.nome}${fiscal.matricula ? ` - ${fiscal.matricula}` : ""}` })))),
+        inputField("fiscal", "Nome do fiscal responsavel", item.fiscal, "required"),
+        inputField("fiscalEmail", "E-mail do fiscal responsavel", item.fiscalEmail || item.fiscal_email || "", "type='email'"),
+        inputField("fiscalTelefone", "Telefone do fiscal responsavel", item.fiscalTelefone || item.fiscal_telefone || ""),
+        inputField("fiscalMatricula", "Matricula do fiscal responsavel", item.fiscalMatricula || item.fiscal_matricula || ""),
+        inputField("fiscalSetor", "Setor do fiscal responsavel", item.fiscalSetor || item.fiscal_setor || "Fiscalizacao"),
       ]),
       inputField("manager", "Gestor do contrato", item.manager || item.responsible || item.contact, "required"),
       inputField("email", "E-mail", item.email, "type='email'"),
@@ -6888,6 +6896,18 @@ function companyForm(id, context = {}) {
       if (!manager) {
         alert("Informe o gestor do contrato.");
         return;
+      }
+      const fiscalInputEmail = optionalText(form.get("fiscalEmail"));
+      const fiscalInputExtra = [
+        optionalText(form.get("fiscalTelefone")),
+        optionalText(form.get("fiscalMatricula")),
+        optionalText(form.get("fiscalSetor")),
+      ].filter(Boolean).length;
+      if (fiscalInputEmail || fiscalInputExtra) {
+        if (!fiscalInputEmail || !isValidEmail(fiscalInputEmail)) {
+          alert("E-mail do fiscal responsavel invalido.");
+          return;
+        }
       }
       upsert("companies", id, {
         name: form.get("name"),
@@ -6928,6 +6948,8 @@ function employeeForm(id, context = {}) {
   const docs = employeeDocsFor(item);
   const documentStatus = calculateDocumentStatus(item, docs);
   const hiringStatus = calculateHiringStatus(item, docs, documentStatus);
+  const legacyAddress = parseLegacyEmployeeAddress(item.address);
+  const currentCep = item.cep || legacyAddress.cep || "";
   const registrationField = isSupplier
     ? `<div class="wide item-card"><strong>Matricula do funcionario</strong><span class="muted">Preenchida posteriormente pela Seguranca Patrimonial.</span></div>`
     : inputField("registration", "Matricula do funcionario", item.registration, "required");
@@ -6968,7 +6990,15 @@ function employeeForm(id, context = {}) {
       inputField("trainingValidity", "Validade de treinamento", item.trainingValidity || today(), "type='date'"),
       inputField("docStatus", "Status documental", documentStatus, "readonly"),
       inputField("status", "Status de contratacao", hiringStatus, "readonly"),
-      textAreaField("address", "Endereco", item.address),
+      formSection("Endereco", [
+        inputField("cep", "CEP", currentCep, "required inputmode='numeric' maxlength='9' data-mask='cep' placeholder='00000-000'"),
+        inputField("street", "Rua / Logradouro", item.street || legacyAddress.street || "", "required"),
+        inputField("number", "Numero", item.number || legacyAddress.number || "", "required inputmode='numeric'"),
+        inputField("complement", "Complemento", item.complement || legacyAddress.complement || ""),
+        inputField("district", "Bairro", item.district || legacyAddress.district || "", "required"),
+        inputField("city", "Cidade", item.city || legacyAddress.city || "", "required"),
+        inputField("uf", "Estado / UF", normalizeUf(item.uf || legacyAddress.uf || ""), "required inputmode='text' maxlength='2' data-mask='uf' placeholder='UF'"),
+      ]),
       textAreaField("notes", "Observacoes", item.notes),
     ],
     save(form) {
@@ -7483,9 +7513,9 @@ async function saveCompanyFromForm(form) {
 function createQuickFiscalFromCompanyForm(form) {
   if (currentUser()?.role === "supplier") return null;
   if (optionalNull(form.get("fiscalId"))) return null;
-  const nome = String(form.get("novoFiscalNome") || "").trim();
-  const email = normalizeEmail(optionalText(form.get("novoFiscalEmail")));
-  if (!nome && !email) return null;
+  const nome = String(form.get("fiscal") || "").trim();
+  const email = normalizeEmail(optionalText(form.get("fiscalEmail")));
+  if (!email) return null;
   const fiscals = (state.fiscais || []).map(normalizeFiscal);
   const existingFiscal = email
     ? fiscals.find((fiscal) => normalizeEmail(fiscal.email) === email)
@@ -7497,9 +7527,9 @@ function createQuickFiscalFromCompanyForm(form) {
     id: existingFiscal?.id || crypto.randomUUID(),
     nome: nome || existingFiscal?.nome || "",
     email: email || existingFiscal?.email || "",
-    matricula: optionalText(form.get("novoFiscalMatricula")) || existingFiscal?.matricula || "",
-    telefone: optionalText(form.get("novoFiscalTelefone")) || existingFiscal?.telefone || "",
-    setor: optionalText(form.get("novoFiscalSetor")) || existingFiscal?.setor || "Fiscalizacao",
+    matricula: optionalText(form.get("fiscalMatricula")) || existingFiscal?.matricula || "",
+    telefone: optionalText(form.get("fiscalTelefone")) || existingFiscal?.telefone || "",
+    setor: optionalText(form.get("fiscalSetor")) || existingFiscal?.setor || "Fiscalizacao",
     status: existingFiscal?.status || "sem_acesso",
     usuarioEmail: existingFiscal?.usuarioEmail || null,
     usuarioId: existingFiscal?.usuarioId || null,
@@ -7509,6 +7539,37 @@ function createQuickFiscalFromCompanyForm(form) {
   });
   state.fiscais = upsertById(state.fiscais || [], fiscal);
   return fiscal;
+}
+
+function parseLegacyEmployeeAddress(address = "") {
+  const parts = String(address || "")
+    .split(",")
+    .map((part) => String(part || "").trim())
+    .filter(Boolean);
+  if (!parts.length) return {};
+  const [street = "", number = "", complement = "", district = "", city = "", cep = ""] = parts;
+  const cepDigits = onlyDigits(cep);
+  return {
+    street,
+    number,
+    complement,
+    district,
+    city,
+    uf: "",
+    cep: cepDigits.length === 8 ? formatCep(cepDigits) : "",
+  };
+}
+
+function normalizeUf(value = "") {
+  return String(value || "").trim().toUpperCase().slice(0, 2);
+}
+
+function buildEmployeeAddressFromParts({ street = "", number = "", complement = "", district = "", city = "", uf = "", cep = "" } = {}) {
+  const cityUf = [String(city || "").trim(), normalizeUf(uf)].filter(Boolean).join("/");
+  const parts = [street, number, complement, district, cityUf, formatCep(cep)]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  return parts.join(", ");
 }
 
 async function saveFiscalFromForm(form) {
@@ -7640,6 +7701,11 @@ async function saveEmployeeFromForm(form) {
     alert("CEP invalido. Informe exatamente 8 numeros.");
     return;
   }
+  const uf = normalizeUf(form.get("uf"));
+  if (uf.length !== 2) {
+    alert("UF invalida. Informe 2 letras.");
+    return;
+  }
   const existing = existingEmployee;
   const isNewEmployee = !existing;
   const previousStatus = existing?.status || "";
@@ -7709,6 +7775,7 @@ async function saveEmployeeFromForm(form) {
     serviceType: resolvedServiceType,
     unitSector: resolvedUnitSector,
     cep: cepDigits,
+    uf,
     city: form.get("city"),
     district: form.get("district"),
     street: form.get("street"),
@@ -7716,7 +7783,15 @@ async function saveEmployeeFromForm(form) {
     complement: form.get("complement"),
     asoValidity: form.get("asoValidity"),
     trainingValidity: form.get("trainingValidity"),
-    address: buildEmployeeAddressFromForm(form),
+    address: buildEmployeeAddressFromParts({
+      street: form.get("street"),
+      number: form.get("number"),
+      complement: form.get("complement"),
+      district: form.get("district"),
+      city: form.get("city"),
+      uf,
+      cep: form.get("cep"),
+    }),
     notes: form.get("notes"),
   };
   const fiscalPayload = existing
@@ -8103,6 +8178,10 @@ function normalizeCompany(company) {
     fiscalId: company.fiscalId || company.fiscal_id || null,
     fiscaisAdicionais: company.fiscaisAdicionais || company.fiscais_adicionais || [],
     fiscal: fiscal?.nome || company.fiscal || "Nao informado",
+    fiscalEmail: fiscal?.email || company.fiscalEmail || company.fiscal_email || "",
+    fiscalTelefone: fiscal?.telefone || company.fiscalTelefone || company.fiscal_telefone || "",
+    fiscalMatricula: fiscal?.matricula || company.fiscalMatricula || company.fiscal_matricula || "",
+    fiscalSetor: fiscal?.setor || company.fiscalSetor || company.fiscal_setor || "",
     manager: company.manager || company.gestorContrato || company.responsible || company.contact || "Nao informado",
     responsible: company.responsible || company.contact || "Nao informado",
     costCenter: company.costCenter || company.centro_custo || "",
@@ -8166,13 +8245,22 @@ function normalizeEmployee(employee) {
     street: employee.street || employee.rua || meta.street || "",
     number: employee.number || employee.numero || meta.number || "",
     complement: employee.complement || employee.complemento || meta.complement || "",
+    uf: normalizeUf(employee.uf || employee.estado || employee.state || meta.uf || ""),
     badgeNumber: employee.badgeNumber || employee.cracha || employee.crachaNumber || meta.badgeNumber || meta.cracha || meta.crachaNumber || "",
     patrimonialReleaseDate: employee.patrimonialReleaseDate || employee.releaseDate || meta.patrimonialReleaseDate || meta.releaseDate || "",
     patrimonialNotes: employee.patrimonialNotes || meta.patrimonialNotes || "",
     asoValidity: employee.asoValidity || employee.admission || "",
     trainingValidity: employee.trainingValidity || "",
     docStatus: normalizeDocumentStatusLabel(employee.docStatus || documentStatus),
-    address: employee.address || "",
+    address: employee.address || buildEmployeeAddressFromParts({
+      street: employee.street || employee.rua || meta.street || "",
+      number: employee.number || employee.numero || meta.number || "",
+      complement: employee.complement || employee.complemento || meta.complement || "",
+      district: employee.district || employee.bairro || meta.district || "",
+      city: employee.city || meta.city || "",
+      uf: employee.uf || employee.estado || employee.state || meta.uf || "",
+      cep: employee.cep || meta.cep || "",
+    }) || "",
     notes: employeeVisibleNotes(employee),
     workflowActions: employee.workflowActions || meta.workflowActions || {},
     status: normalizeHiringStatusLabel(employee.status || hiringStatus),
@@ -8223,6 +8311,7 @@ function serializeEmployeeNotes(employee) {
     street: item.street || "",
     number: item.number || "",
     complement: item.complement || "",
+    uf: normalizeUf(item.uf || ""),
     badgeNumber: item.badgeNumber || "",
     patrimonialReleaseDate: item.patrimonialReleaseDate || "",
     patrimonialNotes: item.patrimonialNotes || "",
@@ -8480,6 +8569,13 @@ function mapEmployeeFromDb(employee) {
     companyFiscal: employee.company_fiscal || employee.fiscal_empresa || "",
     exceptionReason: employee.exception_reason || employee.motivo,
     exceptionDeadline: employee.exception_deadline || employee.prazo,
+    cep: employee.cep,
+    city: employee.city || employee.municipio,
+    district: employee.district || employee.bairro,
+    street: employee.street || employee.rua,
+    number: employee.number || employee.numero,
+    complement: employee.complement || employee.complemento,
+    uf: employee.uf || employee.estado,
   });
 }
 
