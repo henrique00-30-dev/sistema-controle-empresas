@@ -2965,8 +2965,8 @@ function renderEmployees() {
   const items = sortItems("employees", applyOperationalFilters("employees", byStatus));
   const { pageItems, totalPages } = paginateItems("employees", items);
   return `
-    ${sectionHead("Funcionarios / FIT", "Lista operacional de trabalhadores vinculados a empresas, contratos e status documentais.", "Novo funcionario", "employee")}
-    ${renderEmployeeEditor(editingEmployee)}
+    ${sectionHead("Funcionarios / FIT", "Lista operacional de trabalhadores vinculados a empresas, contratos e status documentais.")}
+    ${editingEmployee ? renderEmployeeEditor(editingEmployee) : ""}
     ${toolbar("Buscar por nome, CPF, matricula, empresa, contrato, centro de custo ou status")}
     ${renderEmployeeStatusFilters()}
     ${renderOperationalFilters("employees", baseItems, { quicks: ["Todos", "Ativo", "Bloqueado", "Pendente", "Medicina", "EHS", "Desmobilizado"], exportKey: "funcionarios-ativos" })}
@@ -4283,6 +4283,11 @@ function bindCompanyDetailEvents(modal, company) {
     modal.remove();
     openCompanyEditorModal(company.id);
   });
+  modal.querySelector("[data-company-employee-new]")?.addEventListener("click", () => {
+    const companyId = modal.querySelector("[data-company-employee-new]")?.dataset.companyId || company.id;
+    modal.remove();
+    openForm("employee", null, { companyId });
+  });
   modal.querySelector("[data-company-contract-open]")?.addEventListener("click", () => openContractDetails(company.id));
   modal.querySelector("[data-company-contract-close]")?.addEventListener("click", () => {
     if (closeCompanyContract(company.id)) modal.remove();
@@ -4420,6 +4425,9 @@ function renderCompanyTab(company, tab) {
   }
   if (tab === "people") {
     return `
+      <div class="contract-inner-toolbar">
+        ${can("create.employee") ? `<button class="btn primary compact" type="button" data-company-employee-new data-company-id="${company.id}">${icon("plus")} Novo Funcionário</button>` : ""}
+      </div>
       <div class="table-wrap">
         <table>
           <thead><tr><th>Matricula/ID</th><th>Nome</th><th>CPF</th><th>Funcao</th><th>Contrato</th><th>Status documental</th><th>Status contratacao</th><th>ASO</th><th>Treinamento</th><th>Acoes</th></tr></thead>
@@ -5503,8 +5511,8 @@ function userRowActions(user) {
   `;
 }
 
-function sectionHead(title, subtitle, buttonLabel, type) {
-  const canCreate = can(`create.${type}`);
+function sectionHead(title, subtitle, buttonLabel = "", type = "") {
+  const canCreate = buttonLabel && type && can(`create.${type}`);
   return `
     <div class="section-head">
       <div>
@@ -6000,11 +6008,34 @@ function bindInputMasks(root = document) {
 function bindEmployeeCompanyContractSync(root = document) {
   root.querySelectorAll("form").forEach((form) => {
     const companySelect = form.querySelector("[name='companyId']");
+    const contractSourceSelect = form.querySelector("[name='contractSourceId']");
+    const companyDisplay = form.querySelector("[name='companyDisplay']");
     const contractInput = form.querySelector("[name='contract']");
-    if (!companySelect || !contractInput) return;
+    if (!contractInput) return;
     const costCenterInput = form.querySelector("[name='costCenter']");
     const fiscalInput = form.querySelector("[name='companyFiscal']");
     const managerInput = form.querySelector("[name='contractManager']");
+    const serviceTypeInput = form.querySelector("[name='serviceType']");
+    const unitSectorInput = form.querySelector("[name='unitSector']");
+    const syncFromContract = () => {
+      const company = companySelect ? state.companies.find((item) => sameId(item.id, companySelect.value)) : null;
+      const source = contractSourceSelect ? state.companies.find((item) => sameId(item.id, contractSourceSelect.value)) : company;
+      const selectedCompany = normalizeCompany(source || company || {});
+      const baseCompany = normalizeCompany(company || source || {});
+      if (companyDisplay) companyDisplay.value = companyName(baseCompany.id || companySelect?.value || "");
+      contractInput.value = selectedCompany.contract || contractInput.value || "";
+      if (costCenterInput) costCenterInput.value = selectedCompany.costCenter || selectedCompany.contract || costCenterInput.value || "";
+      if (fiscalInput) fiscalInput.value = selectedCompany.fiscal || fiscalInput.value || "";
+      if (managerInput) managerInput.value = selectedCompany.manager || selectedCompany.responsible || managerInput.value || "";
+      if (serviceTypeInput) serviceTypeInput.value = selectedCompany.serviceType || selectedCompany.risk || serviceTypeInput.value || "";
+      if (unitSectorInput) unitSectorInput.value = selectedCompany.unitSector || contractUnit(selectedCompany) || contractUnit(baseCompany) || unitSectorInput.value || "";
+    };
+    if (contractSourceSelect) {
+      contractSourceSelect.addEventListener("change", syncFromContract);
+      syncFromContract();
+      return;
+    }
+    if (!companySelect) return;
     const syncFromCompany = () => {
       const company = state.companies.find((item) => sameId(item.id, companySelect.value));
       if (!company) return;
@@ -6018,14 +6049,14 @@ function bindEmployeeCompanyContractSync(root = document) {
   });
 }
 
-function openForm(type, id = null) {
+function openForm(type, id = null, context = {}) {
   if (type === "document") {
     const doc = id ? state.documents.find((item) => sameId(item.id, id)) : null;
     if (id && (!doc || !canAccessDocument(doc) || !can("edit.document", doc))) return;
     if (!id && !can("create.document")) return;
   }
   if (type === "user" && !canView("users")) return;
-  const config = formConfig(type, id);
+  const config = formConfig(type, id, context);
   const modal = document.createElement("div");
   modal.className = "modal-backdrop";
   modal.innerHTML = `
@@ -6100,10 +6131,10 @@ function bindUserCreationMode(root, type, id = null) {
   sync();
 }
 
-function formConfig(type, id) {
+function formConfig(type, id, context = {}) {
   const maps = {
     company: companyForm,
-    employee: employeeForm,
+    employee: (employeeId) => employeeForm(employeeId, context),
     document: documentForm,
     user: userForm,
   };
@@ -6281,25 +6312,59 @@ function companyForm(id) {
   };
 }
 
-function employeeForm(id) {
+function employeeForm(id, context = {}) {
   const item = state.employees.find((employee) => sameId(employee.id, id)) || {};
   const role = currentUser()?.role || "visitor";
+  const isSupplier = role === "supplier";
   const canEditOperationalLink = ["admin", "fiscal"].includes(role);
+  const visibleCompanyOptions = visibleCompanies().map((company) => ({ value: company.id, label: company.name }));
+  const fallbackCompanyId = context.companyId || item.companyId || visibleCompanyOptions[0]?.value || state.companies[0]?.id || "";
+  const hasCompanyContext = Boolean(context.companyId);
+  const contractContext = hasCompanyContext ? employeeContractContext(fallbackCompanyId, employeeContractSourceId(item)) : null;
   const linkedCompany = normalizeCompany(state.companies.find((company) => sameId(company.id, item.companyId)) || {});
+  const activeCompany = hasCompanyContext ? contractContext.baseCompany : linkedCompany;
+  const selectedContract = hasCompanyContext ? contractContext.selectedCompany : linkedCompany;
+  const contractOptions = hasCompanyContext ? contractContext.options : activeCompanyContractOptions(item.companyId || fallbackCompanyId);
+  const selectedContractId = hasCompanyContext ? contractContext.selectedId : employeeContractSourceId(item) || item.companyId || fallbackCompanyId;
   const docs = employeeDocsFor(item);
   const documentStatus = calculateDocumentStatus(item, docs);
   const hiringStatus = calculateHiringStatus(item, docs, documentStatus);
+  const registrationField = isSupplier
+    ? `<div class="wide item-card"><strong>Matricula do funcionario</strong><span class="muted">Preenchida posteriormente pela Seguranca Patrimonial.</span></div>`
+    : inputField("registration", "Matricula do funcionario", item.registration, "required");
+  const companyField = hasCompanyContext
+    ? `
+      <input type="hidden" name="companyId" value="${escapeAttr(fallbackCompanyId)}" />
+      ${inputField("companyDisplay", "Empresa vinculada", activeCompany.name || companyName(fallbackCompanyId), "readonly")}
+    `
+    : selectField("companyId", "Empresa vinculada", item.companyId || fallbackCompanyId, visibleCompanyOptions);
+  const inheritedCostCenter = selectedContract.costCenter || selectedContract.contract || linkedCompany.costCenter || linkedCompany.contract || "";
+  const inheritedFiscal = selectedContract.fiscal || linkedCompany.fiscal || "";
+  const inheritedManager = selectedContract.manager || selectedContract.responsible || linkedCompany.manager || linkedCompany.responsible || "";
+  const inheritedServiceType = selectedContract.serviceType || selectedContract.risk || linkedCompany.serviceType || linkedCompany.risk || "";
+  const inheritedUnitSector = selectedContract.unitSector || contractUnit(selectedContract) || contractUnit(linkedCompany);
   return {
-    title: id ? "Editar funcionario" : "Novo funcionario",
+    title: id ? "Editar funcionario" : hasCompanyContext ? "Novo funcionario da empresa" : "Novo funcionario",
     fields: [
+      registrationField,
       inputField("name", "Nome completo", item.name, "required"),
-      selectField("companyId", "Empresa", item.companyId || state.companies[0]?.id, state.companies.map((company) => ({ value: company.id, label: company.name }))),
-      inputField("role", "Cargo", item.role, "required"),
       inputField("cpf", "CPF", item.cpf, "required inputmode='numeric' maxlength='14' data-mask='cpf' placeholder='000.000.000-00'"),
-      inputField("contract", "Numero do contrato", item.contract || linkedCompany.contract || "", `${canEditOperationalLink ? "" : "readonly"} required`),
-      inputField("costCenter", "Centro de custo", item.costCenter || linkedCompany.costCenter || linkedCompany.contract || "", canEditOperationalLink ? "required" : "required readonly"),
-      inputField("companyFiscal", "Fiscal da empresa", item.companyFiscal || linkedCompany.fiscal || "", canEditOperationalLink ? "" : "readonly"),
-      inputField("contractManager", "Gestor do contrato", item.contractManager || linkedCompany.manager || linkedCompany.responsible || "", canEditOperationalLink ? "" : "readonly"),
+      inputField("birthDate", "Data de nascimento", item.birthDate, "type='date' required"),
+      inputField("motherName", "Nome da mae", item.motherName, "required"),
+      inputField("fatherName", "Nome do pai", item.fatherName),
+      inputField("role", "Funcao", item.role, "required"),
+      companyField,
+      hasCompanyContext
+        ? formSection("Vinculo contratual", [
+            selectField("contractSourceId", "Contrato ativo", selectedContractId, contractOptions),
+            inputField("contract", "Numero do contrato", selectedContract.contract || linkedCompany.contract || "", "readonly"),
+            inputField("costCenter", "Centro de custo", inheritedCostCenter, "readonly"),
+            inputField("companyFiscal", "Fiscal da empresa", inheritedFiscal, "readonly"),
+            inputField("contractManager", "Gestor do contrato", inheritedManager, "readonly"),
+            inputField("serviceType", "Tipo de servico", inheritedServiceType, "readonly"),
+            inputField("unitSector", "Unidade / setor", inheritedUnitSector, "readonly"),
+          ])
+        : `${inputField("contract", "Numero do contrato", item.contract || linkedCompany.contract || "", `${canEditOperationalLink ? "" : "readonly"} required`)}${inputField("costCenter", "Centro de custo", item.costCenter || linkedCompany.costCenter || linkedCompany.contract || "", canEditOperationalLink ? "required" : "required readonly")}${inputField("companyFiscal", "Fiscal da empresa", item.companyFiscal || linkedCompany.fiscal || "", canEditOperationalLink ? "" : "readonly")}${inputField("contractManager", "Gestor do contrato", item.contractManager || linkedCompany.manager || linkedCompany.responsible || "", canEditOperationalLink ? "" : "readonly")}${inputField("serviceType", "Tipo de servico", item.serviceType || linkedCompany.serviceType || linkedCompany.risk || "", "readonly")}${inputField("unitSector", "Unidade / setor", item.unitSector || contractUnit(linkedCompany), "readonly")}`,
       inputField("asoValidity", "Validade de ASO", item.asoValidity || today(), "type='date'"),
       inputField("trainingValidity", "Validade de treinamento", item.trainingValidity || today(), "type='date'"),
       inputField("docStatus", "Status documental", documentStatus, "readonly"),
@@ -6316,28 +6381,56 @@ function employeeForm(id) {
         alert(validation.message);
         return;
       }
-      const selectedCompany = normalizeCompany(state.companies.find((company) => sameId(company.id, form.get("companyId"))) || {});
-      const resolvedCostCenter = canEditOperationalLink ? form.get("costCenter") : selectedCompany.costCenter || selectedCompany.contract || "";
-      const resolvedFiscal = canEditOperationalLink ? form.get("companyFiscal") : selectedCompany.fiscal || "";
-      const resolvedManager = canEditOperationalLink ? form.get("contractManager") : selectedCompany.manager || selectedCompany.responsible || "";
-      const resolvedContract = form.get("contract") || selectedCompany.contract || "";
-      const nextDocStatus = calculateDocumentStatus({ ...item, name: form.get("name"), companyId: form.get("companyId"), role: form.get("role"), cpf: validation.cpf, asoValidity: form.get("asoValidity"), trainingValidity: form.get("trainingValidity"), notes: form.get("notes") }, employeeDocsFor({ ...item, id: id || item.id }));
-      const nextHiringStatus = calculateHiringStatus({ ...item, name: form.get("name"), companyId: form.get("companyId"), role: form.get("role"), cpf: validation.cpf, asoValidity: form.get("asoValidity"), trainingValidity: form.get("trainingValidity"), notes: form.get("notes"), docStatus: nextDocStatus }, employeeDocsFor({ ...item, id: id || item.id }), nextDocStatus);
-      upsert("employees", id, {
+      const selectedCompany = normalizeCompany(state.companies.find((company) => sameId(company.id, form.get("companyId"))) || activeCompany || {});
+      const selectedContractCompany = normalizeCompany(state.companies.find((company) => sameId(company.id, form.get("contractSourceId"))) || selectedCompany || {});
+      const resolvedCompanyId = form.get("companyId") || selectedCompany.id || "";
+      const resolvedContract = form.get("contract") || selectedContractCompany.contract || selectedCompany.contract || "";
+      const resolvedCostCenter = hasCompanyContext
+        ? selectedContractCompany.costCenter || selectedContractCompany.contract || ""
+        : canEditOperationalLink
+          ? form.get("costCenter")
+          : selectedCompany.costCenter || selectedCompany.contract || "";
+      const resolvedFiscal = hasCompanyContext
+        ? selectedContractCompany.fiscal || ""
+        : canEditOperationalLink
+          ? form.get("companyFiscal")
+          : selectedCompany.fiscal || "";
+      const resolvedManager = hasCompanyContext
+        ? selectedContractCompany.manager || selectedContractCompany.responsible || ""
+        : canEditOperationalLink
+          ? form.get("contractManager")
+          : selectedCompany.manager || selectedCompany.responsible || "";
+      const resolvedServiceType = hasCompanyContext
+        ? selectedContractCompany.serviceType || selectedContractCompany.risk || ""
+        : form.get("serviceType") || selectedCompany.serviceType || selectedCompany.risk || "";
+      const resolvedUnitSector = hasCompanyContext
+        ? selectedContractCompany.unitSector || contractUnit(selectedContractCompany)
+        : form.get("unitSector") || contractUnit(selectedCompany);
+      const employeeBase = {
+        ...item,
         name: form.get("name"),
-        companyId: form.get("companyId"),
+        companyId: resolvedCompanyId,
         role: form.get("role"),
         cpf: validation.cpf,
         contract: resolvedContract,
+        contractSourceId: hasCompanyContext ? selectedContractCompany.id || resolvedCompanyId : item.contractSourceId || resolvedCompanyId,
         costCenter: resolvedCostCenter,
         companyFiscal: resolvedFiscal,
         contractManager: resolvedManager,
+        serviceType: resolvedServiceType,
+        unitSector: resolvedUnitSector,
         asoValidity: form.get("asoValidity"),
         trainingValidity: form.get("trainingValidity"),
-        docStatus: nextDocStatus,
         address: form.get("address"),
         notes: form.get("notes"),
+      };
+      const nextDocStatus = calculateDocumentStatus(employeeBase, employeeDocsFor({ ...item, id: id || item.id, companyId: resolvedCompanyId }));
+      const nextHiringStatus = calculateHiringStatus({ ...employeeBase, docStatus: nextDocStatus }, employeeDocsFor({ ...item, id: id || item.id, companyId: resolvedCompanyId }), nextDocStatus);
+      upsert("employees", id, {
+        ...employeeBase,
+        docStatus: nextDocStatus,
         status: nextHiringStatus,
+        notes: form.get("notes"),
       });
     },
   };
@@ -6912,21 +7005,38 @@ async function saveEmployeeFromForm(form) {
   const isNewEmployee = !existing;
   const previousStatus = existing?.status || "";
   const linkedCompany = normalizeCompany(state.companies.find((company) => sameId(company.id, form.get("companyId"))) || {});
+  const existingContractSourceId = employeeContractSourceId(existingEmployee || {});
+  const selectedContractCompany = normalizeCompany(
+    state.companies.find((company) => sameId(company.id, form.get("contractSourceId") || existingContractSourceId || form.get("companyId"))) || linkedCompany,
+  );
   const canEditFullEmployee =
     currentUser()?.role === "admin" ||
     currentUser()?.role === "fiscal" ||
     (currentUser()?.role === "supplier" && (!existing || sameId(existing.companyId, currentUser()?.companyId)));
   const canEditOperationalLink = ["admin", "fiscal"].includes(currentUser()?.role);
-  const resolvedContract = String(form.get("contract") || linkedCompany.contract || "").trim();
-  const resolvedCostCenter = canEditOperationalLink
-    ? String(form.get("costCenter") || linkedCompany.costCenter || linkedCompany.contract || "").trim()
-    : String(linkedCompany.costCenter || linkedCompany.contract || "").trim();
-  const resolvedFiscal = canEditOperationalLink
-    ? String(form.get("companyFiscal") || linkedCompany.fiscal || "").trim()
-    : String(linkedCompany.fiscal || "").trim();
-  const resolvedManager = canEditOperationalLink
-    ? String(form.get("contractManager") || linkedCompany.manager || linkedCompany.responsible || "").trim()
-    : String(linkedCompany.manager || linkedCompany.responsible || "").trim();
+  const hasContractContext = Boolean(form.get("contractSourceId") || existingContractSourceId);
+  const resolvedContract = String(hasContractContext ? selectedContractCompany.contract || selectedContractCompany.contract_number || selectedContractCompany.contractNumber || "" : form.get("contract") || linkedCompany.contract || "").trim();
+  const resolvedCostCenter = hasContractContext
+    ? String(selectedContractCompany.costCenter || selectedContractCompany.contract || "").trim()
+    : canEditOperationalLink
+      ? String(form.get("costCenter") || linkedCompany.costCenter || linkedCompany.contract || "").trim()
+      : String(linkedCompany.costCenter || linkedCompany.contract || "").trim();
+  const resolvedFiscal = hasContractContext
+    ? String(selectedContractCompany.fiscal || "").trim()
+    : canEditOperationalLink
+      ? String(form.get("companyFiscal") || linkedCompany.fiscal || "").trim()
+      : String(linkedCompany.fiscal || "").trim();
+  const resolvedManager = hasContractContext
+    ? String(selectedContractCompany.manager || selectedContractCompany.responsible || "").trim()
+    : canEditOperationalLink
+      ? String(form.get("contractManager") || linkedCompany.manager || linkedCompany.responsible || "").trim()
+      : String(linkedCompany.manager || linkedCompany.responsible || "").trim();
+  const resolvedServiceType = hasContractContext
+    ? String(selectedContractCompany.serviceType || selectedContractCompany.risk || "").trim()
+    : String(form.get("serviceType") || linkedCompany.serviceType || linkedCompany.risk || "").trim();
+  const resolvedUnitSector = hasContractContext
+    ? String(selectedContractCompany.unitSector || contractUnit(selectedContractCompany)).trim()
+    : String(form.get("unitSector") || contractUnit(linkedCompany)).trim();
   if (!resolvedContract) {
     alert("Contrato vinculado obrigatorio.");
     return;
@@ -6952,10 +7062,13 @@ async function saveEmployeeFromForm(form) {
     fatherName: form.get("fatherName"),
     role: form.get("role"),
     companyId: form.get("companyId"),
+    contractSourceId: hasContractContext ? selectedContractCompany.id || form.get("companyId") : existingContractSourceId || form.get("companyId"),
     contract: resolvedContract,
     costCenter: resolvedCostCenter,
     companyFiscal: resolvedFiscal,
     contractManager: resolvedManager,
+    serviceType: resolvedServiceType,
+    unitSector: resolvedUnitSector,
     cep: cepDigits,
     city: form.get("city"),
     district: form.get("district"),
@@ -7273,6 +7386,8 @@ function normalizeCompany(company) {
     manager: company.manager || company.gestorContrato || company.responsible || company.contact || "Nao informado",
     responsible: company.responsible || company.contact || "Nao informado",
     costCenter: company.costCenter || company.centro_custo || "",
+    serviceType: company.serviceType || company.tipoServico || company.tipo_servico || company.risk || "",
+    unitSector: company.unitSector || company.unit || company.unidade || company.sector || company.setor || "",
     cep: company.cep || "",
     startDate: company.startDate || "",
     endDate: company.endDate || "",
@@ -7305,6 +7420,7 @@ function normalizeFiscal(fiscal = {}) {
 function normalizeEmployee(employee) {
   const meta = employeeMeta(employee);
   const linkedCompany = normalizeCompany(state.companies.find((company) => sameId(company.id, employee.companyId || meta.companyId)) || {});
+  const contractSource = normalizeCompany(state.companies.find((company) => sameId(company.id, employeeContractSourceId(employee) || meta.contractSourceId || linkedCompany.id)) || linkedCompany);
   const docs = employeeDocsFor(employee);
   const documentStatus = calculateDocumentStatus(employee, docs);
   const hiringStatus = calculateHiringStatus(employee, docs, documentStatus);
@@ -7317,10 +7433,13 @@ function normalizeEmployee(employee) {
     fatherName: employee.fatherName || employee.father_name || meta.fatherName || "",
     role: employee.role || "",
     companyId: employee.companyId || state.companies[0]?.id || "",
-    contract: employee.contract || meta.contract || linkedCompany.contract || "",
-    costCenter: employee.costCenter || employee.centroCusto || meta.costCenter || linkedCompany.costCenter || linkedCompany.contract || "",
-    companyFiscal: employee.companyFiscal || meta.companyFiscal || linkedCompany.fiscal || "",
-    contractManager: employee.contractManager || meta.contractManager || linkedCompany.manager || linkedCompany.responsible || "",
+    contractSourceId: employeeContractSourceId(employee) || meta.contractSourceId || contractSource.id || "",
+    contract: employee.contract || meta.contract || contractSource.contract || linkedCompany.contract || "",
+    costCenter: employee.costCenter || employee.centroCusto || meta.costCenter || contractSource.costCenter || linkedCompany.costCenter || linkedCompany.contract || "",
+    companyFiscal: employee.companyFiscal || meta.companyFiscal || contractSource.fiscal || linkedCompany.fiscal || "",
+    contractManager: employee.contractManager || meta.contractManager || contractSource.manager || contractSource.responsible || linkedCompany.manager || linkedCompany.responsible || "",
+    serviceType: employee.serviceType || meta.serviceType || contractSource.serviceType || contractSource.risk || linkedCompany.serviceType || linkedCompany.risk || "",
+    unitSector: employee.unitSector || meta.unitSector || contractSource.unitSector || contractUnit(contractSource) || contractUnit(linkedCompany) || "",
     cep: formatCep(employee.cep || meta.cep || ""),
     city: employee.city || meta.city || "",
     district: employee.district || employee.bairro || meta.district || "",
@@ -7354,6 +7473,11 @@ function employeeVisibleNotes(employee = {}) {
   return String(employee.notes || "").split(EMPLOYEE_META_MARKER)[0].trim();
 }
 
+function employeeContractSourceId(employee = {}) {
+  const meta = employeeMeta(employee);
+  return employee.contractSourceId || employee.contract_source_id || meta.contractSourceId || meta.contract_source_id || "";
+}
+
 function serializeEmployeeNotes(employee) {
   const existingMeta = employeeMeta(employee);
   const item = normalizeEmployee({ ...employee, notes: employeeVisibleNotes(employee) });
@@ -7367,6 +7491,9 @@ function serializeEmployeeNotes(employee) {
     costCenter: item.costCenter || "",
     companyFiscal: item.companyFiscal || "",
     contractManager: item.contractManager || "",
+    contractSourceId: item.contractSourceId || "",
+    serviceType: item.serviceType || "",
+    unitSector: item.unitSector || "",
     cep: onlyDigits(item.cep),
     city: item.city || "",
     district: item.district || "",
@@ -7755,6 +7882,48 @@ function companyName(id) {
   const company = state.companies.find((item) => sameId(item.id, id));
   if (!company || !canAccessCompany(company)) return "Nao informado";
   return company.name || "Nao informado";
+}
+
+function companyFamilyKey(company = {}) {
+  const cnpjKey = onlyDigits(company.cnpj || company.cnpjNumber || "");
+  const nameKey = normalizeSearchValue(companyTradeName(company) || company.name || "");
+  const codeKey = normalizeSearchValue(companyCode(company));
+  return cnpjKey || codeKey || nameKey;
+}
+
+function activeCompanyContractOptions(companyId) {
+  const baseCompany = normalizeCompany(state.companies.find((item) => sameId(item.id, companyId)) || {});
+  const baseKey = companyFamilyKey(baseCompany);
+  const family = uniqueById(
+    visibleCompanies()
+      .map((company) => normalizeCompany(company))
+      .filter((company) => {
+        if (!company.id) return false;
+        const active = statusMatches(company.status, "Ativa", "Pendente", "Aprovado");
+        return active && companyFamilyKey(company) === baseKey;
+      }),
+  );
+  const items = family.length ? family : [baseCompany];
+  return items.map((company) => ({
+      value: company.id,
+      label: `${company.contract || "Contrato nao informado"} - ${companyTradeName(company) || company.name || "Empresa"}`,
+  }));
+}
+
+function employeeContractContext(companyId, contractSourceId = "") {
+  const baseCompany = normalizeCompany(state.companies.find((item) => sameId(item.id, companyId)) || {});
+  const options = activeCompanyContractOptions(companyId);
+  const availableIds = options.map((option) => String(option.value));
+  const selectedId = availableIds.includes(String(contractSourceId))
+    ? String(contractSourceId)
+    : String(options[0]?.value || companyId || "");
+  const selectedCompany = normalizeCompany(state.companies.find((item) => sameId(item.id, selectedId)) || baseCompany);
+  return {
+    baseCompany,
+    options,
+    selectedId,
+    selectedCompany,
+  };
 }
 
 function fiscalNames(ids = []) {
