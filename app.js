@@ -2649,7 +2649,7 @@ function normalizeHiringStatusLabel(status = "") {
 }
 
 function isManualEmployeeOperationalStatus(status = "") {
-  return ["Bloqueado", "Inativo", "Desmobilizado", "Desmobilização solicitada"].some((value) => statusMatches(status, value));
+  return ["Bloqueado", "Inativo", "Desmobilizado", "Desmobilização solicitada", "Reativação solicitada"].some((value) => statusMatches(status, value));
 }
 
 function isPendingHiringStatus(status = "") {
@@ -2661,11 +2661,52 @@ function isPendingHiringStatus(status = "") {
     "Aguardando Correção",
     "Em análise documental",
     "Desmobilização solicitada",
+    "Reativação solicitada",
   ].some((value) => statusMatches(status, value));
 }
 
 function isManualCompanyOperationalStatus(status = "") {
-  return ["Bloqueado", "Bloqueada", "Inativa", "Inativo", "Desmobilizada", "Desmobilizado"].some((value) => statusMatches(status, value));
+  return ["Bloqueado", "Bloqueada", "Inativa", "Inativo", "Desmobilizada", "Desmobilizado", "Desmobilização solicitada", "Reativação solicitada"].some((value) => statusMatches(status, value));
+}
+
+function isOperationalWorkflowClosedStatus(status = "") {
+  return ["Bloqueado", "Bloqueada", "Inativo", "Inativa", "Desmobilizado", "Desmobilizada", "Desmobilização solicitada", "Encerrado", "Encerrada"].some((value) => statusMatches(status, value));
+}
+
+function isReactivationRequestedStatus(status = "") {
+  return statusMatches(status, "Reativação solicitada");
+}
+
+function employeeLinkedToCompanyOrContract(employee = {}, companyId = "") {
+  return sameId(employee.companyId, companyId) || sameId(employee.contractSourceId, companyId);
+}
+
+function companyFamilyEntries(company = {}) {
+  const normalized = normalizeCompany(company);
+  const familyKey = companyFamilyKey(normalized);
+  if (!familyKey) return [normalized];
+  return uniqueById(
+    visibleCompanies()
+      .map((entry) => normalizeCompany(entry))
+      .filter((entry) => entry.id && companyFamilyKey(entry) === familyKey),
+  );
+}
+
+function latestReactivationHistoryEvent(entityType, entityId) {
+  return latestRequestHistoryEvent(entityType, entityId, "reactivation");
+}
+
+function latestDemobilizationRequestHistoryEvent(entityType, entityId) {
+  return latestRequestHistoryEvent(entityType, entityId, "demobilization");
+}
+
+function latestRequestHistoryEvent(entityType, entityId, kind = "any") {
+  return historyEventsFor(entityType, entityId).find((event) => {
+    const text = normalizeSearchValue(`${event.action || event.acao || ""} ${event.nextStatus || event.status_novo || ""} ${event.observation || event.observacao || ""}`);
+    if (kind === "reactivation") return text.includes("solicitacao de reativacao") || text.includes("reativacao solicitada");
+    if (kind === "demobilization") return text.includes("desmobilizacao solicitada") || text.includes("solicitacao de desmobilizacao");
+    return text.includes("solicitacao de reativacao") || text.includes("reativacao solicitada") || text.includes("desmobilizacao solicitada") || text.includes("solicitacao de desmobilizacao");
+  }) || null;
 }
 
 function calculateCompanyStatus(company = {}, docs = state.documents.filter((doc) => sameId(doc.companyId, company.id)), employees = state.employees.filter((employee) => sameId(employee.companyId, company.id))) {
@@ -2910,14 +2951,22 @@ function renderCompanyTabHistory(company, topic, title = "Histórico da area") {
 
 function renderRecordActionBar(type, item) {
   const isEmployee = type === "employee";
-  const canEditRecord = isEmployee ? can("edit.employee", item) && (!currentUser() || currentUser()?.role !== "supplier" || employeeWorkflowEditableBySupplier(item)) : can("edit.company", item);
-  const canStatus = isEmployee ? can("updateHiringStatus", item) : can("edit.company", item) && currentUser()?.role !== "supplier";
+  const role = currentUser()?.role || "visitor";
+  const operationalStatus = normalizeHiringStatusLabel(item.status || "");
+  const reactivationRequested = isReactivationRequestedStatus(operationalStatus);
+  const workflowLocked = isOperationalWorkflowClosedStatus(operationalStatus) || reactivationRequested;
+  const canEditRecord = isEmployee
+    ? can("edit.employee", item) && (!currentUser() || role !== "supplier" || employeeWorkflowEditableBySupplier(item)) && !workflowLocked
+    : can("edit.company", item) && role !== "supplier" && !workflowLocked;
+  const canStatus = isEmployee ? can("updateHiringStatus", item) : can("edit.company", item) && role !== "supplier" && !workflowLocked;
+  const canRequestReactivation = ["supplier", "admin", "fiscal"].includes(role) && workflowLocked && !reactivationRequested;
+  const canReviewReactivation = ["admin", "fiscal"].includes(role) && reactivationRequested;
   return `
     <div class="record-action-bar">
       <button class="btn secondary compact" type="button" data-close>${icon("arrow")} Voltar</button>
       ${canEditRecord ? `<button class="btn primary compact" type="button" data-record-edit="${type}" data-id="${item.id}">${icon("edit")} Editar cadastro</button>` : ""}
       ${
-        isEmployee && canStatus
+        isEmployee && canStatus && !workflowLocked
           ? `
             <button class="btn warning compact" type="button" data-employee-action="inactivate" data-id="${item.id}">Inativar</button>
             <button class="btn danger compact" type="button" data-employee-action="block" data-id="${item.id}">Bloquear</button>
@@ -2925,8 +2974,16 @@ function renderRecordActionBar(type, item) {
           : ""
       }
       ${
-        !isEmployee && canStatus
+        !isEmployee && canStatus && !workflowLocked
           ? `<button class="btn warning compact" type="button" data-demobilize="company" data-id="${item.id}">Desmobilizar contrato</button>`
+          : ""
+      }
+      ${
+        workflowLocked
+          ? `
+            ${canRequestReactivation ? `<button class="btn special compact" type="button" data-reactivation-type="${type}" data-reactivation-action="request" data-id="${item.id}">${icon("reload")} Solicitar Reativação</button>` : ""}
+            ${canReviewReactivation ? `<button class="btn success compact" type="button" data-reactivation-type="${type}" data-reactivation-action="approve" data-id="${item.id}">${icon("approve")} Aprovar reativação</button><button class="btn warning compact" type="button" data-reactivation-type="${type}" data-reactivation-action="reject" data-id="${item.id}">${icon("block")} Rejeitar reativação</button>` : ""}
+          `
           : ""
       }
     </div>
@@ -3224,6 +3281,8 @@ function workflowDisplayStatus(status = "") {
   if (token.includes("revisao solicitada") || token.includes("revalidacao solicitada") || token.includes("em revalidacao")) return "Em analise";
   if (token.includes("em avaliacao")) return "Em analise";
   if (token.includes("enviado para") || token.includes("rascunho pelo fornecedor")) return "Pendente";
+  if (token.includes("reativacao solicitada")) return "Em analise";
+  if (token.includes("inativo") || token.includes("desmobilizado") || token.includes("encerrado")) return "Concluido";
   if (token.includes("pendente")) return "Pendente";
   if (token.includes("em analise")) return "Em analise";
   return "Pendente";
@@ -3233,7 +3292,8 @@ function workflowDisplayClass(status = "") {
   const token = statusToken(status);
   if (token.includes("concluido")) return "ok";
   if (token.includes("bloqueado por etapa anterior")) return "warn";
-  if (token.includes("reprovado") || token.includes("revisao solicitada") || token.includes("revalidacao solicitada") || token.includes("em revalidacao") || token.includes("em avaliacao") || token.includes("enviado para") || token.includes("rascunho pelo fornecedor") || token.includes("em analise")) return "analysis";
+  if (token.includes("reprovado") || token.includes("revisao solicitada") || token.includes("revalidacao solicitada") || token.includes("reativacao solicitada") || token.includes("em revalidacao") || token.includes("em avaliacao") || token.includes("enviado para") || token.includes("rascunho pelo fornecedor") || token.includes("em analise")) return "analysis";
+  if (token.includes("inativo") || token.includes("desmobilizado") || token.includes("encerrado")) return "bad";
   return "warn";
 }
 
@@ -3311,12 +3371,36 @@ function employeeOperationalStages(employee) {
 }
 
 function employeeCurrentOperationalStage(employee) {
+  const status = normalizeHiringStatusLabel(employee.status);
+  if (isOperationalWorkflowClosedStatus(status)) return "Funcionário inativo/desmobilizado. Workflow operacional encerrado.";
+  if (isReactivationRequestedStatus(status)) return "Reativação solicitada - aguardando análise.";
   const stages = employeeOperationalStages(employee);
   const firstPending = stages.find((stage) => !statusMatches(stage.status, "Concluido"));
   return firstPending ? `${firstPending.label} (${firstPending.status})` : "Liberado (Concluido)";
 }
 
 function renderEmployeeWorkflowInline(employee) {
+  const status = normalizeHiringStatusLabel(employee.status);
+  if (isOperationalWorkflowClosedStatus(status)) {
+    return `
+      <div class="history-list">
+        <div class="item-card">
+          <strong>Workflow operacional encerrado</strong>
+          <span class="muted">Funcionário inativo/desmobilizado. Workflow operacional encerrado.</span>
+        </div>
+      </div>
+    `;
+  }
+  if (isReactivationRequestedStatus(status)) {
+    return `
+      <div class="history-list">
+        <div class="item-card">
+          <strong>Reativação solicitada</strong>
+          <span class="muted">Solicitação encaminhada para análise. Workflow pausado até decisão.</span>
+        </div>
+      </div>
+    `;
+  }
   const stages = employeeOperationalStages(employee);
   return `
     <div class="history-list">
@@ -3450,6 +3534,21 @@ function openEmployeeRecord(id) {
         workflowAction.dataset.workflowStep,
         workflowAction.dataset.workflowAction,
       );
+      return;
+    }
+    const reactivation = event.target.closest("[data-reactivation-type]");
+    if (reactivation) {
+      event.stopPropagation();
+      const handled = handleReactivationAction(
+        reactivation.dataset.reactivationType,
+        reactivation.dataset.reactivationAction,
+        reactivation.dataset.id,
+        { source: "Ficha do funcionário" },
+      );
+      if (handled) {
+        modal.remove();
+        openEmployeeRecord(id);
+      }
       return;
     }
     const companyDetail = event.target.closest("[data-company-detail]");
@@ -4047,11 +4146,16 @@ function workflowStatusBadge(status) {
     Reprovado: "Solicitar Revisão",
     "Revisão solicitada": "Solicitar Revisão",
     "Revalidação solicitada": "Revalidação solicitada",
+    "Reativação solicitada": "Reativação solicitada",
     "Em revalidação": "Em revalidação",
     "Em avaliação": "Em avaliação",
     "Rascunho pelo Fornecedor": "Rascunho pelo Fornecedor",
     "Bloqueado por etapa anterior": "Bloqueado por etapa anterior",
     Bloqueado: "Bloqueado",
+    Inativo: "Inativo",
+    Inativa: "Inativa",
+    Desmobilizado: "Desmobilizado",
+    Desmobilizada: "Desmobilizada",
     "Aprovado com pendencia": "Aprovado com pend&ecirc;ncia",
     "Pendente Documentação": "Pendente Documentação",
     "Pendente Medicina": "Pendente Medicina",
@@ -4077,6 +4181,7 @@ function workflowStatusClass(status) {
   if (token.includes("bloqueado por etapa anterior")) return "warn";
   if (token.includes("revisao solicitada") || token.includes("revalidacao solicitada") || token.includes("em revalidacao")) return "analysis";
   if (token.includes("em avaliacao") || token.includes("enviado para") || token.includes("rascunho pelo fornecedor")) return "analysis";
+  if (token.includes("reativacao solicitada") || token.includes("desmobilizado") || token.includes("desmobilizada") || token.includes("inativo") || token.includes("inativa")) return "warn";
   return {
     Aprovado: "ok",
     "Aprovado com pendencia": "conditional",
@@ -4084,10 +4189,15 @@ function workflowStatusClass(status) {
     Reprovado: "analysis",
     "Revisão solicitada": "analysis",
     "Revalidação solicitada": "analysis",
+    "Reativação solicitada": "warn",
     "Em revalidação": "analysis",
     "Em avaliação": "analysis",
     "Rascunho pelo Fornecedor": "info",
     Bloqueado: "blocked",
+    Inativo: "bad",
+    Inativa: "bad",
+    Desmobilizado: "bad",
+    Desmobilizada: "bad",
     "Pendente Documentação": "warn",
     "Pendente Medicina": "warn",
     "Pendente EHS": "warn",
@@ -4102,7 +4212,7 @@ function workflowStatusClass(status) {
 }
 
 function workflowIsConcludedStatus(status = "") {
-  return statusMatches(status, "Aprovado", "Aprovado com pendencia", "Aprovado com pendência", "Liberado");
+  return statusMatches(status, "Aprovado", "Aprovado com pendencia", "Aprovado com pendência", "Liberado") || isOperationalWorkflowClosedStatus(status);
 }
 
 function workflowIsReviewStatus(status = "") {
@@ -4166,6 +4276,8 @@ function employeeCostCenter(employee, company) {
 function employeeActiveState(employee) {
   const status = normalizeHiringStatusLabel(employee.status);
   if (statusMatches(status, "Bloqueado")) return "Bloqueado";
+  if (statusMatches(status, "Reativação solicitada")) return "Reativação solicitada";
+  if (statusMatches(status, "Desmobilização solicitada")) return "Desmobilização solicitada";
   if (statusMatches(status, "Desmobilizado", "Inativo")) return "Inativo";
   if (isPendingHiringStatus(status)) return "Ativo com pendência";
   return "Ativo";
@@ -4175,7 +4287,7 @@ function employeeMedicineStatus(employee, docs = []) {
   const workflowStatus = employeeWorkflowActionStatus(employee, "medicina");
   if (statusMatches(workflowStatus, "Aprovado", "Aprovado com pendencia")) return "Aprovado";
   if (statusMatches(workflowStatus, "Reprovado", "Revisão solicitada", "Revalidação solicitada", "Bloqueado")) return "Pendente";
-  if (statusMatches(employee.status, "Bloqueado", "Desmobilizado", "Desmobilização solicitada")) return "Pendente";
+  if (statusMatches(employee.status, "Bloqueado", "Desmobilizado", "Desmobilização solicitada", "Reativação solicitada", "Inativo")) return "Pendente";
   if (statusMatches(employee.status, "Liberado", "Aprovado")) return "Aprovado";
   const medicineDocs = docs.filter((doc) => /aso|exame|medic/i.test(doc.type));
   if (medicineDocs.some((doc) => statusMatches(docStatus(doc), "Reprovado", "Revisão solicitada", "Revalidação solicitada", "Vencido", "Pendente", "Em análise"))) return "Pendente";
@@ -4187,7 +4299,7 @@ function employeeEhsStatus(employee, docs = []) {
   const workflowStatus = employeeWorkflowActionStatus(employee, "ehs");
   if (statusMatches(workflowStatus, "Aprovado", "Aprovado com pendencia")) return "Aprovado";
   if (statusMatches(workflowStatus, "Reprovado", "Revisão solicitada", "Revalidação solicitada", "Bloqueado")) return "Pendente";
-  if (statusMatches(employee.status, "Bloqueado", "Desmobilizado", "Desmobilização solicitada")) return "Pendente";
+  if (statusMatches(employee.status, "Bloqueado", "Desmobilizado", "Desmobilização solicitada", "Reativação solicitada", "Inativo")) return "Pendente";
   if (statusMatches(employee.status, "Liberado", "Aprovado")) return "Aprovado";
   const ehsDocs = docs.filter((doc) => /nr-|treinamento|epi|segur/i.test(doc.type));
   if (ehsDocs.some((doc) => statusMatches(docStatus(doc), "Reprovado", "Revisão solicitada", "Revalidação solicitada", "Vencido", "Pendente", "Em análise"))) return "Pendente";
@@ -4199,7 +4311,7 @@ function employeePatrimonialStatus(employee, docs = []) {
   const workflowStatus = employeeWorkflowActionStatus(employee, "patrimonial");
   if (statusMatches(workflowStatus, "Aprovado", "Aprovado com pendencia")) return "Aprovado";
   if (statusMatches(workflowStatus, "Reprovado", "Revisão solicitada", "Revalidação solicitada", "Bloqueado")) return "Pendente";
-  if (statusMatches(employee.status, "Bloqueado", "Desmobilizado", "Desmobilização solicitada")) return "Pendente";
+  if (statusMatches(employee.status, "Bloqueado", "Desmobilizado", "Desmobilização solicitada", "Reativação solicitada", "Inativo")) return "Pendente";
   if (statusMatches(employee.status, "Liberado", "Aprovado")) return "Aprovado";
   const patrimonialDocs = docs.filter((doc) => documentOperationalSector(doc) === "Patrimonial");
   if (patrimonialDocs.some((doc) => statusMatches(docStatus(doc), "Reprovado", "Revisão solicitada", "Revalidação solicitada", "Vencido", "Pendente", "Em análise"))) return "Pendente";
@@ -4564,12 +4676,13 @@ function openCompanyEditorModal(id = null, context = {}) {
   });
 }
 
-function openCompanyDetails(id) {
+function openCompanyDetails(id, initialTab = "general") {
   const company = visibleCompanies().find((item) => sameId(item.id, id));
   if (!company || !canAccessCompany(company)) return;
   const item = normalizeCompany(company);
   const employees = state.employees.filter((employee) => sameId(employee.companyId, company.id));
   const pendencies = companyPendingDocumentsCount(company.id);
+  const activeTab = initialTab || "general";
   const modal = document.createElement("div");
   modal.className = "modal-backdrop company-detail-backdrop";
   modal.innerHTML = `
@@ -4608,10 +4721,10 @@ function openCompanyDetails(id) {
           ["requests", "Solicitações"],
           ["history", "Histórico"],
         ]
-          .map(([tab, label], index) => `<button class="${index === 0 ? "active" : ""}" type="button" data-company-tab="${tab}">${label}</button>`)
+          .map(([tab, label], index) => `<button class="${tab === activeTab || (!activeTab && index === 0) ? "active" : ""}" type="button" data-company-tab="${tab}">${label}</button>`)
           .join("")}
       </div>
-      <div class="modal-body company-tab-content">${renderCompanyTab(company, "general")}</div>
+      <div class="modal-body company-tab-content">${renderCompanyTab(company, activeTab)}</div>
     </section>
   `;
   document.body.appendChild(modal);
@@ -4622,6 +4735,39 @@ function openCompanyDetails(id) {
       event.stopPropagation();
       modal.remove();
       openCompanyEditorModal(recordEdit.dataset.id);
+      return;
+    }
+    const reactivation = event.target.closest("[data-reactivation-type]");
+    if (reactivation) {
+      event.stopPropagation();
+      const handled = handleReactivationAction(
+        reactivation.dataset.reactivationType,
+        reactivation.dataset.reactivationAction,
+        reactivation.dataset.id,
+        { source: "Ficha da empresa" },
+      );
+      if (handled) {
+        const activeCompanyTab = modal.querySelector("[data-company-tab].active")?.dataset.companyTab || activeTab;
+        modal.remove();
+        openCompanyDetails(id, activeCompanyTab);
+      }
+      return;
+    }
+    const requestAction = event.target.closest("[data-request-action]");
+    if (requestAction) {
+      event.stopPropagation();
+      const handled = handleOperationalRequestAction(
+        requestAction.dataset.requestKind,
+        requestAction.dataset.requestAction,
+        requestAction.dataset.requestEntityType,
+        requestAction.dataset.id,
+        { source: "Fila de solicitações da empresa" },
+      );
+      if (handled) {
+        const activeCompanyTab = modal.querySelector("[data-company-tab].active")?.dataset.companyTab || activeTab;
+        modal.remove();
+        openCompanyDetails(id, activeCompanyTab);
+      }
       return;
     }
     const demobilize = event.target.closest("[data-demobilize='company']");
@@ -6032,42 +6178,46 @@ function renderReports() {
 }
 
 function renderRequests() {
+  const requestItems = requestQueueItems();
+  const demobilizationRequests = requestItems.filter((item) => item.requestKind === "demobilization");
+  const reactivationRequests = requestItems.filter((item) => item.requestKind === "reactivation");
   const requestCards = [
-    ["Pendentes", "Pedidos aguardando analise", "warn"],
-    ["Aprovadas", "Solicitações autorizadas", "success"],
-    ["Rejeitadas", "Pedidos negados com registro", "danger"],
-    ["Executadas", "Solicitações concluidas", "info"],
-  ];
-  const requestBands = ["Desmobilização", "Encerramento", "Arquivamento", "Acesso"];
-  const requestRows = [
-    ["Desmobilização de funcionario", "Empresa A", "Pendente"],
-    ["Arquivamento de documento", "Empresa B", "Em analise"],
-    ["Encerramento de contrato", "Empresa C", "Pendente"],
+    ["Pendentes", "Fila operacional aberta", "warn", requestItems.length],
+    ["Desmobilização", "Solicitações de desligamento", "danger", demobilizationRequests.length],
+    ["Reativação", "Pedidos de retorno ao fluxo", "success", reactivationRequests.length],
+    ["Funcionários", "Pedidos originados em vínculos", "info", requestItems.filter((item) => item.requestEntityType === "employee").length],
   ];
   return `
     <section class="hero-panel compact-hero">
       <div>
         <span class="eyebrow">Central operacional</span>
         <h2>Solicitações</h2>
-        <p>Estrutura visual para pedidos formais e acompanhamento do fluxo, sem implementar regras nesta fase.</p>
-        <div class="hero-command-row">
-          ${requestBands.map((band) => `<span>${band}</span>`).join("")}
-        </div>
+        <p>Fila real de solicitações pendentes de desmobilização e reativação, com registro de auditoria e ação quando o perfil permite.</p>
       </div>
     </section>
     <div class="stats-grid">
-      ${requestCards.map(([label, helper, tone]) => `<div class="stat-card ${tone}"><span>${label}</span><strong>0</strong><small>${helper}</small></div>`).join("")}
+      ${requestCards.map(([label, helper, tone, value]) => `<div class="stat-card ${tone}"><span>${label}</span><strong>${value}</strong><small>${helper}</small></div>`).join("")}
     </div>
     <div class="dashboard-grid">
       <section class="bi-card wide">
-        <div class="bi-head"><div><span class="eyebrow">Fila operacional</span><h2>Solicitações em estrutura</h2></div><span class="mini-pill">Preparado</span></div>
+        <div class="bi-head"><div><span class="eyebrow">Fila operacional</span><h2>Desmobilização solicitada</h2></div><span class="mini-pill">${demobilizationRequests.length}</span></div>
         <div class="item-list dense-list">
-          ${requestRows.map(([title, company, status]) => `<div class="item-card"><div class="item-row"><strong>${title}</strong>${statusBadge(status)}</div><span class="muted">${company} - estrutura de fluxo sem regras ativadas nesta fase.</span></div>`).join("")}
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Data/Hora</th><th>Solicitação</th><th>Registro</th><th>Empresa</th><th>Usuário</th><th>Motivo/Observação</th><th>Ações</th></tr></thead>
+              <tbody>${renderRequestRows(demobilizationRequests)}</tbody>
+            </table>
+          </div>
         </div>
       </section>
-      <section class="bi-card">
-        <div class="bi-head"><div><span class="eyebrow">Histórico</span><h2>Eventos da central</h2></div><span class="mini-pill">0</span></div>
-        <div class="empty">Sem processamento de solicitacoes nesta fase. A estrutura foi preparada para a V2.</div>
+      <section class="bi-card wide">
+        <div class="bi-head"><div><span class="eyebrow">Fila operacional</span><h2>Reativação solicitada</h2></div><span class="mini-pill">${reactivationRequests.length}</span></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Data/Hora</th><th>Solicitação</th><th>Registro</th><th>Empresa</th><th>Usuário</th><th>Motivo/Observação</th><th>Ações</th></tr></thead>
+            <tbody>${renderRequestRows(reactivationRequests)}</tbody>
+          </table>
+        </div>
       </section>
     </div>
   `;
@@ -6547,6 +6697,31 @@ function bindViewEvents() {
       event.stopPropagation();
       console.log("Abrir FIT", item.dataset.employeeRecord);
       openEmployeeRecord(item.dataset.employeeRecord);
+    });
+  });
+
+  document.querySelectorAll("[data-reactivation-type]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const handled = handleReactivationAction(button.dataset.reactivationType, button.dataset.reactivationAction, button.dataset.id, {
+        source: "Fila principal",
+      });
+      if (handled && button.closest(".employee-record-backdrop")) {
+        openEmployeeRecord(button.dataset.id);
+      }
+    });
+  });
+
+  document.querySelectorAll("[data-request-action]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      handleOperationalRequestAction(
+        button.dataset.requestKind,
+        button.dataset.requestAction,
+        button.dataset.requestEntityType,
+        button.dataset.id,
+        { source: "Fila principal" },
+      );
     });
   });
 
@@ -8276,6 +8451,263 @@ function updateDocumentStatus(id, status) {
   alert(`Documento ${status.toLowerCase()} com sucesso.`);
 }
 
+function cascadeCompanyInactiveOrDemobilized(companyOrId, nextStatus, { familyScope = false, source = "", reason = "" } = {}) {
+  const baseCompany =
+    typeof companyOrId === "object"
+      ? normalizeCompany(companyOrId)
+      : normalizeCompany(state.companies.find((item) => sameId(item.id, companyOrId)) || {});
+  if (!baseCompany.id) return { companies: [], employees: [] };
+
+  const affectedCompanies = familyScope ? companyFamilyEntries(baseCompany) : [baseCompany];
+  const affectedCompanyIds = new Set(affectedCompanies.map((entry) => String(entry.id)));
+  const employeeStatus =
+    nextStatus === "Desmobilizada"
+      ? "Desmobilizado"
+      : nextStatus === "Desmobilização solicitada"
+        ? "Desmobilização solicitada"
+        : "Inativo";
+  const companyAction = familyScope
+    ? {
+        Inativa: "Inativação de empresa",
+        Desmobilizada: "Desmobilização de empresa",
+        "Desmobilização solicitada": "Solicitação de desmobilização de empresa",
+      }[nextStatus] || "Cascata operacional de empresa"
+    : {
+        Inativa: "Encerramento de contrato",
+        Desmobilizada: "Desmobilização de contrato",
+        "Desmobilização solicitada": "Solicitação de desmobilização de contrato",
+      }[nextStatus] || "Cascata operacional de contrato";
+  const employeeAction = `Cascata - ${companyAction}`;
+  const changedCompanies = [];
+  const changedEmployees = [];
+
+  affectedCompanies.forEach((company) => {
+    const record = state.companies.find((entry) => sameId(entry.id, company.id));
+    if (!record) return;
+    const previousStatus = record.status || "";
+    const previousContractStatus = record.contractStatus || "";
+    const contractChanged = previousContractStatus !== nextStatus;
+    const statusChanged = previousStatus !== nextStatus;
+    if (!contractChanged && !statusChanged) return;
+    record.status = nextStatus;
+    if ("contractStatus" in record) record.contractStatus = nextStatus;
+    const history = createHistoryEvent({
+      entityType: "contrato",
+      entityId: record.id,
+      action: companyAction,
+      previousStatus: previousStatus || previousContractStatus || "",
+      nextStatus,
+      observation: reason || `${companyAction} aplicada${source ? ` por ${source}` : ""}.`,
+    });
+    state.historico = upsertById(state.historico, history);
+    syncHistoryEvent(history);
+    syncCollection("companies", record).catch((error) => {
+      console.warn("Nao foi possivel salvar cascata de contrato online.", error);
+    });
+    changedCompanies.push(record.id);
+  });
+
+  state.employees
+    .filter((employee) => [...affectedCompanyIds].some((companyId) => employeeLinkedToCompanyOrContract(employee, companyId)))
+    .forEach((employee) => {
+      const previousStatus = employee.status || "";
+      if (previousStatus === employeeStatus) return;
+      employee.status = employeeStatus;
+      const history = createHistoryEvent({
+        entityType: "funcionario",
+        entityId: employee.id,
+        action: employeeAction,
+        previousStatus,
+        nextStatus: employeeStatus,
+        observation:
+          reason ||
+          `Funcionário ${employee.name || "sem nome"} ${employeeStatus.toLowerCase()} automaticamente por ${companyAction.toLowerCase()} da empresa ${baseCompany.name || "Nao informada"}.`,
+      });
+      state.historico = upsertById(state.historico, history);
+      syncHistoryEvent(history);
+      syncCollection("employees", employee).catch((error) => {
+        console.warn("Nao foi possivel salvar cascata de funcionario online.", error);
+      });
+      changedEmployees.push(employee.id);
+    });
+
+  if (changedCompanies.length || changedEmployees.length) saveState();
+  return { companies: changedCompanies, employees: changedEmployees };
+}
+
+function requestReactivation(entityType, id, { source = "" } = {}) {
+  const actorRole = currentUser()?.role || "visitor";
+  const isEmployee = entityType === "employee";
+  const item = isEmployee
+    ? state.employees.find((entry) => sameId(entry.id, id))
+    : state.companies.find((entry) => sameId(entry.id, id));
+  if (!item) return false;
+  if (isEmployee ? !canAccessEmployee(item) : !canAccessCompany(item)) {
+    alert("Seu perfil nao possui acesso a este registro.");
+    return false;
+  }
+  if (!(actorRole === "supplier" || ["admin", "fiscal"].includes(actorRole))) {
+    alert("Seu perfil nao possui permissao para solicitar reativacao.");
+    return false;
+  }
+  const currentStatus = normalizeHiringStatusLabel(item.status || item.contractStatus || "");
+  if (isReactivationRequestedStatus(currentStatus)) {
+    alert("Existe uma solicitacao de reativacao em aberto para este registro.");
+    return false;
+  }
+  if (!isOperationalWorkflowClosedStatus(currentStatus)) {
+    alert("Somente registros inativos, bloqueados ou desmobilizados podem solicitar reativacao.");
+    return false;
+  }
+  const reason = prompt(`Informe o motivo obrigatorio para solicitar reativacao de ${isEmployee ? "funcionario" : "contrato"}:`);
+  if (!reason || !reason.trim()) {
+    alert("Motivo obrigatorio. A solicitacao de reativacao nao foi salva.");
+    return false;
+  }
+  const previousStatus = item.status || item.contractStatus || "";
+  item.status = "Reativação solicitada";
+  if (!isEmployee || "contractStatus" in item) item.contractStatus = "Reativação solicitada";
+  const timestamp = currentSystemTime();
+  const note = `[${timestamp}] ${currentUser()?.name || currentUser()?.email || "Usuário do sistema"}: Solicitação de reativação. Motivo: ${reason.trim()}`;
+  if (isEmployee) {
+    const currentNotes = employeeVisibleNotes(item);
+    item.notes = currentNotes ? `${currentNotes}\n${note}` : note;
+  } else {
+    const currentNotes = companyVisibleNotes(item);
+    item.notes = currentNotes ? `${currentNotes}\n${note}` : note;
+  }
+  const history = createHistoryEvent({
+    entityType: isEmployee ? "funcionario" : "contrato",
+    entityId: item.id,
+    action: "Solicitação de reativação",
+    previousStatus,
+    nextStatus: "Reativação solicitada",
+    observation: reason.trim(),
+  });
+  state.historico = upsertById(state.historico, history);
+  syncHistoryEvent(history);
+  syncCollection(isEmployee ? "employees" : "companies", item).catch((error) => {
+    console.warn("Nao foi possivel salvar solicitacao de reativacao online.", error);
+  });
+  saveState();
+  renderApp();
+  if (source) console.log(source, item.id);
+  alert("Solicitação de reativação enviada para análise.");
+  return true;
+}
+
+function approveReactivation(entityType, id, { source = "" } = {}) {
+  const actorRole = currentUser()?.role || "visitor";
+  const isEmployee = entityType === "employee";
+  const item = isEmployee
+    ? state.employees.find((entry) => sameId(entry.id, id))
+    : state.companies.find((entry) => sameId(entry.id, id));
+  if (!item) return false;
+  if (!(actorRole === "admin" || (actorRole === "fiscal" && (isEmployee ? canAccessEmployee(item) : canAccessCompany(item))))) {
+    alert("Seu perfil nao possui permissao para aprovar reativacao.");
+    return false;
+  }
+  if (!isReactivationRequestedStatus(item.status || item.contractStatus || "")) {
+    alert("Aprovacao permitida somente para registros com reativacao solicitada.");
+    return false;
+  }
+  const previousStatus = item.status || item.contractStatus || "";
+  let nextStatus = "Ativa";
+  if (isEmployee) {
+    const reopened = { ...item, status: "", workflowActions: {} };
+    const docs = employeeDocsFor(reopened);
+    const docStatus = calculateDocumentStatus(reopened, docs);
+    nextStatus = calculateHiringStatus(reopened, docs, docStatus);
+    item.workflowActions = {};
+    item.docStatus = docStatus;
+  } else {
+    item.contractStatus = "Ativa";
+  }
+  item.status = nextStatus;
+  if (!isEmployee || "contractStatus" in item) item.contractStatus = nextStatus;
+  const timestamp = currentSystemTime();
+  const note = `[${timestamp}] ${currentUser()?.name || currentUser()?.email || "Usuário do sistema"}: Reativação aprovada.`;
+  if (isEmployee) {
+    const currentNotes = employeeVisibleNotes(item);
+    item.notes = currentNotes ? `${currentNotes}\n${note}` : note;
+  } else {
+    const currentNotes = companyVisibleNotes(item);
+    item.notes = currentNotes ? `${currentNotes}\n${note}` : note;
+  }
+  const history = createHistoryEvent({
+    entityType: isEmployee ? "funcionario" : "contrato",
+    entityId: item.id,
+    action: "Reativação aprovada",
+    previousStatus,
+    nextStatus,
+    observation: `Reativação aprovada${source ? ` por ${source}` : ""}.`,
+  });
+  state.historico = upsertById(state.historico, history);
+  syncHistoryEvent(history);
+  syncCollection(isEmployee ? "employees" : "companies", item).catch((error) => {
+    console.warn("Nao foi possivel salvar aprovacao de reativacao online.", error);
+  });
+  if (isEmployee) {
+    persistAutomaticStatusChanges(applyAutomaticStatusRules({ source: "Reativacao aprovada", scope: { employeeId: item.id, companyId: item.companyId } }));
+  }
+  saveState();
+  renderApp();
+  return true;
+}
+
+function rejectReactivation(entityType, id, { source = "" } = {}) {
+  const actorRole = currentUser()?.role || "visitor";
+  const isEmployee = entityType === "employee";
+  const item = isEmployee
+    ? state.employees.find((entry) => sameId(entry.id, id))
+    : state.companies.find((entry) => sameId(entry.id, id));
+  if (!item) return false;
+  if (!(actorRole === "admin" || (actorRole === "fiscal" && (isEmployee ? canAccessEmployee(item) : canAccessCompany(item))))) {
+    alert("Seu perfil nao possui permissao para rejeitar reativacao.");
+    return false;
+  }
+  if (!isReactivationRequestedStatus(item.status || item.contractStatus || "")) {
+    alert("Rejeicao permitida somente para registros com reativacao solicitada.");
+    return false;
+  }
+  const reason = prompt(`Informe o motivo da rejeicao da reativacao de ${isEmployee ? "funcionario" : "contrato"}:`);
+  if (!reason || !reason.trim()) {
+    alert("Motivo obrigatorio. A rejeicao da reativacao nao foi salva.");
+    return false;
+  }
+  const latestRequest = latestReactivationHistoryEvent(isEmployee ? "funcionario" : "contrato", item.id);
+  const restoreStatus = latestRequest?.previousStatus || latestRequest?.statusAnterior || latestRequest?.status_anterior || "";
+  const previousStatus = item.status || item.contractStatus || "";
+  const fallbackStatus = isEmployee ? "Desmobilizado" : "Desmobilizada";
+  item.status = restoreStatus || fallbackStatus;
+  if (!isEmployee || "contractStatus" in item) item.contractStatus = restoreStatus || fallbackStatus;
+  const timestamp = currentSystemTime();
+  const note = `[${timestamp}] ${currentUser()?.name || currentUser()?.email || "Usuário do sistema"}: Reativação rejeitada. Motivo: ${reason.trim()}`;
+  if (isEmployee) {
+    const currentNotes = employeeVisibleNotes(item);
+    item.notes = currentNotes ? `${currentNotes}\n${note}` : note;
+  } else {
+    const currentNotes = companyVisibleNotes(item);
+    item.notes = currentNotes ? `${currentNotes}\n${note}` : note;
+  }
+  const history = createHistoryEvent({
+    entityType: isEmployee ? "funcionario" : "contrato",
+    entityId: item.id,
+    action: "Reativação rejeitada",
+    previousStatus,
+    nextStatus: item.status || previousStatus,
+    observation: reason.trim(),
+  });
+  state.historico = upsertById(state.historico, history);
+  syncHistoryEvent(history);
+  syncCollection(isEmployee ? "employees" : "companies", item).catch((error) => {
+    console.warn("Nao foi possivel salvar rejeicao de reativacao online.", error);
+  });
+  saveState();
+  renderApp();
+  return true;
+}
+
 function demobilizeCompany(id) {
   const company = state.companies.find((item) => sameId(item.id, id));
   if (!company) return;
@@ -8284,19 +8716,16 @@ function demobilizeCompany(id) {
     return;
   }
   if (!confirm(`Deseja desmobilizar o contrato da empresa ${company.name}?`)) return;
-  const previousStatus = company.status || "";
-  company.status = "Desmobilizada";
-  const history = createHistoryEvent({
-    entityType: "contrato",
-    entityId: company.id,
-    action: "Desmobilização de contrato",
-    previousStatus,
-    nextStatus: company.status,
-    observation: `Contrato ${company.contract || company.name} desmobilizado manualmente.`,
+  const reason = prompt(`Informe o motivo obrigatorio para desmobilizar o contrato da empresa ${company.name}:`);
+  if (!reason || !reason.trim()) {
+    alert("Motivo obrigatorio. A desmobilizacao nao foi aplicada.");
+    return;
+  }
+  cascadeCompanyInactiveOrDemobilized(company, "Desmobilizada", {
+    familyScope: true,
+    source: "Desmobilização de empresa",
+    reason: reason.trim(),
   });
-  state.historico = upsertById(state.historico, history);
-  syncCollection("companies", company).catch((error) => alert(`Nao foi possivel atualizar online: ${error.message}`));
-  syncHistoryEvent(history);
   persistAutomaticStatusChanges(applyAutomaticStatusRules({ source: "Contrato desmobilizado", scope: { companyId: company.id } }));
   saveState();
   render();
@@ -8966,18 +9395,239 @@ function companyEmployeeGroups(company) {
 }
 
 function companyRequestItems(company) {
-  const companyId = String(company.id);
-  return (state.historico || [])
-    .filter((event) => canAccessHistory(event))
-    .filter((event) => {
-      const entityType = String(event.entityType || event.entidade_tipo || "").toLowerCase();
-      const entityId = String(event.entityId || event.entidade_id || "");
-      const text = normalizeSearchValue(`${event.action || event.acao || ""} ${event.observation || event.observacao || ""}`);
-      const matchesCompany = ["empresa", "company", "companies", "contrato", "contract", "contracts"].includes(entityType) && entityId === companyId;
-      return matchesCompany || text.includes("solicit");
-    })
-    .sort((a, b) => String(b.createdAt || b.criado_em || "").localeCompare(String(a.createdAt || a.criado_em || "")))
-    .slice(0, 8);
+  return requestQueueItems(company.id);
+}
+
+function requestQueueItems(scopeCompanyId = null) {
+  const entries = [];
+  const isScoped = Boolean(scopeCompanyId);
+  const scopeRoot = isScoped ? normalizeCompany(state.companies.find((item) => sameId(item.id, scopeCompanyId)) || { id: scopeCompanyId }) : null;
+  const scopeFamilyIds = isScoped
+    ? new Set([String(scopeCompanyId), ...companyFamilyEntries(scopeRoot || { id: scopeCompanyId }).map((entry) => String(entry.id))])
+    : new Set();
+  const sameScope = (value) => !isScoped || scopeFamilyIds.has(String(value));
+  const currentRequestStatus = (value) => statusMatches(value, "Reativação solicitada", "Desmobilização solicitada");
+  const fallbackRequestEvent = (record, entityType, kind) => {
+    const currentStatus = record.status || record.contractStatus || "";
+    return {
+      id: `status-${kind}-${entityType}-${record.id}`,
+      entityType: entityType === "employee" ? "funcionario" : "contrato",
+      entityId: record.id,
+      action: kind === "reactivation" ? "Solicitação de reativação" : "Desmobilização solicitada",
+      previousStatus: "",
+      nextStatus: currentStatus,
+      status: currentStatus,
+      createdAt: record.updatedAt || record.updated_at || record.createdAt || record.created_at || "",
+      userName: "Sistema",
+      observation: "Solicitação identificada pelo status atual; histórico não encontrado.",
+    };
+  };
+
+  state.employees
+    .map((employee) => normalizeEmployee(employee))
+    .filter((employee) => currentRequestStatus(employee.status))
+    .filter((employee) => sameScope(employee.companyId) || sameScope(employee.contractSourceId))
+    .forEach((employee) => {
+      const kind = statusMatches(employee.status, "Reativação solicitada") ? "reactivation" : "demobilization";
+      const historyEvent = latestRequestHistoryEvent("funcionario", employee.id, kind) || fallbackRequestEvent(employee, "employee", kind);
+      const company = normalizeCompany(state.companies.find((item) => sameId(item.id, employee.companyId || employee.contractSourceId)) || {});
+      entries.push({
+        ...historyEvent,
+        requestKind: kind,
+        requestEntityType: "employee",
+        requestEntityId: String(employee.id),
+        requestTargetType: "Funcionário",
+        requestTargetName: employee.name || "Nao informado",
+        requestCompanyId: company.id || employee.companyId || employee.contractSourceId || "",
+        requestCompanyName: company.name || companyName(employee.companyId || employee.contractSourceId || ""),
+        requestRecord: employee,
+      });
+    });
+
+  state.companies
+    .map((company) => normalizeCompany(company))
+    .filter((company) => currentRequestStatus(company.contractStatus || company.status || ""))
+    .filter((company) => sameScope(company.id))
+    .forEach((company) => {
+      const kind = statusMatches(company.contractStatus || company.status || "", "Reativação solicitada") ? "reactivation" : "demobilization";
+      const historyEvent = latestRequestHistoryEvent("contrato", company.id, kind) || fallbackRequestEvent(company, "company", kind);
+      entries.push({
+        ...historyEvent,
+        requestKind: kind,
+        requestEntityType: "company",
+        requestEntityId: String(company.id),
+        requestTargetType: "Empresa",
+        requestTargetName: company.name || "Nao informado",
+        requestCompanyId: company.id,
+        requestCompanyName: company.name || "Nao informado",
+        requestRecord: company,
+      });
+    });
+
+  return entries.sort((a, b) => String(b.createdAt || b.criado_em || "").localeCompare(String(a.createdAt || a.criado_em || "")));
+}
+
+function renderRequestRowActions(entry) {
+  const role = currentUser()?.role || "visitor";
+  const canReview = ["admin", "fiscal"].includes(role) && (
+    entry.requestEntityType === "employee"
+      ? canAccessEmployee(entry.requestRecord)
+      : canAccessCompany(entry.requestRecord)
+  );
+  if (!canReview) return `<span class="mini-pill">Sem permissão</span>`;
+  if (entry.requestKind === "reactivation") {
+    return `
+      <div class="actions wrap">
+        <button class="btn success compact" type="button" data-reactivation-type="${entry.requestEntityType}" data-reactivation-action="approve" data-id="${entry.requestEntityId}">${icon("approve")} Aprovar reativação</button>
+        <button class="btn warning compact" type="button" data-reactivation-type="${entry.requestEntityType}" data-reactivation-action="reject" data-id="${entry.requestEntityId}">${icon("block")} Rejeitar reativação</button>
+      </div>
+    `;
+  }
+  return `
+    <div class="actions wrap">
+      <button class="btn success compact" type="button" data-request-action="approve" data-request-kind="demobilization" data-request-entity-type="${entry.requestEntityType}" data-id="${entry.requestEntityId}">${icon("approve")} Aprovar desmobilização</button>
+      <button class="btn warning compact" type="button" data-request-action="reject" data-request-kind="demobilization" data-request-entity-type="${entry.requestEntityType}" data-id="${entry.requestEntityId}">${icon("block")} Rejeitar desmobilização</button>
+    </div>
+  `;
+}
+
+function renderRequestRows(entries = []) {
+  return entries.length
+    ? entries
+        .map((entry) => `
+          <tr>
+            <td><strong>${formatDateTime(entry.createdAt || entry.criado_em)}</strong></td>
+            <td>${statusBadge(entry.requestKind === "reactivation" ? "Reativação solicitada" : "Desmobilização solicitada")}</td>
+            <td><strong>${escapeHtml(entry.requestTargetName || "Nao informado")}</strong><br><span class="muted">${escapeHtml(entry.requestTargetType || (entry.requestEntityType === "employee" ? "Funcionário" : "Empresa"))}</span></td>
+            <td>${escapeHtml(entry.requestCompanyName || "Nao informado")}</td>
+            <td>${escapeHtml(entry.userName || entry.usuario_nome || "Sistema")}</td>
+            <td>${escapeHtml(entry.observation || entry.observacao || "Sem observacao")}</td>
+            <td>${renderRequestRowActions(entry)}</td>
+          </tr>
+        `)
+        .join("")
+    : emptyRow(7);
+}
+
+function handleReactivationAction(entityType, action, id, { source = "" } = {}) {
+  if (action === "request") return requestReactivation(entityType, id, { source });
+  if (action === "approve") return approveReactivation(entityType, id, { source });
+  if (action === "reject") return rejectReactivation(entityType, id, { source });
+  return false;
+}
+
+function approveDemobilizationRequest(entityType, id, { source = "" } = {}) {
+  const isEmployee = entityType === "employee";
+  const record = isEmployee
+    ? state.employees.find((item) => sameId(item.id, id))
+    : state.companies.find((item) => sameId(item.id, id));
+  if (!record) return false;
+  const role = currentUser()?.role || "visitor";
+  if (!(role === "admin" || (role === "fiscal" && (isEmployee ? canAccessEmployee(record) : canAccessCompany(record))))) {
+    alert("Seu perfil nao possui permissao para aprovar esta solicitacao.");
+    return false;
+  }
+
+  const latestRequest = latestDemobilizationRequestHistoryEvent(isEmployee ? "funcionario" : "contrato", record.id);
+  const requestReason = latestRequest?.observation || latestRequest?.observacao || "Solicitação pendente.";
+  const previousStatus = record.status || record.contractStatus || "";
+
+  if (isEmployee) {
+    record.status = "Desmobilizado";
+    const timestamp = currentSystemTime();
+    const note = `[${timestamp}] ${currentUser()?.name || currentUser()?.email || "Usuário do sistema"}: Desmobilização aprovada. Motivo original: ${requestReason}`;
+    const currentNotes = employeeVisibleNotes(record);
+    record.notes = currentNotes ? `${currentNotes}\n${note}` : note;
+    const history = createHistoryEvent({
+      entityType: "funcionario",
+      entityId: record.id,
+      action: "Desmobilização aprovada",
+      previousStatus,
+      nextStatus: record.status,
+      observation: `${requestReason}${source ? ` | ${source}` : ""}`,
+    });
+    state.historico = upsertById(state.historico, history);
+    syncHistoryEvent(history);
+    syncCollection("employees", record).catch((error) => {
+      console.warn("Nao foi possivel salvar aprovacao de desmobilizacao online.", error);
+    });
+    persistAutomaticStatusChanges(applyAutomaticStatusRules({ source: "Desmobilizacao aprovada", scope: { employeeId: record.id, companyId: record.companyId } }));
+    saveState();
+    renderApp();
+    return true;
+  }
+
+  cascadeCompanyInactiveOrDemobilized(record, "Desmobilizada", {
+    familyScope: true,
+    source: source || "Aprovação de solicitação de desmobilização",
+    reason: requestReason,
+  });
+  persistAutomaticStatusChanges(applyAutomaticStatusRules({ source: "Desmobilizacao aprovada", scope: { companyId: record.id } }));
+  renderApp();
+  return true;
+}
+
+function rejectDemobilizationRequest(entityType, id, { source = "" } = {}) {
+  const isEmployee = entityType === "employee";
+  const record = isEmployee
+    ? state.employees.find((item) => sameId(item.id, id))
+    : state.companies.find((item) => sameId(item.id, id));
+  if (!record) return false;
+  const role = currentUser()?.role || "visitor";
+  if (!(role === "admin" || (role === "fiscal" && (isEmployee ? canAccessEmployee(record) : canAccessCompany(record))))) {
+    alert("Seu perfil nao possui permissao para rejeitar esta solicitacao.");
+    return false;
+  }
+  const reason = prompt(`Informe o motivo da rejeição da desmobilização de ${isEmployee ? "funcionario" : "contrato"}:`);
+  if (!reason || !reason.trim()) {
+    alert("Motivo obrigatorio. A rejeição nao foi salva.");
+    return false;
+  }
+
+  const latestRequest = latestDemobilizationRequestHistoryEvent(isEmployee ? "funcionario" : "contrato", record.id);
+  const restoreStatus = latestRequest?.previousStatus || latestRequest?.statusAnterior || latestRequest?.status_anterior || "";
+  const previousStatus = record.status || record.contractStatus || "";
+
+  if (isEmployee) {
+    record.status = restoreStatus || "Liberado";
+    const timestamp = currentSystemTime();
+    const note = `[${timestamp}] ${currentUser()?.name || currentUser()?.email || "Usuário do sistema"}: Desmobilização rejeitada. Motivo: ${reason.trim()}`;
+    const currentNotes = employeeVisibleNotes(record);
+    record.notes = currentNotes ? `${currentNotes}\n${note}` : note;
+  } else {
+    record.status = restoreStatus || "Ativa";
+    if ("contractStatus" in record) record.contractStatus = record.status;
+    const timestamp = currentSystemTime();
+    const note = `[${timestamp}] ${currentUser()?.name || currentUser()?.email || "Usuário do sistema"}: Desmobilização rejeitada. Motivo: ${reason.trim()}`;
+    const currentNotes = companyVisibleNotes(record);
+    record.notes = currentNotes ? `${currentNotes}\n${note}` : note;
+  }
+
+  const history = createHistoryEvent({
+    entityType: isEmployee ? "funcionario" : "contrato",
+    entityId: record.id,
+    action: "Desmobilização rejeitada",
+    previousStatus,
+    nextStatus: isEmployee ? record.status : record.status || previousStatus,
+    observation: `${reason.trim()}${source ? ` | ${source}` : ""}`,
+  });
+  state.historico = upsertById(state.historico, history);
+  syncHistoryEvent(history);
+  syncCollection(isEmployee ? "employees" : "companies", record).catch((error) => {
+    console.warn("Nao foi possivel salvar rejeicao de desmobilizacao online.", error);
+  });
+  saveState();
+  renderApp();
+  return true;
+}
+
+function handleOperationalRequestAction(kind, action, entityType, id, { source = "" } = {}) {
+  if (kind === "reactivation") return handleReactivationAction(entityType, action, id, { source });
+  if (kind === "demobilization") {
+    if (action === "approve") return approveDemobilizationRequest(entityType, id, { source });
+    if (action === "reject") return rejectDemobilizationRequest(entityType, id, { source });
+  }
+  return false;
 }
 
 function fiscalNames(ids = []) {
@@ -9260,18 +9910,6 @@ function renderCompanyTab(company, tab) {
   const patrimonialDocs = documents.filter((doc) => documentOperationalSector(doc) === "Patrimonial" || /patrimonial|cracha|acesso|liberacao/i.test(doc.type || ""));
   const activeCompanyDocs = documents.filter((doc) => !statusMatches(docStatus(doc), "Arquivado"));
   const archivedCompanyDocs = documents.filter((doc) => statusMatches(docStatus(doc), "Arquivado"));
-  const requests = companyRequestItems(item);
-  const requestCounts = requests.reduce(
-    (acc, event) => {
-      const token = statusToken(event.nextStatus || event.status || event.observation || event.action || "");
-      if (token.includes("execut")) acc.executed += 1;
-      else if (token.includes("rejeit") || token.includes("reprov")) acc.rejected += 1;
-      else if (token.includes("aprov")) acc.approved += 1;
-      else acc.pending += 1;
-      return acc;
-    },
-    { pending: 0, approved: 0, rejected: 0, executed: 0 },
-  );
   if (tab === "general") {
     return `
       ${renderCompanyOperationalSummary(item, employees, documents)}
@@ -9471,28 +10109,35 @@ function renderCompanyTab(company, tab) {
     `;
   }
   if (tab === "requests") {
-    const rows = requests.map((event) => `
-      <tr>
-        <td><strong>${event.action || "Solicitação"}</strong><br><span class="muted">${event.observation || event.observacao || "Sem descricao"}</span></td>
-        <td>${event.user || event.usuario || "Sistema"}</td>
-        <td>${formatDateTime(event.createdAt || event.criado_em)}</td>
-        <td>${statusBadge(event.nextStatus || event.status || "Pendente")}</td>
-      </tr>
-    `).join("");
+    const companyRequests = companyRequestItems(item);
+    const demobilizationRequests = companyRequests.filter((entry) => entry.requestKind === "demobilization");
+    const reactivationRequests = companyRequests.filter((entry) => entry.requestKind === "reactivation");
     return `
       <div class="detail-grid">
-        ${detailCard("Pendentes", requestCounts.pending)}
-        ${detailCard("Aprovadas", requestCounts.approved)}
-        ${detailCard("Rejeitadas", requestCounts.rejected)}
-        ${detailCard("Executadas", requestCounts.executed)}
+        ${detailCard("Pendentes", companyRequests.length)}
+        ${detailCard("Desmobilização", demobilizationRequests.length)}
+        ${detailCard("Reativação", reactivationRequests.length)}
+        ${detailCard("Empresa/FIT", companyRequests.filter((entry) => entry.requestEntityType === "employee").length)}
       </div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Solicitação</th><th>Usuário</th><th>Data/Hora</th><th>Status</th></tr></thead>
-          <tbody>${rows || emptyRow(4)}</tbody>
-        </table>
-      </div>
-      ${renderCompanyTabHistory(company, "general", "Histórico da central de solicitacoes")}
+      <section class="company-split-section">
+        <div class="record-section-title"><h3>Desmobilização solicitada</h3><span class="mini-pill">${demobilizationRequests.length}</span></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Data/Hora</th><th>Solicitação</th><th>Registro</th><th>Empresa</th><th>Usuário</th><th>Motivo/Observação</th><th>Ações</th></tr></thead>
+            <tbody>${renderRequestRows(demobilizationRequests)}</tbody>
+          </table>
+        </div>
+      </section>
+      <section class="company-split-section">
+        <div class="record-section-title"><h3>Reativação solicitada</h3><span class="mini-pill">${reactivationRequests.length}</span></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Data/Hora</th><th>Solicitação</th><th>Registro</th><th>Empresa</th><th>Usuário</th><th>Motivo/Observação</th><th>Ações</th></tr></thead>
+            <tbody>${renderRequestRows(reactivationRequests)}</tbody>
+          </table>
+        </div>
+      </section>
+      ${renderCompanyTabHistory(company, "general", "Histórico da fila operacional")}
     `;
   }
   if (tab === "history") {
@@ -9514,6 +10159,8 @@ function employeeWorkflowSteps(employee) {
   const medicineDocs = docs.filter((doc) => documentOperationalSector(doc) === "Medicina");
   const ehsDocs = docs.filter((doc) => documentOperationalSector(doc) === "EHS");
   const patrimonialDocs = docs.filter((doc) => documentOperationalSector(doc) === "Patrimonial");
+  const terminalStatus = normalizeHiringStatusLabel(item.status || "");
+  const closedFlow = isManualEmployeeOperationalStatus(terminalStatus) && !statusMatches(terminalStatus, "Reativação solicitada");
   const sequence = [
     { id: "fiscal", sector: "Fiscal", label: "Fiscal / Documentos pessoais", icon: "docs", docs: fiscalDocs, detail: "Cadastro, CPF, vinculo e documentos pessoais" },
     { id: "medicina", sector: "Medicina", label: "Medicina", icon: "shield", docs: medicineDocs, detail: "ASO, exames e validade ocupacional" },
@@ -9525,7 +10172,9 @@ function employeeWorkflowSteps(employee) {
     const previousStep = steps[index - 1];
     const rawStatus = String(workflow[step.id]?.status || "").trim();
     let status = rawStatus;
-    if (!status) {
+    if (closedFlow) {
+      status = terminalStatus;
+    } else if (!status) {
       if (index === 0) {
         status = employeeHasCoreData(item) ? "Enviado para Fiscal" : "Rascunho pelo Fornecedor";
       } else if (previousStep && !workflowIsConcludedStatus(previousStep.status)) {
@@ -9562,13 +10211,15 @@ function employeeWorkflowSteps(employee) {
     icon: "approve",
     status:
       workflow.liberacao?.status ||
-      (allApproved
-        ? "Liberado"
-        : workflowIsConcludedStatus(item.status)
-          ? item.status
-          : steps.find((step) => !workflowIsConcludedStatus(step.status))?.status || "Em avaliação Fiscal"),
+      (closedFlow
+        ? terminalStatus
+        : allApproved
+          ? "Liberado"
+          : workflowIsConcludedStatus(item.status)
+            ? item.status
+            : steps.find((step) => !workflowIsConcludedStatus(step.status))?.status || "Em avaliação Fiscal"),
     detail: "Consolidacao fiscal para inicio ou manutencao",
-    reason: allApproved ? "Fluxo completo concluido." : "Aguardando conclusao das etapas anteriores.",
+    reason: closedFlow ? "Fluxo encerrado pelo status operacional atual." : allApproved ? "Fluxo completo concluido." : "Aguardando conclusao das etapas anteriores.",
   });
   return steps;
 }
