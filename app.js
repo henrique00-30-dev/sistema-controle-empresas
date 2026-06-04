@@ -1784,6 +1784,10 @@ function normalizeSearchValue(value = "") {
     .trim();
 }
 
+function normalizeEmail(value = "") {
+  return normalizeSearchValue(value);
+}
+
 function tableConfig(view) {
   return tableState[view] || tableState.companies;
 }
@@ -4654,7 +4658,12 @@ function openCompanyEditorModal(id = null, context = {}) {
       if (submit) submit.disabled = true;
       try {
         const saved = await saveCompanyFromForm(new FormData(event.currentTarget));
-        if (saved) modal.remove();
+        if (saved) {
+          modal.remove();
+          if (saved?.id) openCompanyDetails(saved.id);
+        }
+      } catch (error) {
+        alert(`Nao foi possivel salvar a empresa.\n\n${persistenceMessage(error)}`);
       } finally {
         if (submit) submit.disabled = false;
       }
@@ -6848,6 +6857,8 @@ function bindViewEvents() {
     if (submit) submit.disabled = true;
     try {
       await saveCompanyFromForm(new FormData(event.currentTarget));
+    } catch (error) {
+      alert(`Nao foi possivel salvar a empresa.\n\n${persistenceMessage(error)}`);
     } finally {
       if (submit) submit.disabled = false;
     }
@@ -7787,7 +7798,9 @@ async function saveCompanyFromForm(form) {
         saved.fiscalTelefone = onlineFiscal.telefone || saved.fiscalTelefone || "";
         syncEmpresaFiscais(saved).catch((error) => console.warn("Nao foi possivel salvar vinculo empresa_fiscais.", error));
       })
-      .catch((error) => console.warn("Nao foi possivel salvar fiscal online.", error));
+      .catch((error) => {
+        console.warn("Nao foi possivel salvar fiscal online.", error);
+      });
   }
   if ((previous?.fiscalId || previous?.fiscal || "") !== (saved.fiscalId || saved.fiscal || "")) {
     const history = createHistoryEvent({
@@ -7828,8 +7841,8 @@ async function saveCompanyFromForm(form) {
       payload: mapCompanyToDb(saved),
       error,
     });
-    alert(`Nao foi possivel salvar empresa online: ${persistenceMessage(error)}`);
-    return false;
+    console.warn("Nao foi possivel sincronizar a empresa online. O cadastro local foi mantido.", error);
+    alert(`Empresa salva localmente, mas nao foi possivel sincronizar online.\n\n${persistenceMessage(error)}`);
   }
   try {
     recordManualStatusHistory("empresa", saved.id, previousStatus, saved.status, `Empresa ${saved.name} salva pelo formulario.`);
@@ -7849,7 +7862,7 @@ async function saveCompanyFromForm(form) {
   saveState();
   editingCompanyId = null;
   render();
-  return true;
+  return saved;
 }
 
 function createQuickFiscalFromCompanyForm(form) {
