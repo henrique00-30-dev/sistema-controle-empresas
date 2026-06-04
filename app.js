@@ -1165,6 +1165,7 @@ function icon(name) {
     sun: "M12 1v2m0 18v2m11-11h-2M3 12H1m18.36 6.36-1.41-1.41M6.05 6.05 4.64 4.64m14.72 0-1.41 1.41M6.05 17.95l-1.41 1.41M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z",
     plus: "M12 5v14M5 12h14",
     edit: "M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z",
+    camera: "M4 7h3l2-3h6l2 3h3a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Zm8 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z",
     download: "M12 3v10m0 0 4-4m-4 4-4-4M4 17v3h16v-3",
     trash: "M3 6h18M8 6V4h8v2m-9 0 1 14h8l1-14",
     close: "M18 6 6 18M6 6l12 12",
@@ -7183,7 +7184,7 @@ function mediaFrameConfig(kind = "company", compact = false) {
   };
 }
 
-function mediaFrameMarkup(src, fallbackText, altText, kind = "company", compact = false) {
+function mediaFrameMarkup(src, fallbackText, altText, kind = "company", compact = false, surface = true) {
   const styles = mediaFrameConfig(kind, compact);
   const wrapperStyle = [
     "display:flex",
@@ -7191,14 +7192,14 @@ function mediaFrameMarkup(src, fallbackText, altText, kind = "company", compact 
     "justify-content:center",
     "width:100%",
     compact ? "height:100%" : "",
-    `background:${styles.background}`,
-    `border:${styles.border}`,
+    surface ? `background:${styles.background}` : "background:transparent",
+    surface ? `border:${styles.border}` : "border:0",
     `border-radius:${styles.radius}`,
     "box-sizing:border-box",
     "overflow:hidden",
-    `padding:${styles.padding}`,
-    styles.aspectRatio !== "auto" ? `aspect-ratio:${styles.aspectRatio}` : "",
-    styles.minHeight !== "0" ? `min-height:${styles.minHeight}` : "",
+    `padding:${surface ? styles.padding : "0"}`,
+    !surface || styles.aspectRatio === "auto" ? "" : `aspect-ratio:${styles.aspectRatio}`,
+    !surface || styles.minHeight === "0" ? "" : `min-height:${styles.minHeight}`,
   ]
     .filter(Boolean)
     .join(";");
@@ -7218,17 +7219,19 @@ function mediaFrameMarkup(src, fallbackText, altText, kind = "company", compact 
 
 function imageUploadField(name, label, currentUrl = "", hint = "", kind = "company") {
   const preview = String(currentUrl || "").trim();
-  const prompt = /foto/i.test(label) ? "Selecionar foto" : "Selecionar imagem";
+  const prompt = /foto/i.test(label) ? "Editar foto" : "Editar logo";
+  const placeholder = kind === "employee" ? "FOTO" : "LOGO";
   return `
-    <div class="wide" data-image-upload-field="${escapeAttr(name)}" data-image-kind="${escapeAttr(kind)}">
-      <label>${label}
-        <input id="${escapeAttr(name)}-input" name="${name}" type="file" accept="image/png,image/jpeg,image/webp" data-image-upload="${escapeAttr(name)}" style="position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden;" />
-        <span class="btn secondary" style="display:inline-flex;align-items:center;gap:0.35rem;margin-top:0.35rem;">${escapeHtml(prompt)}</span>
-      </label>
-      <div class="document-upload-preview" data-image-preview="${escapeAttr(name)}" data-current-src="${escapeAttr(preview)}" style="margin-top:0.5rem;">
-        ${mediaFrameMarkup(preview, "Nenhuma imagem selecionada.", `Preview de ${label}`, kind, false)}
+    <div class="wide image-upload-field ${escapeAttr(kind)}" data-image-upload-field="${escapeAttr(name)}" data-image-kind="${escapeAttr(kind)}">
+      <div class="image-upload-stage">
+        <div class="image-upload-preview" data-image-preview="${escapeAttr(name)}" data-current-src="${escapeAttr(preview)}">
+          ${mediaFrameMarkup(preview, placeholder, `Preview de ${label}`, kind, false, false)}
+        </div>
+        <label class="btn icon image-upload-trigger" for="${escapeAttr(name)}-input" aria-label="${escapeAttr(prompt)}" title="${escapeAttr(prompt)}">
+          ${icon("camera")}
+        </label>
       </div>
-      <span class="muted">${escapeHtml(hint || "JPG, PNG ou WEBP até 5 MB.")}</span>
+      <input id="${escapeAttr(name)}-input" name="${name}" type="file" accept="image/png,image/jpeg,image/webp" data-image-upload="${escapeAttr(name)}" class="image-upload-input" />
     </div>
   `;
 }
@@ -7244,10 +7247,10 @@ function renderImagePreview(preview, src = "", label = "", kind = "company") {
     delete preview.dataset.objectUrl;
   }
   if (!src) {
-    preview.innerHTML = mediaFrameMarkup("", "Nenhuma imagem selecionada.", label, kind, false);
+    preview.innerHTML = mediaFrameMarkup("", kind === "employee" ? "FOTO" : "LOGO", label, kind, false, false);
     return;
   }
-  preview.innerHTML = mediaFrameMarkup(src, label, label, kind, false);
+  preview.innerHTML = mediaFrameMarkup(src, label, label, kind, false, false);
 }
 
 function bindImageUploadPreviews(root = document) {
