@@ -2395,7 +2395,7 @@ function renderCompanyEditor(company = null, context = {}) {
       <form id="companyEditorForm" class="form-grid company-form">
         <input type="hidden" name="id" value="${escapeAttr(company?.id || "")}" />
         ${formSection("Dados da empresa", [
-          inputField("logoUrl", "Logo da empresa (URL)", companyLogoUrl(item), "type='url' placeholder='https://.../logo.png'"),
+          imageUploadField("logoFile", "Logo da empresa", companyLogoUrl(item)),
           inputField("name", "Razão social", item.name, "required"),
           inputField("tradeName", "Nome fantasia", companyTradeName(item) === item.name ? "" : companyTradeName(item)),
           inputField("cnpj", "CNPJ", item.cnpj, "required inputmode='numeric' maxlength='18' data-mask='cnpj' placeholder='00.000.000/0000-00'"),
@@ -4649,6 +4649,7 @@ function openCompanyEditorModal(id = null, context = {}) {
   `;
   document.body.appendChild(modal);
   bindInputMasks(modal);
+  bindImageUploadPreviews(modal);
   const form = modal.querySelector("#companyEditorForm");
   if (form) {
     form.addEventListener("submit", async (event) => {
@@ -7008,6 +7009,7 @@ function openForm(type, id = null, context = {}) {
   `;
   document.body.appendChild(modal);
   bindInputMasks(modal);
+  bindImageUploadPreviews(modal);
   bindEmployeeCompanyContractSync(modal);
   bindUserCreationMode(modal, type, id);
   if (type === "document") bindDocumentUpload(modal);
@@ -7117,6 +7119,112 @@ function formSection(title, fields) {
   `;
 }
 
+const IMAGE_UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
+const IMAGE_UPLOAD_ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+function imageUploadField(name, label, currentUrl = "", hint = "") {
+  const preview = String(currentUrl || "").trim();
+  const prompt = /foto/i.test(label) ? "Selecionar foto" : "Selecionar imagem";
+  return `
+    <div class="wide" data-image-upload-field="${escapeAttr(name)}">
+      <label>${label}
+        <input id="${escapeAttr(name)}-input" name="${name}" type="file" accept="image/png,image/jpeg,image/webp" data-image-upload="${escapeAttr(name)}" style="position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden;" />
+        <span class="btn secondary" style="display:inline-flex;align-items:center;gap:0.35rem;margin-top:0.35rem;">${escapeHtml(prompt)}</span>
+      </label>
+      <div class="document-upload-preview" data-image-preview="${escapeAttr(name)}" data-current-src="${escapeAttr(preview)}">
+        ${preview ? `<img class="document-preview-image compact" src="${escapeAttr(preview)}" alt="Preview de ${escapeAttr(label)}" />` : `<span class="muted">Nenhuma imagem selecionada.</span>`}
+      </div>
+      <span class="muted">${escapeHtml(hint || "JPG, PNG ou WEBP até 5 MB.")}</span>
+    </div>
+  `;
+}
+
+function renderImagePreview(preview, src = "", label = "") {
+  if (!preview) return;
+  if (preview.dataset.objectUrl) {
+    try {
+      URL.revokeObjectURL(preview.dataset.objectUrl);
+    } catch (_) {
+      // Ignora falha ao limpar preview anterior.
+    }
+    delete preview.dataset.objectUrl;
+  }
+  if (!src) {
+    preview.innerHTML = `<span class="muted">Nenhuma imagem selecionada.</span>`;
+    return;
+  }
+  preview.innerHTML = `<img class="document-preview-image compact" src="${escapeAttr(src)}" alt="${escapeAttr(label)}" />`;
+}
+
+function bindImageUploadPreviews(root = document) {
+  root.querySelectorAll("[data-image-upload-field]").forEach((field) => {
+    const input = field.querySelector("input[type='file']");
+    const preview = field.querySelector("[data-image-preview]");
+    if (!input || !preview) return;
+    const label = input.getAttribute("data-image-upload") || input.name || "imagem";
+    const syncPreview = () => {
+      const file = input.files?.[0];
+      if (file) {
+        const objectUrl = URL.createObjectURL(file);
+        preview.dataset.objectUrl = objectUrl;
+        renderImagePreview(preview, objectUrl, `Preview de ${label}`);
+        return;
+      }
+      const currentSrc = preview.dataset.currentSrc || "";
+      renderImagePreview(preview, currentSrc, `Imagem atual de ${label}`);
+    };
+    input.addEventListener("change", syncPreview);
+    syncPreview();
+  });
+}
+
+async function uploadImageToDocuments(form, fieldName, folder, recordId, fallbackUrl = "", label = "imagem") {
+  const file = form.get(fieldName);
+  const fallback = String(fallbackUrl || "").trim();
+  if (!file || !file.name || typeof file.size !== "number") return fallback;
+  if (!IMAGE_UPLOAD_ALLOWED_TYPES.has(file.type)) {
+    alert(`${label} invalida. Use JPG, JPEG, PNG ou WEBP.`);
+    return fallback;
+  }
+  if (file.size > IMAGE_UPLOAD_MAX_BYTES) {
+    alert(`${label} muito grande. Limite maximo de 5 MB.`);
+    return fallback;
+  }
+  if (!supabaseClient || !isOnlineMode()) {
+    console.warn(`[Imagem] Nao foi possivel enviar ${label}; usando valor atual.`, { fieldName, folder, recordId });
+    alert(`Nao foi possivel enviar ${label} agora. O cadastro sera salvo sem a imagem nova.`);
+    return fallback;
+  }
+  const cleanName = String(file.name).replace(/[^\w.-]+/g, "_");
+  const path = `${folder}/${recordId}/${crypto.randomUUID()}-${cleanName}`;
+  const context = {
+    table: "storage.objects",
+    operation: `upload ${label}`,
+    payload: {
+      bucket: "documents",
+      path,
+      fileName: file.name,
+      fileSize: file.size,
+      fieldName,
+      folder,
+      recordId,
+    },
+  };
+  try {
+    await ensureOnlineSession(context.table);
+    const { error } = await supabaseClient.storage.from("documents").upload(path, file, { upsert: false, contentType: file.type });
+    if (error) throw error;
+    const signed = await supabaseClient.storage.from("documents").createSignedUrl(path, 60 * 60 * 24 * 7);
+    if (signed?.data?.signedUrl) return signed.data.signedUrl;
+    const publicUrl = supabaseClient.storage.from("documents").getPublicUrl(path)?.data?.publicUrl || "";
+    return publicUrl || path;
+  } catch (error) {
+    console.warn(`[Imagem] Falha ao enviar ${label}; mantendo valor anterior.`, error);
+    alert(`Nao foi possivel enviar ${label}.\n\n${persistenceMessage(error)}`);
+    return fallback;
+  }
+}
+
 function fileField(name, label) {
   return `
     <label class="wide">${label}
@@ -7184,7 +7292,7 @@ function companyForm(id, context = {}) {
     title: id ? "Editar empresa" : "Nova empresa",
     fields: [
       formSection("Dados da empresa", [
-        inputField("logoUrl", "Logo da empresa (URL)", companyLogoUrl(item), "type='url' placeholder='https://.../logo.png'"),
+        imageUploadField("logoFile", "Logo da empresa", companyLogoUrl(item)),
         inputField("name", "Razão social", item.name, "required"),
         inputField("tradeName", "Nome fantasia", companyTradeName(item) === item.name ? "" : companyTradeName(item)),
         inputField("cnpj", "CNPJ", item.cnpj, "required inputmode='numeric' maxlength='18' data-mask='cnpj' placeholder='00.000.000/0000-00'"),
@@ -7280,7 +7388,7 @@ function employeeForm(id, context = {}) {
       inputField("motherName", "Nome da mae", item.motherName, "required"),
       inputField("fatherName", "Nome do pai", item.fatherName),
       inputField("role", "Funcao", item.role, "required"),
-      inputField("photoUrl", "Foto do funcionário (URL)", item.photoUrl || "", "type='url' placeholder='https://.../foto.jpg'"),
+      imageUploadField("photoFile", "Foto do funcionário", employeePhotoUrl(item)),
       companyField,
       hasCompanyContext
         ? formSection("Vinculo contratual", [
@@ -7683,6 +7791,15 @@ async function saveCompanyFromForm(form) {
   const previous = existingCompany;
   const isNewCompany = !previous;
   const previousStatus = previous?.status || "";
+  const recordId = id || previous?.id || crypto.randomUUID();
+  const uploadedLogoUrl = await uploadImageToDocuments(
+    form,
+    "logoFile",
+    "company-images",
+    recordId,
+    previous?.logoUrl || previous?.logo || previous?.logo_url || "",
+    "logo da empresa",
+  );
   const quickFiscal = createQuickFiscalFromCompanyForm(form);
   const selectedFiscalId = quickFiscal?.id || optionalNull(form.get("fiscalId"));
   const selectedFiscal = selectedFiscalId ? state.fiscais.find((fiscal) => sameId(fiscal.id, selectedFiscalId)) : null;
@@ -7734,8 +7851,8 @@ async function saveCompanyFromForm(form) {
   const effectiveManager = isSupplier && previous ? previous.manager || manager : manager;
   const effectiveResponsible = isSupplier && previous ? previous.responsible || previous.contact || supplierName || manager : supplierName || manager;
   const effectiveCostCenter = isSupplier && previous ? previous.costCenter || costCenter : costCenter;
-  const saved = upsert("companies", id, {
-    logoUrl: optionalText(form.get("logoUrl")) || previous?.logoUrl || previous?.logo || previous?.logo_url || "",
+  const saved = upsert("companies", recordId, {
+    logoUrl: uploadedLogoUrl || previous?.logoUrl || previous?.logo || previous?.logo_url || "",
     name: form.get("name"),
     tradeName: optionalText(form.get("tradeName")) || previous?.tradeName || previous?.nomeFantasia || null,
     cnpj: validation.cnpj,
@@ -8064,6 +8181,7 @@ async function saveEmployeeFromForm(form) {
   const existing = existingEmployee;
   const isNewEmployee = !existing;
   const previousStatus = existing?.status || "";
+  const recordId = id || existing?.id || crypto.randomUUID();
   const linkedCompany = normalizeCompany(state.companies.find((company) => sameId(company.id, form.get("companyId"))) || {});
   const existingContractSourceId = employeeContractSourceId(existingEmployee || {});
   const selectedContractCompany = normalizeCompany(
@@ -8113,6 +8231,14 @@ async function saveEmployeeFromForm(form) {
     alert("Gestor do contrato obrigatorio.");
     return;
   }
+  const uploadedPhotoUrl = await uploadImageToDocuments(
+    form,
+    "photoFile",
+    "employee-images",
+    recordId,
+    existing?.photoUrl || existing?.photo || existing?.photo_url || "",
+    "foto do funcionario",
+  );
   const payload = {
     name: form.get("name"),
     cpf: cpfDigits,
@@ -8138,7 +8264,7 @@ async function saveEmployeeFromForm(form) {
     complement: form.get("complement"),
     asoValidity: form.get("asoValidity"),
     trainingValidity: form.get("trainingValidity"),
-    photoUrl: optionalText(form.get("photoUrl")) || existing?.photoUrl || existing?.photo || existing?.photo_url || "",
+    photoUrl: uploadedPhotoUrl || existing?.photoUrl || existing?.photo || existing?.photo_url || "",
     address: buildEmployeeAddressFromParts({
       street: form.get("street"),
       number: form.get("number"),
@@ -8153,7 +8279,7 @@ async function saveEmployeeFromForm(form) {
   const fiscalPayload = existing
     ? { ...existing, notes: form.get("notes"), photoUrl: payload.photoUrl }
     : payload;
-  const draft = { ...(canEditFullEmployee ? payload : fiscalPayload), id: id || existing?.id || crypto.randomUUID() };
+  const draft = { ...(canEditFullEmployee ? payload : fiscalPayload), id: recordId };
   if ((currentUser()?.role || "visitor") === "supplier") {
     const workflowActions = { ...(existing?.workflowActions || draft.workflowActions || {}) };
     const reviewStep = existing ? employeeWorkflowSteps(existing).find((step) => workflowIsReviewStatus(step.status)) : null;
@@ -8183,7 +8309,7 @@ async function saveEmployeeFromForm(form) {
   const linkedDocs = employeeDocsFor(draft);
   draft.docStatus = calculateDocumentStatus(draft, linkedDocs);
   draft.status = calculateHiringStatus(draft, linkedDocs, draft.docStatus);
-  const saved = upsert("employees", id, draft);
+  const saved = upsert("employees", recordId, draft);
   const employeeAuditAction = createHistoryEvent({
     entityType: "funcionario",
     entityId: saved.id,
