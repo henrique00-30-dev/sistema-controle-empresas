@@ -2395,7 +2395,7 @@ function renderCompanyEditor(company = null, context = {}) {
       <form id="companyEditorForm" class="form-grid company-form">
         <input type="hidden" name="id" value="${escapeAttr(company?.id || "")}" />
         ${formSection("Dados da empresa", [
-          imageUploadField("logoFile", "Logo da empresa", companyLogoUrl(item)),
+          imageUploadField("logoFile", "Logo da empresa", companyLogoUrl(item), "", "company"),
           inputField("name", "Razão social", item.name, "required"),
           inputField("tradeName", "Nome fantasia", companyTradeName(item) === item.name ? "" : companyTradeName(item)),
           inputField("cnpj", "CNPJ", item.cnpj, "required inputmode='numeric' maxlength='18' data-mask='cnpj' placeholder='00.000.000/0000-00'"),
@@ -2476,10 +2476,8 @@ function employeePhotoUrl(employee = {}) {
 }
 
 function avatarMarkup(src, fallbackText, altText) {
-  if (String(src || "").trim()) {
-    return `<img class="entity-avatar-image" src="${escapeAttr(src)}" alt="${escapeAttr(altText)}" />`;
-  }
-  return `<span>${escapeHtml(fallbackText)}</span>`;
+  const kind = altText && /logo da empresa/i.test(altText) ? "company" : "employee";
+  return mediaFrameMarkup(src, fallbackText, altText, kind, true);
 }
 
 function companyAddress(company = {}) {
@@ -7122,24 +7120,70 @@ function formSection(title, fields) {
 const IMAGE_UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
 const IMAGE_UPLOAD_ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
-function imageUploadField(name, label, currentUrl = "", hint = "") {
+function mediaFrameConfig(kind = "company", compact = false) {
+  const isEmployee = kind === "employee";
+  return {
+    fit: isEmployee ? "cover" : "contain",
+    radius: isEmployee ? "999px" : "12px",
+    background: isEmployee ? "#eef2f7" : "#f8fafc",
+    border: "1px solid rgba(15, 23, 42, 0.12)",
+    minHeight: compact ? "0" : isEmployee ? "160px" : "140px",
+    aspectRatio: compact ? "auto" : isEmployee ? "1 / 1" : "16 / 10",
+    padding: compact ? "0" : "0.35rem",
+  };
+}
+
+function mediaFrameMarkup(src, fallbackText, altText, kind = "company", compact = false) {
+  const styles = mediaFrameConfig(kind, compact);
+  const wrapperStyle = [
+    "display:flex",
+    "align-items:center",
+    "justify-content:center",
+    "width:100%",
+    compact ? "height:100%" : "",
+    `background:${styles.background}`,
+    `border:${styles.border}`,
+    `border-radius:${styles.radius}`,
+    "box-sizing:border-box",
+    "overflow:hidden",
+    `padding:${styles.padding}`,
+    styles.aspectRatio !== "auto" ? `aspect-ratio:${styles.aspectRatio}` : "",
+    styles.minHeight !== "0" ? `min-height:${styles.minHeight}` : "",
+  ]
+    .filter(Boolean)
+    .join(";");
+  const imgStyle = [
+    "display:block",
+    "width:100%",
+    "height:100%",
+    `object-fit:${styles.fit}`,
+    `background:${styles.background}`,
+  ].join(";");
+  const hasSrc = String(src || "").trim();
+  if (hasSrc) {
+    return `<span style="${wrapperStyle}"><img class="entity-avatar-image" src="${escapeAttr(src)}" alt="${escapeAttr(altText)}" style="${imgStyle}" /></span>`;
+  }
+  return `<span class="muted" style="${wrapperStyle};text-align:center;">${escapeHtml(fallbackText)}</span>`;
+}
+
+function imageUploadField(name, label, currentUrl = "", hint = "", kind = "company") {
   const preview = String(currentUrl || "").trim();
   const prompt = /foto/i.test(label) ? "Selecionar foto" : "Selecionar imagem";
   return `
-    <div class="wide" data-image-upload-field="${escapeAttr(name)}">
+    <div class="wide" data-image-upload-field="${escapeAttr(name)}" data-image-kind="${escapeAttr(kind)}">
       <label>${label}
         <input id="${escapeAttr(name)}-input" name="${name}" type="file" accept="image/png,image/jpeg,image/webp" data-image-upload="${escapeAttr(name)}" style="position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden;" />
         <span class="btn secondary" style="display:inline-flex;align-items:center;gap:0.35rem;margin-top:0.35rem;">${escapeHtml(prompt)}</span>
       </label>
-      <div class="document-upload-preview" data-image-preview="${escapeAttr(name)}" data-current-src="${escapeAttr(preview)}">
-        ${preview ? `<img class="document-preview-image compact" src="${escapeAttr(preview)}" alt="Preview de ${escapeAttr(label)}" />` : `<span class="muted">Nenhuma imagem selecionada.</span>`}
+      <div class="document-upload-preview" data-image-preview="${escapeAttr(name)}" data-current-src="${escapeAttr(preview)}" style="margin-top:0.5rem;">
+        ${mediaFrameMarkup(preview, "Nenhuma imagem selecionada.", `Preview de ${label}`, kind, false)}
       </div>
       <span class="muted">${escapeHtml(hint || "JPG, PNG ou WEBP até 5 MB.")}</span>
     </div>
   `;
 }
 
-function renderImagePreview(preview, src = "", label = "") {
+function renderImagePreview(preview, src = "", label = "", kind = "company") {
   if (!preview) return;
   if (preview.dataset.objectUrl) {
     try {
@@ -7150,10 +7194,10 @@ function renderImagePreview(preview, src = "", label = "") {
     delete preview.dataset.objectUrl;
   }
   if (!src) {
-    preview.innerHTML = `<span class="muted">Nenhuma imagem selecionada.</span>`;
+    preview.innerHTML = mediaFrameMarkup("", "Nenhuma imagem selecionada.", label, kind, false);
     return;
   }
-  preview.innerHTML = `<img class="document-preview-image compact" src="${escapeAttr(src)}" alt="${escapeAttr(label)}" />`;
+  preview.innerHTML = mediaFrameMarkup(src, label, label, kind, false);
 }
 
 function bindImageUploadPreviews(root = document) {
@@ -7162,16 +7206,17 @@ function bindImageUploadPreviews(root = document) {
     const preview = field.querySelector("[data-image-preview]");
     if (!input || !preview) return;
     const label = input.getAttribute("data-image-upload") || input.name || "imagem";
+    const kind = field.dataset.imageKind || "company";
     const syncPreview = () => {
       const file = input.files?.[0];
       if (file) {
         const objectUrl = URL.createObjectURL(file);
         preview.dataset.objectUrl = objectUrl;
-        renderImagePreview(preview, objectUrl, `Preview de ${label}`);
+        renderImagePreview(preview, objectUrl, `Preview de ${label}`, kind);
         return;
       }
       const currentSrc = preview.dataset.currentSrc || "";
-      renderImagePreview(preview, currentSrc, `Imagem atual de ${label}`);
+      renderImagePreview(preview, currentSrc, `Imagem atual de ${label}`, kind);
     };
     input.addEventListener("change", syncPreview);
     syncPreview();
@@ -7217,7 +7262,8 @@ async function uploadImageToDocuments(form, fieldName, folder, recordId, fallbac
     const signed = await supabaseClient.storage.from("documents").createSignedUrl(path, 60 * 60 * 24 * 7);
     if (signed?.data?.signedUrl) return signed.data.signedUrl;
     const publicUrl = supabaseClient.storage.from("documents").getPublicUrl(path)?.data?.publicUrl || "";
-    return publicUrl || path;
+    if (publicUrl) return publicUrl;
+    throw new Error("Nao foi possivel gerar uma URL de acesso para a imagem enviada.");
   } catch (error) {
     console.warn(`[Imagem] Falha ao enviar ${label}; mantendo valor anterior.`, error);
     alert(`Nao foi possivel enviar ${label}.\n\n${persistenceMessage(error)}`);
@@ -7292,7 +7338,7 @@ function companyForm(id, context = {}) {
     title: id ? "Editar empresa" : "Nova empresa",
     fields: [
       formSection("Dados da empresa", [
-        imageUploadField("logoFile", "Logo da empresa", companyLogoUrl(item)),
+        imageUploadField("logoFile", "Logo da empresa", companyLogoUrl(item), "", "company"),
         inputField("name", "Razão social", item.name, "required"),
         inputField("tradeName", "Nome fantasia", companyTradeName(item) === item.name ? "" : companyTradeName(item)),
         inputField("cnpj", "CNPJ", item.cnpj, "required inputmode='numeric' maxlength='18' data-mask='cnpj' placeholder='00.000.000/0000-00'"),
@@ -7388,7 +7434,7 @@ function employeeForm(id, context = {}) {
       inputField("motherName", "Nome da mae", item.motherName, "required"),
       inputField("fatherName", "Nome do pai", item.fatherName),
       inputField("role", "Funcao", item.role, "required"),
-      imageUploadField("photoFile", "Foto do funcionário", employeePhotoUrl(item)),
+      imageUploadField("photoFile", "Foto do funcionário", employeePhotoUrl(item), "", "employee"),
       companyField,
       hasCompanyContext
         ? formSection("Vinculo contratual", [
@@ -9235,6 +9281,7 @@ function mapCompanyFromDb(company) {
     status: company.status,
     contract: company.contract_number,
     risk: company.risk || "Medio",
+    logoUrl: company.logo_url || company.logoUrl || company.logo || "",
   });
 }
 
@@ -9336,6 +9383,7 @@ function mapEmployeeFromDb(employee) {
     number: employee.number || employee.numero,
     complement: employee.complement || employee.complemento,
     uf: employee.uf || employee.estado,
+    photoUrl: employee.photo_url || employee.photoUrl || employee.photo || "",
   });
 }
 
