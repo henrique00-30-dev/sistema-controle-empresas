@@ -9472,6 +9472,7 @@ function mapFiscalToDb(fiscal) {
 }
 
 function mapEmployeeFromDb(employee) {
+  const meta = employeeMeta(employee);
   return normalizeEmployee({
     id: employee.id,
     name: employee.name,
@@ -9497,7 +9498,7 @@ function mapEmployeeFromDb(employee) {
     number: employee.number || employee.numero,
     complement: employee.complement || employee.complemento,
     uf: employee.uf || employee.estado,
-    photoUrl: employee.photo_url || employee.photoUrl || employee.photo || "",
+    photoUrl: employee.photo_url || employee.photoUrl || employee.photo || meta.photoUrl || meta.photo || meta.photo_url || "",
   });
 }
 
