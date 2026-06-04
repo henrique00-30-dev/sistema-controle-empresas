@@ -2381,8 +2381,6 @@ function renderCompanyEditor(company = null, context = {}) {
     return "";
   }
   const item = normalizeCompany(company || context.template || {});
-  const activeFiscais = state.fiscais.map(normalizeFiscal).filter((fiscal) => fiscal.status !== "inativo");
-  const fiscalOptions = [{ value: "", label: "Selecione um fiscal" }].concat(activeFiscais.map((fiscal) => ({ value: fiscal.id, label: `${fiscal.nome}${fiscal.matricula ? ` - ${fiscal.matricula}` : ""}` })));
   return `
     <section class="panel company-editor">
       <div class="editor-head">
@@ -2413,32 +2411,14 @@ function renderCompanyEditor(company = null, context = {}) {
           inputField("complement", "Complemento", item.complement || ""),
           inputField("companyCode", "Código da empresa", companyCode(item) === item.id ? "" : companyCode(item)),
         ])}
-        ${formSection("Fiscal principal", [
-          selectField("fiscalId", "Fiscal cadastrado (opcional)", item.fiscalId || "", [{ value: "", label: "Informar fiscal manualmente" }].concat(fiscalOptions.slice(1))),
-          inputField("fiscal", "Nome do fiscal", item.fiscal, "required"),
-          inputField("fiscalEmail", "E-mail do fiscal", item.fiscalEmail || item.fiscal_email || "", "type='email'"),
-          inputField("fiscalTelefone", "Telefone do fiscal", item.fiscalTelefone || item.fiscal_telefone || ""),
-        ])}
+        ${companyPrimaryFiscalSection(item)}
         ${formSection("Fornecedor responsável", [
           inputField("supplierName", "Nome do responsável", item.supplierName || item.contact || item.responsible || ""),
           inputField("supplierEmail", "E-mail do responsável", item.supplierEmail || ""),
           inputField("supplierPhone", "Telefone do responsável", item.supplierPhone || ""),
           inputField("supplierRole", "Cargo / função", item.supplierRole || ""),
         ])}
-        ${formSection("Contrato Inicial", [
-          inputField("contract", "Número do contrato", item.contract, "required"),
-          inputField("costCenter", "Centro de custo", item.costCenter || "", "required"),
-          inputField("contractServiceType", "Tipo de serviço do contrato", item.contractServiceType || item.serviceType || item.risk || "", "required"),
-          selectField("contractStatus", "Status do contrato", item.contractStatus || item.status || "Ativa", ["Ativa", "Pendente", "Bloqueado", "Inativa", "Encerrado", "Desmobilizado"].map(option)),
-          inputField("manager", "Gestor do contrato", item.manager || item.responsible, "required"),
-          inputField("contractFiscal", "Fiscal do contrato", item.contractFiscal || item.fiscal || "", "required"),
-          inputField("startDate", "Data de início", item.startDate, "type='date' required"),
-          inputField("endDate", "Data de fim", item.endDate, "type='date' required"),
-          inputField("unitSector", "Unidade / setor", item.unitSector || ""),
-          inputField("contractArea", "Área / departamento", item.contractArea || ""),
-          inputField("branchCodeContract", "Código filial", companyBranchCode(item) === "Nao informado" ? "" : companyBranchCode(item)),
-          inputField("contractNotes", "Observação do contrato", item.contractNotes || ""),
-        ])}
+        ${companyContractFiscalSection(item)}
         ${textAreaField("notes", "Observações da empresa", companyVisibleNotes(item))}
         <div class="form-actions wide">
           <button class="btn primary" type="submit">${icon("save")} Salvar</button>
@@ -2524,7 +2504,10 @@ function serializeCompanyNotes(company = {}) {
     contractServiceType: company.contractServiceType || "",
     contractStatus: company.contractStatus || "",
     logoUrl: company.logoUrl || company.logo || company.logo_url || "",
+    contractFiscalDifferent: Boolean(company.contractFiscalDifferent),
     contractFiscal: company.contractFiscal || "",
+    contractFiscalEmail: company.contractFiscalEmail || company.contractFiscal_email || "",
+    contractFiscalPhone: company.contractFiscalPhone || company.contractFiscal_phone || "",
     supplierName: company.supplierName || "",
     supplierEmail: company.supplierEmail || "",
     supplierPhone: company.supplierPhone || "",
@@ -4648,6 +4631,7 @@ function openCompanyEditorModal(id = null, context = {}) {
   document.body.appendChild(modal);
   bindInputMasks(modal);
   bindImageUploadPreviews(modal);
+  bindCompanyContractFiscalToggle(modal);
   const form = modal.querySelector("#companyEditorForm");
   if (form) {
     form.addEventListener("submit", async (event) => {
@@ -7008,6 +6992,7 @@ function openForm(type, id = null, context = {}) {
   document.body.appendChild(modal);
   bindInputMasks(modal);
   bindImageUploadPreviews(modal);
+  bindCompanyContractFiscalToggle(modal);
   bindEmployeeCompanyContractSync(modal);
   bindUserCreationMode(modal, type, id);
   if (type === "document") bindDocumentUpload(modal);
@@ -7115,6 +7100,71 @@ function formSection(title, fields) {
       <div class="form-section-grid">${fields.join("")}</div>
     </fieldset>
   `;
+}
+
+function companyUsesDifferentContractFiscal(item = {}) {
+  if (typeof item.contractFiscalDifferent === "boolean") return item.contractFiscalDifferent;
+  const primaryName = normalizeSearchValue(item.fiscal || "");
+  const contractName = normalizeSearchValue(item.contractFiscal || "");
+  const primaryEmail = normalizeSearchValue(item.fiscalEmail || item.fiscal_email || "");
+  const contractEmail = normalizeSearchValue(item.contractFiscalEmail || item.contractFiscal_email || "");
+  const primaryPhone = onlyDigits(item.fiscalTelefone || item.fiscal_telefone || "");
+  const contractPhone = onlyDigits(item.contractFiscalPhone || item.contractFiscal_phone || "");
+  if (!contractName && !contractEmail && !contractPhone) return false;
+  return Boolean((primaryName && contractName && contractName !== primaryName) || (primaryEmail && contractEmail && contractEmail !== primaryEmail) || (primaryPhone && contractPhone && contractPhone !== primaryPhone));
+}
+
+function companyPrimaryFiscalSection(item = {}) {
+  return formSection("Fiscal principal da empresa", [
+    inputField("fiscal", "Nome do fiscal", item.fiscal || "", "required"),
+    inputField("fiscalEmail", "E-mail do fiscal", item.fiscalEmail || item.fiscal_email || "", "type='email'"),
+    inputField("fiscalTelefone", "Telefone do fiscal", item.fiscalTelefone || item.fiscal_telefone || ""),
+  ]);
+}
+
+function companyContractFiscalSection(item = {}) {
+  const different = companyUsesDifferentContractFiscal(item);
+  const requiredAttr = different ? "required data-contract-fiscal-required='true'" : "data-contract-fiscal-required='true'";
+  return formSection("Contrato Inicial", [
+    inputField("contract", "Número do contrato", item.contract, "required"),
+    inputField("costCenter", "Centro de custo", item.costCenter || "", "required"),
+    inputField("contractServiceType", "Tipo de serviço do contrato", item.contractServiceType || item.serviceType || item.risk || "", "required"),
+    selectField("contractStatus", "Status do contrato", item.contractStatus || item.status || "Ativa", ["Ativa", "Pendente", "Bloqueado", "Inativa", "Encerrado", "Desmobilizado"].map(option)),
+    inputField("manager", "Gestor do contrato", item.manager || item.responsible, "required"),
+    `<label class="wide" style="display:flex;align-items:center;gap:0.5rem;justify-content:flex-start;margin:0.25rem 0 0.5rem;"><input type="checkbox" name="useDifferentContractFiscal" data-contract-fiscal-toggle ${different ? "checked" : ""} /><span>Usar fiscal diferente neste contrato</span></label>`,
+    `<div class="wide" data-contract-fiscal-fields style="${different ? "" : "display:none;"}">
+      <div class="form-section-grid">
+        ${inputField("contractFiscal", "Nome do fiscal do contrato", item.contractFiscal || item.fiscal || "", requiredAttr)}
+        ${inputField("contractFiscalEmail", "E-mail do fiscal do contrato", item.contractFiscalEmail || item.contractFiscal_email || item.fiscalEmail || item.fiscal_email || "", `type='email' ${requiredAttr}`)}
+        ${inputField("contractFiscalPhone", "Telefone do fiscal do contrato", item.contractFiscalPhone || item.contractFiscal_phone || item.fiscalTelefone || item.fiscal_telefone || "", requiredAttr)}
+      </div>
+    </div>`,
+    inputField("startDate", "Data de início", item.startDate, "type='date' required"),
+    inputField("endDate", "Data de fim", item.endDate, "type='date' required"),
+    inputField("unitSector", "Unidade / setor", item.unitSector || ""),
+    inputField("contractArea", "Área / departamento", item.contractArea || ""),
+    inputField("branchCodeContract", "Código filial", companyBranchCode(item) === "Nao informado" ? "" : companyBranchCode(item)),
+    inputField("contractNotes", "Observação do contrato", item.contractNotes || ""),
+  ]);
+}
+
+function bindCompanyContractFiscalToggle(root = document) {
+  root.querySelectorAll("form").forEach((form) => {
+    const toggle = form.querySelector("[data-contract-fiscal-toggle]");
+    const fields = form.querySelector("[data-contract-fiscal-fields]");
+    if (!toggle || !fields) return;
+    const requiredInputs = fields.querySelectorAll("[data-contract-fiscal-required='true']");
+    const sync = () => {
+      const enabled = toggle.checked;
+      fields.style.display = enabled ? "" : "none";
+      requiredInputs.forEach((input) => {
+        if (enabled) input.setAttribute("required", "required");
+        else input.removeAttribute("required");
+      });
+    };
+    toggle.addEventListener("change", sync);
+    sync();
+  });
 }
 
 const IMAGE_UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
@@ -7356,32 +7406,14 @@ function companyForm(id, context = {}) {
         inputField("complement", "Complemento", item.complement || ""),
         inputField("companyCode", "Código da empresa", companyCode(item) === item.id ? "" : companyCode(item)),
       ]),
-      formSection("Fiscal principal", [
-        selectField("fiscalId", "Fiscal cadastrado (opcional)", item.fiscalId || "", [{ value: "", label: "Informar fiscal manualmente" }].concat(state.fiscais.map(normalizeFiscal).filter((fiscal) => fiscal.status !== "inativo").map((fiscal) => ({ value: fiscal.id, label: `${fiscal.nome}${fiscal.matricula ? ` - ${fiscal.matricula}` : ""}` })))),
-        inputField("fiscal", "Nome do fiscal", item.fiscal, "required"),
-        inputField("fiscalEmail", "E-mail do fiscal", item.fiscalEmail || item.fiscal_email || "", "type='email'"),
-        inputField("fiscalTelefone", "Telefone do fiscal", item.fiscalTelefone || item.fiscal_telefone || ""),
-      ]),
+      companyPrimaryFiscalSection(item),
       formSection("Fornecedor responsável", [
         inputField("supplierName", "Nome do responsável", item.supplierName || item.contact || item.responsible || ""),
         inputField("supplierEmail", "E-mail do responsável", item.supplierEmail || ""),
         inputField("supplierPhone", "Telefone do responsável", item.supplierPhone || ""),
         inputField("supplierRole", "Cargo / função", item.supplierRole || ""),
       ]),
-      formSection("Contrato Inicial", [
-        inputField("contract", "Número do contrato", item.contract, "required"),
-        inputField("costCenter", "Centro de custo", item.costCenter || "", "required"),
-        inputField("contractServiceType", "Tipo de serviço do contrato", item.contractServiceType || item.serviceType || item.risk || "", "required"),
-        selectField("contractStatus", "Status do contrato", item.contractStatus || item.status || "Ativa", ["Ativa", "Pendente", "Bloqueado", "Inativa", "Encerrado", "Desmobilizado"].map(option)),
-        inputField("manager", "Gestor do contrato", item.manager || item.responsible || item.contact, "required"),
-        inputField("contractFiscal", "Fiscal do contrato", item.contractFiscal || item.fiscal || "", "required"),
-        inputField("startDate", "Data de início", item.startDate, "type='date'"),
-        inputField("endDate", "Data de fim", item.endDate, "type='date'"),
-        inputField("unitSector", "Unidade / setor", item.unitSector || ""),
-        inputField("contractArea", "Área / departamento", item.contractArea || ""),
-        inputField("branchCodeContract", "Código filial", companyBranchCode(item) === "Nao informado" ? "" : companyBranchCode(item)),
-        inputField("contractNotes", "Observação do contrato", item.contractNotes || ""),
-      ]),
+      companyContractFiscalSection(item),
       textAreaField("notes", "Observações da empresa", companyVisibleNotes(item)),
     ],
     save(form) {
@@ -7846,22 +7878,19 @@ async function saveCompanyFromForm(form) {
     previous?.logoUrl || previous?.logo || previous?.logo_url || "",
     "logo da empresa",
   );
-  const quickFiscal = createQuickFiscalFromCompanyForm(form);
-  const selectedFiscalId = quickFiscal?.id || optionalNull(form.get("fiscalId"));
-  const selectedFiscal = selectedFiscalId ? state.fiscais.find((fiscal) => sameId(fiscal.id, selectedFiscalId)) : null;
-  const fiscalName = selectedFiscal?.nome || String(form.get("fiscal") || "").trim();
-  const fiscalEmail = selectedFiscal?.email || normalizeEmail(optionalText(form.get("fiscalEmail")));
-  const fiscalPhone = selectedFiscal?.telefone || optionalText(form.get("fiscalTelefone"));
+  const fiscalNameInput = String(form.get("fiscal") || previous?.fiscal || "").trim();
+  const fiscalEmailInput = normalizeEmail(optionalText(form.get("fiscalEmail")) || previous?.fiscalEmail || "");
+  const fiscalPhoneInput = optionalText(form.get("fiscalTelefone")) || previous?.fiscalTelefone || "";
   const additionalFiscalFieldExists = form.has("fiscaisAdicionais");
-  const additionalFiscalIds = additionalFiscalFieldExists
-    ? form.getAll("fiscaisAdicionais").filter(Boolean).filter((fiscalId) => fiscalId !== selectedFiscalId)
-    : previous?.fiscaisAdicionais || [];
   const supplierName = String(form.get("supplierName") || previous?.supplierName || previous?.contact || previous?.responsible || "").trim();
   const supplierEmail = normalizeEmail(optionalText(form.get("supplierEmail")) || previous?.supplierEmail || "");
   const supplierPhone = optionalText(form.get("supplierPhone")) || previous?.supplierPhone || "";
   const supplierRole = String(form.get("supplierRole") || previous?.supplierRole || "").trim();
   const manager = String(form.get("manager") || "").trim();
-  const contractFiscal = String(form.get("contractFiscal") || previous?.contractFiscal || fiscalName).trim();
+  const useDifferentContractFiscal = form.get("useDifferentContractFiscal") === "on" || form.get("useDifferentContractFiscal") === "true";
+  const contractFiscalNameInput = String(form.get("contractFiscal") || "").trim();
+  const contractFiscalEmailInput = normalizeEmail(optionalText(form.get("contractFiscalEmail")));
+  const contractFiscalPhoneInput = optionalText(form.get("contractFiscalPhone"));
   const contractNumber = String(form.get("contract") || "").trim();
   const costCenter = String(form.get("costCenter") || "").trim();
   const serviceType = String(form.get("serviceType") || previous?.serviceType || previous?.risk || "").trim();
@@ -7878,6 +7907,18 @@ async function saveCompanyFromForm(form) {
   const number = optionalText(form.get("number")) || previous?.number || "";
   const complement = optionalText(form.get("complement")) || previous?.complement || "";
   const notes = optionalText(form.get("notes")) || previous?.notes || previous?.observacoes || "";
+  if (!fiscalNameInput) {
+    alert("Informe o nome do fiscal principal.");
+    return false;
+  }
+  if (!fiscalEmailInput) {
+    alert("Informe o e-mail do fiscal principal.");
+    return false;
+  }
+  if (!fiscalPhoneInput) {
+    alert("Informe o telefone do fiscal principal.");
+    return false;
+  }
   if (!contractNumber) {
     alert("Informe o numero do contrato.");
     return false;
@@ -7890,6 +7931,29 @@ async function saveCompanyFromForm(form) {
     alert("Informe o gestor do contrato.");
     return false;
   }
+  if (useDifferentContractFiscal) {
+    if (!contractFiscalNameInput) {
+      alert("Informe o nome do fiscal do contrato.");
+      return false;
+    }
+    if (!contractFiscalEmailInput) {
+      alert("Informe o e-mail do fiscal do contrato.");
+      return false;
+    }
+    if (!contractFiscalPhoneInput) {
+      alert("Informe o telefone do fiscal do contrato.");
+      return false;
+    }
+  }
+  const quickFiscal = createQuickFiscalFromCompanyForm(form);
+  const selectedFiscalId = quickFiscal?.id || optionalNull(form.get("fiscalId"));
+  const selectedFiscal = selectedFiscalId ? state.fiscais.find((fiscal) => sameId(fiscal.id, selectedFiscalId)) : null;
+  const fiscalName = selectedFiscal?.nome || fiscalNameInput;
+  const fiscalEmail = selectedFiscal?.email || fiscalEmailInput;
+  const fiscalPhone = selectedFiscal?.telefone || fiscalPhoneInput;
+  const additionalFiscalIds = additionalFiscalFieldExists
+    ? form.getAll("fiscaisAdicionais").filter(Boolean).filter((fiscalId) => fiscalId !== selectedFiscalId)
+    : previous?.fiscaisAdicionais || [];
   const isSupplier = currentUser()?.role === "supplier";
   const effectiveFiscalId = isSupplier && previous ? previous.fiscalId || null : selectedFiscalId;
   const effectiveFiscal = isSupplier && previous ? previous.fiscal || fiscalName : fiscalName;
@@ -7897,6 +7961,10 @@ async function saveCompanyFromForm(form) {
   const effectiveManager = isSupplier && previous ? previous.manager || manager : manager;
   const effectiveResponsible = isSupplier && previous ? previous.responsible || previous.contact || supplierName || manager : supplierName || manager;
   const effectiveCostCenter = isSupplier && previous ? previous.costCenter || costCenter : costCenter;
+  const effectiveContractFiscalDifferent = isSupplier && previous ? Boolean(previous.contractFiscalDifferent) : useDifferentContractFiscal;
+  const effectiveContractFiscal = effectiveContractFiscalDifferent ? contractFiscalNameInput || previous?.contractFiscal || fiscalName : fiscalName;
+  const effectiveContractFiscalEmail = effectiveContractFiscalDifferent ? contractFiscalEmailInput || previous?.contractFiscalEmail || fiscalEmail : fiscalEmail;
+  const effectiveContractFiscalPhone = effectiveContractFiscalDifferent ? contractFiscalPhoneInput || previous?.contractFiscalPhone || fiscalPhone : fiscalPhone;
   const saved = upsert("companies", recordId, {
     logoUrl: uploadedLogoUrl || previous?.logoUrl || previous?.logo || previous?.logo_url || "",
     name: form.get("name"),
@@ -7934,7 +8002,10 @@ async function saveCompanyFromForm(form) {
     serviceType,
     contractServiceType,
     contractStatus,
-    contractFiscal,
+    contractFiscalDifferent: effectiveContractFiscalDifferent,
+    contractFiscal: effectiveContractFiscal,
+    contractFiscalEmail: effectiveContractFiscalEmail,
+    contractFiscalPhone: effectiveContractFiscalPhone,
     unitSector: optionalText(form.get("unitSector")) || previous?.unitSector || "",
     contractArea,
     contractNotes,
@@ -8030,10 +8101,9 @@ async function saveCompanyFromForm(form) {
 
 function createQuickFiscalFromCompanyForm(form) {
   if (currentUser()?.role === "supplier") return null;
-  if (optionalNull(form.get("fiscalId"))) return null;
   const nome = String(form.get("fiscal") || "").trim();
   const email = normalizeEmail(optionalText(form.get("fiscalEmail")));
-  if (!email) return null;
+  if (!nome || !email) return null;
   const fiscals = (state.fiscais || []).map(normalizeFiscal);
   const existingFiscal = email
     ? fiscals.find((fiscal) => normalizeEmail(fiscal.email) === email)
@@ -8956,11 +9026,28 @@ function removeItem(type, id) {
 function normalizeCompany(company) {
   const meta = companyMeta(company);
   const fiscal = company.fiscalId ? state.fiscais?.find((item) => sameId(item.id, company.fiscalId)) : null;
+  const fiscalName = fiscal?.nome || company.fiscal || "Nao informado";
+  const contractFiscal = meta.contractFiscal || company.contractFiscal || fiscalName;
+  const contractFiscalEmail = meta.contractFiscalEmail || company.contractFiscalEmail || company.contractFiscal_email || "";
+  const contractFiscalPhone = meta.contractFiscalPhone || company.contractFiscalPhone || company.contractFiscal_phone || "";
+  const contractFiscalDifferent =
+    typeof meta.contractFiscalDifferent === "boolean"
+      ? meta.contractFiscalDifferent
+      : typeof company.contractFiscalDifferent === "boolean"
+        ? company.contractFiscalDifferent
+        : companyUsesDifferentContractFiscal({
+            fiscal: fiscalName,
+            fiscalEmail: fiscal?.email || company.fiscalEmail || company.fiscal_email || "",
+            fiscalTelefone: fiscal?.telefone || company.fiscalTelefone || company.fiscal_telefone || "",
+            contractFiscal,
+            contractFiscalEmail,
+            contractFiscalPhone,
+          });
   return {
     ...company,
     fiscalId: company.fiscalId || company.fiscal_id || null,
     fiscaisAdicionais: company.fiscaisAdicionais || company.fiscais_adicionais || [],
-    fiscal: fiscal?.nome || company.fiscal || "Nao informado",
+    fiscal: fiscalName,
     fiscalEmail: fiscal?.email || company.fiscalEmail || company.fiscal_email || "",
     fiscalTelefone: fiscal?.telefone || company.fiscalTelefone || company.fiscal_telefone || "",
     fiscalMatrícula: fiscal?.matricula || company.fiscalMatrícula || company.fiscal_matricula || "",
@@ -8970,7 +9057,10 @@ function normalizeCompany(company) {
     supplierPhone: meta.supplierPhone || company.supplierPhone || "",
     supplierRole: meta.supplierRole || company.supplierRole || "",
     logoUrl: meta.logoUrl || company.logoUrl || company.logo || company.logo_url || "",
-    contractFiscal: meta.contractFiscal || company.contractFiscal || company.fiscal || "",
+    contractFiscalDifferent,
+    contractFiscal,
+    contractFiscalEmail,
+    contractFiscalPhone,
     manager: company.manager || company.gestorContrato || company.responsible || company.contact || "Nao informado",
     responsible: company.responsible || company.contact || "Nao informado",
     costCenter: company.costCenter || company.centro_custo || "",
