@@ -2453,7 +2453,8 @@ function companyLogoUrl(company = {}) {
 
 function employeePhotoUrl(employee = {}) {
   const meta = employeeMeta(employee);
-  return employee.photoUrl || employee.photo || employee.photo_url || meta.photoUrl || meta.photo || meta.photo_url || "";
+  const result = employee.photoUrl || employee.photo || employee.photo_url || meta.photoUrl || meta.photo || meta.photo_url || "";
+  return result;
 }
 
 function avatarMarkup(src, fallbackText, altText) {
@@ -8301,10 +8302,17 @@ async function saveEmployeeFromForm(form) {
   const isNewEmployee = !existing;
   const previousStatus = existing?.status || "";
   const recordId = id || existing?.id || crypto.randomUUID();
-  const linkedCompany = normalizeCompany(state.companies.find((company) => sameId(company.id, form.get("companyId"))) || {});
+  const visibleCompanyFallback = visibleCompanies()[0] || state.companies.find((company) => canAccessCompany(company)) || {};
+  const selectedCompanyId = String(form.get("companyId") || existing?.companyId || "").trim();
+  const resolvedCompanyId = String(selectedCompanyId || visibleCompanyFallback.id || "").trim();
+  if (!resolvedCompanyId) {
+    alert("Selecione uma empresa para o funcionário.");
+    return;
+  }
+  const linkedCompany = normalizeCompany(state.companies.find((company) => sameId(company.id, resolvedCompanyId)) || visibleCompanyFallback);
   const existingContractSourceId = employeeContractSourceId(existingEmployee || {});
   const selectedContractCompany = normalizeCompany(
-    state.companies.find((company) => sameId(company.id, form.get("contractSourceId") || existingContractSourceId || form.get("companyId"))) || linkedCompany,
+    state.companies.find((company) => sameId(company.id, form.get("contractSourceId") || existingContractSourceId || resolvedCompanyId)) || linkedCompany,
   );
   const canEditFullEmployee =
     currentUser()?.role === "admin" ||
@@ -8350,6 +8358,7 @@ async function saveEmployeeFromForm(form) {
     alert("Gestor do contrato obrigatorio.");
     return;
   }
+  const photoFile = form.get("photoFile");
   const uploadedPhotoUrl = await uploadImageToDocuments(
     form,
     "photoFile",
@@ -8366,8 +8375,8 @@ async function saveEmployeeFromForm(form) {
     motherName: form.get("motherName"),
     fatherName: form.get("fatherName"),
     role: form.get("role"),
-    companyId: form.get("companyId"),
-    contractSourceId: hasContractContext ? selectedContractCompany.id || form.get("companyId") : existingContractSourceId || form.get("companyId"),
+    companyId: resolvedCompanyId,
+    contractSourceId: hasContractContext ? selectedContractCompany.id || resolvedCompanyId : existingContractSourceId || "",
     contract: resolvedContract,
     costCenter: resolvedCostCenter,
     companyFiscal: resolvedFiscal,
@@ -8399,6 +8408,10 @@ async function saveEmployeeFromForm(form) {
     ? { ...existing, notes: form.get("notes"), photoUrl: payload.photoUrl }
     : payload;
   const draft = { ...(canEditFullEmployee ? payload : fiscalPayload), id: recordId };
+  if (!draft.companyId || !canAccessCompany(draft.companyId)) {
+    alert("Selecione uma empresa valida e acessivel para o funcionario.");
+    return false;
+  }
   if ((currentUser()?.role || "visitor") === "supplier") {
     const workflowActions = { ...(existing?.workflowActions || draft.workflowActions || {}) };
     const reviewStep = existing ? employeeWorkflowSteps(existing).find((step) => workflowIsReviewStatus(step.status)) : null;
@@ -8454,7 +8467,6 @@ async function saveEmployeeFromForm(form) {
       error,
     });
     alert(`Nao foi possivel salvar funcionario online: ${persistenceMessage(error)}`);
-    return;
   }
   try {
     recordManualStatusHistory("funcionario", saved.id, previousStatus, saved.status, `Funcionário ${saved.name} salvo pelo formulario.`);
@@ -8464,7 +8476,15 @@ async function saveEmployeeFromForm(form) {
   }
   saveState();
   editingEmployeeId = null;
+  searchTerm = "";
+  employeeStatusFilter = "Todos";
+  if (tableState.employees) {
+    tableState.employees = { ...tableState.employees, page: 1, quick: "Todos", company: "Todos", contract: "Todos", sector: "Todos", costCenter: "Todos" };
+  }
+  currentView = "employees";
   render();
+  if (saved?.id) openEmployeeRecord(saved.id);
+  return saved;
 }
 
 function buildEmployeeAddressFromForm(form) {
@@ -9115,7 +9135,7 @@ function normalizeEmployee(employee) {
   const docs = employeeDocsFor(employee);
   const documentStatus = calculateDocumentStatus(employee, docs);
   const hiringStatus = calculateHiringStatus(employee, docs, documentStatus);
-  return {
+  const normalized = {
     ...employee,
     registration: employee.registration || employee.matricula || meta.registration || "",
     cpf: formatCpf(employee.cpf || ""),
@@ -9158,6 +9178,7 @@ function normalizeEmployee(employee) {
     workflowActions: employee.workflowActions || meta.workflowActions || {},
     status: normalizeHiringStatusLabel(employee.status || hiringStatus),
   };
+  return normalized;
 }
 
 function employeeMeta(employee = {}) {
