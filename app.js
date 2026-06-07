@@ -750,6 +750,7 @@ function validateAuthenticatedProfile(profile, email, source) {
 }
 
 async function loadRemoteData() {
+  const previousEmployees = Array.isArray(state.employees) ? state.employees : [];
   const [companies, employees, documents, usuarios, fiscais, empresaFiscais] = await Promise.all([
     supabaseClient.from("companies").select("*").order("name"),
     supabaseClient.from("employees").select("*").order("name"),
@@ -759,12 +760,33 @@ async function loadRemoteData() {
     fetchEmpresaFiscaisForScope(),
   ]);
 
-  for (const result of [companies, employees, documents, usuarios]) {
-    if (result.error) throw result.error;
+  for (const [label, result] of [
+    ["companies", companies],
+    ["documents", documents],
+    ["usuarios", usuarios],
+  ]) {
+    if (result.error) {
+      console.error(`[Supabase Load] Falha ao carregar public.${label}.`, result.error);
+      throw result.error;
+    }
   }
 
   state.companies = companies.data.map(mapCompanyFromDb);
-  state.employees = employees.data.map(mapEmployeeFromDb);
+  if (employees.error) {
+    console.error("[Supabase Load] Falha ao carregar public.employees. Mantendo funcionarios locais para evitar perda visual temporaria.", employees.error);
+  } else if (Array.isArray(employees.data)) {
+    const remoteEmployees = employees.data.map(mapEmployeeFromDb).filter((employee) => employee.id && employee.companyId);
+    if (!remoteEmployees.length && previousEmployees.length) {
+      console.error("[Supabase Load] public.employees retornou zero linhas, mas havia funcionarios locais. Mantendo lista local; verifique RLS/policies de employees se isso ocorrer apos F5.", {
+        previousTotal: previousEmployees.length,
+      });
+    } else {
+      state.employees = remoteEmployees;
+    }
+    console.info("[Supabase Load] Funcionarios carregados de public.employees.", { total: state.employees.length });
+  } else {
+    console.error("[Supabase Load] public.employees retornou resposta invalida. Mantendo funcionarios locais.", employees);
+  }
   state.documents = documents.data.map(mapDocumentFromDb);
   state.users = usuarios.data.map(mapUserFromDb);
   state.fiscais = (fiscais.data || []).map(mapFiscalFromDb);
@@ -1982,12 +2004,14 @@ function getAccessibleCompanyIdsForCurrentUser() {
   if (!allCompanyIds.size) return new Set();
   if (role === "admin") return allCompanyIds;
   if (role === "supplier") {
-    if (user?.companyId && allCompanyIds.has(String(user.companyId))) return new Set([String(user.companyId)]);
+    const userCompanyId = String(user?.companyId ?? "");
+    if (userCompanyId && allCompanyIds.has(userCompanyId)) return new Set([userCompanyId]);
     return new Set();
   }
   if (role === "fiscal") {
     const accessible = new Set();
-    if (user?.companyId && allCompanyIds.has(String(user.companyId))) accessible.add(String(user.companyId));
+    const userCompanyId = String(user?.companyId ?? "");
+    if (userCompanyId && allCompanyIds.has(userCompanyId)) accessible.add(userCompanyId);
     const fiscalIds = getCurrentUserFiscalIds(user);
     const normalizedUserEmail = normalizeSearchValue(user.email || "");
     const normalizedUserName = normalizeSearchValue(user.name || "");
@@ -2038,7 +2062,8 @@ function canAccessEmployee(employeeOrId) {
       ? employeeOrId
       : state.employees.find((item) => sameId(item.id, employeeOrId));
   if (!employee) return false;
-  return canAccessCompany(employee.companyId);
+  const companyId = employee.companyId ?? employee.company_id ?? employee.empresaId ?? employee.empresa_id ?? "";
+  return canAccessCompany(String(companyId));
 }
 
 function canAccessDocument(documentOrId) {
@@ -9147,20 +9172,23 @@ function normalizeFiscal(fiscal = {}) {
 
 function normalizeEmployee(employee) {
   const meta = employeeMeta(employee);
-  const linkedCompany = normalizeCompany(state.companies.find((company) => sameId(company.id, employee.companyId || meta.companyId)) || {});
+  const rawId = employee.id ?? employee.employee_id ?? employee.funcionario_id ?? meta.id ?? "";
+  const rawCompanyId = employee.companyId ?? employee.company_id ?? employee.empresaId ?? employee.empresa_id ?? meta.companyId ?? meta.company_id ?? "";
+  const linkedCompany = normalizeCompany(state.companies.find((company) => sameId(company.id, rawCompanyId)) || {});
   const contractSource = normalizeCompany(state.companies.find((company) => sameId(company.id, employeeContractSourceId(employee) || meta.contractSourceId || linkedCompany.id)) || linkedCompany);
   const docs = employeeDocsFor(employee);
   const documentStatus = calculateDocumentStatus(employee, docs);
   const hiringStatus = calculateHiringStatus(employee, docs, documentStatus);
   const normalized = {
     ...employee,
+    id: rawId || employee.id || "",
     registration: employee.registration || employee.matricula || meta.registration || "",
     cpf: formatCpf(employee.cpf || ""),
     birthDate: employee.birthDate || employee.birth_date || meta.birthDate || "",
     motherName: employee.motherName || employee.mother_name || meta.motherName || "",
     fatherName: employee.fatherName || employee.father_name || meta.fatherName || "",
-    role: employee.role || "",
-    companyId: employee.companyId || state.companies[0]?.id || "",
+    role: employee.role || employee.cargo || employee.job_role || meta.role || meta.cargo || "",
+    companyId: rawCompanyId || state.companies[0]?.id || "",
     contractSourceId: employeeContractSourceId(employee) || meta.contractSourceId || contractSource.id || "",
     contract: employee.contract || meta.contract || contractSource.contract || linkedCompany.contract || "",
     costCenter: employee.costCenter || employee.centroCusto || meta.costCenter || contractSource.costCenter || linkedCompany.costCenter || linkedCompany.contract || "",
@@ -9194,7 +9222,7 @@ function normalizeEmployee(employee) {
     }) || "",
     notes: employeeVisibleNotes(employee),
     workflowActions: employee.workflowActions || meta.workflowActions || {},
-    status: normalizeHiringStatusLabel(employee.status || hiringStatus),
+    status: normalizeHiringStatusLabel(employee.status || employee.hiring_status || meta.status || hiringStatus),
   };
   return normalized;
 }
@@ -9226,6 +9254,8 @@ function serializeEmployeeNotes(employee) {
   const item = normalizeEmployee({ ...employee, notes: employeeVisibleNotes(employee) });
   const meta = {
     ...existingMeta,
+    id: item.id || existingMeta.id || "",
+    companyId: item.companyId || existingMeta.companyId || existingMeta.company_id || "",
     registration: item.registration || "",
     birthDate: item.birthDate || "",
     motherName: item.motherName || "",
@@ -9247,6 +9277,7 @@ function serializeEmployeeNotes(employee) {
     badgeNumber: item.badgeNumber || "",
     photoUrl: item.photoUrl || item.photo || item.photo_url || "",
     photoPath: item.photoPath || item.photo_path || existingMeta.photoPath || existingMeta.photo_path || "",
+    status: item.status || existingMeta.status || "",
     patrimonialReleaseDate: item.patrimonialReleaseDate || "",
     patrimonialNotes: item.patrimonialNotes || "",
     workflowActions: item.workflowActions || existingMeta.workflowActions || {},
@@ -9493,17 +9524,17 @@ function mapFiscalToDb(fiscal) {
 function mapEmployeeFromDb(employee) {
   const meta = employeeMeta(employee);
   return normalizeEmployee({
-    id: employee.id,
-    name: employee.name,
+    id: employee.id ?? employee.employee_id ?? employee.funcionario_id ?? meta.id ?? "",
+    name: employee.name || employee.nome || employee.full_name || employee.nome_completo || "",
     cpf: employee.cpf,
-    role: employee.job_role,
-    companyId: employee.company_id,
+    role: employee.job_role || employee.role || employee.cargo || meta.role || meta.cargo || "",
+    companyId: employee.company_id ?? employee.companyId ?? employee.empresa_id ?? employee.empresaId ?? meta.companyId ?? meta.company_id ?? "",
     asoValidity: employee.aso_validity,
     trainingValidity: employee.training_validity,
     docStatus: employee.document_status,
     address: employee.address,
     notes: employee.notes,
-    status: employee.hiring_status,
+    status: employee.hiring_status || employee.status || meta.status || "",
     registration: employee.registration || employee.matricula,
     manager: employee.manager || employee.gestor || employee.responsavel,
     contractManager: employee.contract_manager || employee.gestor_contrato || employee.manager || employee.gestor || employee.responsavel,
