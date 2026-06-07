@@ -269,6 +269,7 @@ let searchTerm = "";
 let administrationSection = localStorage.getItem("sctempresas.adminSection") || "users";
 let editingCompanyId = null;
 let editingEmployeeId = null;
+let creatingEmployee = false;
 let employeeStatusFilter = "Todos";
 let contractStatusFilter = "Todos";
 let contractPage = 1;
@@ -3142,6 +3143,7 @@ function companyRowActions(id) {
 
 function renderEmployees() {
   const editingEmployee = editingEmployeeId ? state.employees.find((employee) => sameId(employee.id, editingEmployeeId)) : null;
+  const showEmployeeEditor = creatingEmployee || Boolean(editingEmployee);
   const baseItems = visibleEmployees();
   const filteredByText = filtered(baseItems, [
     (item) => item.name,
@@ -3159,7 +3161,7 @@ function renderEmployees() {
   const { pageItems, totalPages } = paginateItems("employees", items);
   return `
     ${sectionHead("Funcionários / FIT", "Lista operacional de trabalhadores vinculados a empresas, contratos e status documentais.")}
-    ${editingEmployee ? renderEmployeeEditor(editingEmployee) : ""}
+    ${showEmployeeEditor ? renderEmployeeEditor(editingEmployee) : ""}
     ${toolbar("Buscar por nome, CPF, matricula, empresa, contrato, centro de custo ou status")}
     ${renderEmployeeStatusFilters()}
     ${renderOperationalFilters("employees", baseItems, { quicks: ["Todos", "Ativo", "Bloqueado", "Pendente", "Medicina", "EHS", "Desmobilizado"], exportKey: "funcionarios-ativos" })}
@@ -6584,6 +6586,8 @@ function bindViewEvents() {
       }
       if (button.dataset.create === "employee") {
         editingEmployeeId = null;
+        creatingEmployee = true;
+        currentView = "employees";
         renderApp();
         return;
       }
@@ -6770,10 +6774,11 @@ function bindViewEvents() {
         openCompanyEditorModal(button.dataset.id);
         return;
       }
-      if (button.dataset.edit === "employee") {
-        editingEmployeeId = button.dataset.id;
-        renderApp();
-        return;
+    if (button.dataset.edit === "employee") {
+      editingEmployeeId = button.dataset.id;
+      creatingEmployee = false;
+      renderApp();
+      return;
       }
       openForm(button.dataset.edit, button.dataset.id);
     });
@@ -6832,6 +6837,8 @@ function bindViewEvents() {
 
   document.querySelector("[data-new-employee]")?.addEventListener("click", () => {
     editingEmployeeId = null;
+    creatingEmployee = true;
+    currentView = "employees";
     renderApp();
   });
 
@@ -7277,22 +7284,24 @@ function bindImageUploadPreviews(root = document) {
   });
 }
 
-async function uploadImageToDocuments(form, fieldName, folder, recordId, fallbackUrl = "", label = "imagem") {
+async function uploadImageToDocuments(form, fieldName, folder, recordId, fallbackUrl = "", label = "imagem", options = {}) {
   const file = form.get(fieldName);
   const fallback = String(fallbackUrl || "").trim();
-  if (!file || !file.name || typeof file.size !== "number") return fallback;
+  const returnMetadata = Boolean(options?.returnMetadata);
+  const fallbackResult = returnMetadata ? { url: fallback, path: "" } : fallback;
+  if (!file || !file.name || typeof file.size !== "number") return fallbackResult;
   if (!IMAGE_UPLOAD_ALLOWED_TYPES.has(file.type)) {
     alert(`${label} invalida. Use JPG, JPEG, PNG ou WEBP.`);
-    return fallback;
+    return fallbackResult;
   }
   if (file.size > IMAGE_UPLOAD_MAX_BYTES) {
     alert(`${label} muito grande. Limite maximo de 5 MB.`);
-    return fallback;
+    return fallbackResult;
   }
   if (!supabaseClient || !isOnlineMode()) {
     console.warn(`[Imagem] Nao foi possivel enviar ${label}; usando valor atual.`, { fieldName, folder, recordId });
     alert(`Nao foi possivel enviar ${label} agora. O cadastro sera salvo sem a imagem nova.`);
-    return fallback;
+    return fallbackResult;
   }
   const cleanName = String(file.name).replace(/[^\w.-]+/g, "_");
   const path = `${folder}/${recordId}/${crypto.randomUUID()}-${cleanName}`;
@@ -7314,14 +7323,15 @@ async function uploadImageToDocuments(form, fieldName, folder, recordId, fallbac
     const { error } = await supabaseClient.storage.from("documents").upload(path, file, { upsert: false, contentType: file.type });
     if (error) throw error;
     const signed = await supabaseClient.storage.from("documents").createSignedUrl(path, 60 * 60 * 24 * 7);
-    if (signed?.data?.signedUrl) return signed.data.signedUrl;
+    if (signed?.data?.signedUrl) return returnMetadata ? { url: signed.data.signedUrl, path } : signed.data.signedUrl;
     const publicUrl = supabaseClient.storage.from("documents").getPublicUrl(path)?.data?.publicUrl || "";
-    if (publicUrl) return publicUrl;
+    if (publicUrl) return returnMetadata ? { url: publicUrl, path } : publicUrl;
     throw new Error("Nao foi possivel gerar uma URL de acesso para a imagem enviada.");
   } catch (error) {
     console.warn(`[Imagem] Falha ao enviar ${label}; mantendo valor anterior.`, error);
+    if (options?.throwOnError) throw wrapPersistenceError(error, context);
     alert(`Nao foi possivel enviar ${label}.\n\n${persistenceMessage(error)}`);
-    return fallback;
+    return fallbackResult;
   }
 }
 
@@ -7463,6 +7473,7 @@ function employeeForm(id, context = {}) {
   return {
     title: id ? "Editar funcionario" : hasCompanyContext ? "Novo funcionario da empresa" : "Novo funcionario",
     fields: [
+      `<input type="hidden" name="id" value="${escapeAttr(id || "")}" />`,
       registrationField,
       inputField("name", "Nome completo", item.name, "required"),
       inputField("cpf", "CPF", item.cpf, "required inputmode='numeric' maxlength='14' data-mask='cpf' placeholder='000.000.000-00'"),
@@ -7503,65 +7514,7 @@ function employeeForm(id, context = {}) {
         alert("Funcionário em avaliacao. A edicao fica bloqueada ate haver solicitacao de revisao ou revalidacao.");
         return;
       }
-      const validation = validateEmployeeRegistration({
-        id,
-        cpf: form.get("cpf"),
-      });
-      if (!validation.ok) {
-        alert(validation.message);
-        return;
-      }
-      const selectedCompany = normalizeCompany(state.companies.find((company) => sameId(company.id, form.get("companyId"))) || activeCompany || {});
-      const selectedContractCompany = normalizeCompany(state.companies.find((company) => sameId(company.id, form.get("contractSourceId"))) || selectedCompany || {});
-      const resolvedCompanyId = form.get("companyId") || selectedCompany.id || "";
-      const resolvedContract = form.get("contract") || selectedContractCompany.contract || selectedCompany.contract || "";
-      const resolvedCostCenter = hasCompanyContext
-        ? selectedContractCompany.costCenter || selectedContractCompany.contract || ""
-        : canEditOperationalLink
-          ? form.get("costCenter")
-          : selectedCompany.costCenter || selectedCompany.contract || "";
-      const resolvedFiscal = hasCompanyContext
-        ? selectedContractCompany.fiscal || ""
-        : canEditOperationalLink
-          ? form.get("companyFiscal")
-          : selectedCompany.fiscal || "";
-      const resolvedManager = hasCompanyContext
-        ? selectedContractCompany.manager || selectedContractCompany.responsible || ""
-        : canEditOperationalLink
-          ? form.get("contractManager")
-          : selectedCompany.manager || selectedCompany.responsible || "";
-      const resolvedServiceType = hasCompanyContext
-        ? selectedContractCompany.serviceType || selectedContractCompany.risk || ""
-        : form.get("serviceType") || selectedCompany.serviceType || selectedCompany.risk || "";
-      const resolvedUnitSector = hasCompanyContext
-        ? selectedContractCompany.unitSector || contractUnit(selectedContractCompany)
-        : form.get("unitSector") || contractUnit(selectedCompany);
-      const employeeBase = {
-        ...item,
-        name: form.get("name"),
-        companyId: resolvedCompanyId,
-        role: form.get("role"),
-        cpf: validation.cpf,
-        contract: resolvedContract,
-        contractSourceId: hasCompanyContext ? selectedContractCompany.id || resolvedCompanyId : item.contractSourceId || resolvedCompanyId,
-        costCenter: resolvedCostCenter,
-        companyFiscal: resolvedFiscal,
-        contractManager: resolvedManager,
-        serviceType: resolvedServiceType,
-        unitSector: resolvedUnitSector,
-        asoValidity: form.get("asoValidity"),
-        trainingValidity: form.get("trainingValidity"),
-        address: form.get("address"),
-        notes: form.get("notes"),
-      };
-      const nextDocStatus = calculateDocumentStatus(employeeBase, employeeDocsFor({ ...item, id: id || item.id, companyId: resolvedCompanyId }));
-      const nextHiringStatus = calculateHiringStatus({ ...employeeBase, docStatus: nextDocStatus }, employeeDocsFor({ ...item, id: id || item.id, companyId: resolvedCompanyId }), nextDocStatus);
-      upsert("employees", id, {
-        ...employeeBase,
-        docStatus: nextDocStatus,
-        status: nextHiringStatus,
-        notes: form.get("notes"),
-      });
+      return saveEmployeeFromForm(form);
     },
   };
 }
@@ -8301,7 +8254,7 @@ async function saveEmployeeFromForm(form) {
   const existing = existingEmployee;
   const isNewEmployee = !existing;
   const previousStatus = existing?.status || "";
-  const recordId = id || existing?.id || crypto.randomUUID();
+  const recordId = id || existing?.id || (isOnlineMode() ? null : crypto.randomUUID());
   const visibleCompanyFallback = visibleCompanies()[0] || state.companies.find((company) => canAccessCompany(company)) || {};
   const selectedCompanyId = String(form.get("companyId") || existing?.companyId || "").trim();
   const resolvedCompanyId = String(selectedCompanyId || visibleCompanyFallback.id || "").trim();
@@ -8358,15 +8311,9 @@ async function saveEmployeeFromForm(form) {
     alert("Gestor do contrato obrigatorio.");
     return;
   }
-  const photoFile = form.get("photoFile");
-  const uploadedPhotoUrl = await uploadImageToDocuments(
-    form,
-    "photoFile",
-    "employee-images",
-    recordId,
-    existing?.photoUrl || existing?.photo || existing?.photo_url || "",
-    "foto do funcionario",
-  );
+  const existingPhotoMeta = employeeMeta(existing || {});
+  const existingPhotoUrl = existing?.photoUrl || existing?.photo || existing?.photo_url || existingPhotoMeta.photoUrl || existingPhotoMeta.photo || existingPhotoMeta.photo_url || "";
+  const existingPhotoPath = existing?.photoPath || existing?.photo_path || existingPhotoMeta.photoPath || existingPhotoMeta.photo_path || "";
   const payload = {
     name: form.get("name"),
     cpf: cpfDigits,
@@ -8392,7 +8339,8 @@ async function saveEmployeeFromForm(form) {
     complement: form.get("complement"),
     asoValidity: form.get("asoValidity"),
     trainingValidity: form.get("trainingValidity"),
-    photoUrl: uploadedPhotoUrl || existing?.photoUrl || existing?.photo || existing?.photo_url || "",
+    photoUrl: existingPhotoUrl,
+    photoPath: existingPhotoPath,
     address: buildEmployeeAddressFromParts({
       street: form.get("street"),
       number: form.get("number"),
@@ -8405,9 +8353,9 @@ async function saveEmployeeFromForm(form) {
     notes: form.get("notes"),
   };
   const fiscalPayload = existing
-    ? { ...existing, notes: form.get("notes"), photoUrl: payload.photoUrl }
+    ? { ...existing, notes: form.get("notes"), photoUrl: payload.photoUrl, photoPath: payload.photoPath }
     : payload;
-  const draft = { ...(canEditFullEmployee ? payload : fiscalPayload), id: recordId };
+  const draft = { ...(canEditFullEmployee ? payload : fiscalPayload), ...(recordId ? { id: recordId } : {}) };
   if (!draft.companyId || !canAccessCompany(draft.companyId)) {
     alert("Selecione uma empresa valida e acessivel para o funcionario.");
     return false;
@@ -8441,7 +8389,90 @@ async function saveEmployeeFromForm(form) {
   const linkedDocs = employeeDocsFor(draft);
   draft.docStatus = calculateDocumentStatus(draft, linkedDocs);
   draft.status = calculateHiringStatus(draft, linkedDocs, draft.docStatus);
-  const saved = upsert("employees", recordId, draft);
+  let saved;
+  if (isOnlineMode()) {
+    try {
+      const employeePayload = mapEmployeeToDb(draft);
+      const tableContext = {
+        table: "public.employees",
+        operation: isNewEmployee && !recordId ? "insert" : "upsert",
+        payload: employeePayload,
+      };
+      await ensureOnlineSession(tableContext.table);
+      logDbPayload(tableContext.table, employeePayload);
+      const mutation = isNewEmployee && !recordId
+        ? supabaseClient.from("employees").insert(employeePayload)
+        : supabaseClient.from("employees").upsert(employeePayload);
+      const { data, error } = await mutation.select("*").single();
+      if (error) {
+        throw new PersistenceError("Funcionário pode ter sido salvo, mas não foi possível confirmar retorno do Supabase. Verifique RLS/policies de employees.", {
+          ...tableContext,
+          hint: "insert/upsert de public.employees falhou ao retornar linha; revise select policies/RLS.",
+        }, error);
+      }
+      if (!data?.id) {
+        throw new PersistenceError("Funcionário pode ter sido salvo, mas não foi possível confirmar retorno do Supabase. Verifique RLS/policies de employees.", {
+          ...tableContext,
+          hint: "insert/upsert de public.employees nao retornou linha com id; revise select policies/RLS.",
+        });
+      }
+      const onlineSaved = mapEmployeeFromDb(data);
+      saved = { ...draft, ...onlineSaved, id: onlineSaved.id };
+      saved = upsert("employees", saved.id, saved);
+      saveState();
+      const photoFile = form.get("photoFile");
+      if (photoFile?.name && typeof photoFile.size === "number" && photoFile.size > 0) {
+        try {
+          const uploadedPhoto = await uploadImageToDocuments(
+            form,
+            "photoFile",
+            "employee-images",
+            saved.id,
+            existingPhotoUrl,
+            "foto do funcionario",
+            { returnMetadata: true, throwOnError: true },
+          );
+          saved.photoUrl = uploadedPhoto?.url || existingPhotoUrl || "";
+          saved.photoPath = uploadedPhoto?.path || existingPhotoPath || "";
+          const photoPayload = mapEmployeeToDb(saved);
+          logDbPayload("public.employees", photoPayload);
+          const photoResult = await supabaseClient.from("employees").upsert(photoPayload).select("*").single();
+          if (photoResult.error) throw photoResult.error;
+          if (!photoResult.data?.id) {
+            throw new PersistenceError("Funcionário salvo, mas não foi possível confirmar retorno do Supabase após atualizar a foto. Verifique RLS/policies de employees.", {
+              table: "public.employees",
+              operation: "upsert foto funcionario",
+              payload: photoPayload,
+              hint: "upsert de foto em public.employees nao retornou linha com id; revise select policies/RLS.",
+            });
+          }
+          const onlinePhotoSaved = mapEmployeeFromDb(photoResult.data);
+          saved = { ...saved, ...onlinePhotoSaved, id: onlinePhotoSaved.id, photoUrl: saved.photoUrl, photoPath: saved.photoPath };
+          saved = upsert("employees", saved.id, saved);
+          saveState();
+        } catch (photoError) {
+          console.error("Funcionário salvo, mas a foto não foi persistida.", {
+            tabela: "public.employees",
+            employeeId: saved.id,
+            error: photoError,
+          });
+          alert(`Funcionário salvo, mas nao foi possivel salvar a foto.\n\n${persistenceMessage(photoError)}`);
+        }
+      }
+    } catch (error) {
+      console.error("Falha ao salvar funcionario em public.employees", {
+        tabela: "public.employees",
+        payload: mapEmployeeToDb(draft),
+        error,
+      });
+      alert(`Nao foi possivel salvar funcionario online. O cadastro nao foi inserido localmente.\n\n${persistenceMessage(error)}`);
+      return false;
+    }
+  } else {
+    const localId = recordId || crypto.randomUUID();
+    draft.id = localId;
+    saved = upsert("employees", localId, draft);
+  }
   const employeeAuditAction = createHistoryEvent({
     entityType: "funcionario",
     entityId: saved.id,
@@ -8454,21 +8485,6 @@ async function saveEmployeeFromForm(form) {
   syncHistoryEvent(employeeAuditAction);
   saveState();
   try {
-    const onlineSaved = await syncCollection("employees", saved);
-    if (onlineSaved?.id && String(onlineSaved.id) !== String(saved.id)) {
-      state.employees = state.employees.map((employee) => (sameId(employee.id, saved.id) ? { ...saved, ...onlineSaved } : employee));
-      state.documents = state.documents.map((doc) => (sameId(doc.employeeId, saved.id) ? { ...doc, employeeId: onlineSaved.id } : doc));
-      saved.id = onlineSaved.id;
-    }
-  } catch (error) {
-    console.error("Falha ao salvar funcionario em public.employees", {
-      tabela: "public.employees",
-      payload: mapEmployeeToDb(saved),
-      error,
-    });
-    alert(`Nao foi possivel salvar funcionario online: ${persistenceMessage(error)}`);
-  }
-  try {
     recordManualStatusHistory("funcionario", saved.id, previousStatus, saved.status, `Funcionário ${saved.name} salvo pelo formulario.`);
     persistAutomaticStatusChanges(applyAutomaticStatusRules({ source: "Funcionário salvo", scope: { employeeId: saved.id, companyId: saved.companyId } }));
   } catch (error) {
@@ -8476,6 +8492,7 @@ async function saveEmployeeFromForm(form) {
   }
   saveState();
   editingEmployeeId = null;
+  creatingEmployee = false;
   searchTerm = "";
   employeeStatusFilter = "Todos";
   if (tableState.employees) {
@@ -9160,6 +9177,7 @@ function normalizeEmployee(employee) {
     uf: normalizeUf(employee.uf || employee.estado || employee.state || meta.uf || ""),
     badgeNumber: employee.badgeNumber || employee.cracha || employee.crachaNumber || meta.badgeNumber || meta.cracha || meta.crachaNumber || "",
     photoUrl: employee.photoUrl || employee.photo || employee.photo_url || meta.photoUrl || meta.photo || meta.photo_url || "",
+    photoPath: employee.photoPath || employee.photo_path || meta.photoPath || meta.photo_path || "",
     patrimonialReleaseDate: employee.patrimonialReleaseDate || employee.releaseDate || meta.patrimonialReleaseDate || meta.releaseDate || "",
     patrimonialNotes: employee.patrimonialNotes || meta.patrimonialNotes || "",
     asoValidity: employee.asoValidity || employee.admission || "",
@@ -9228,6 +9246,7 @@ function serializeEmployeeNotes(employee) {
     uf: normalizeUf(item.uf || ""),
     badgeNumber: item.badgeNumber || "",
     photoUrl: item.photoUrl || item.photo || item.photo_url || "",
+    photoPath: item.photoPath || item.photo_path || existingMeta.photoPath || existingMeta.photo_path || "",
     patrimonialReleaseDate: item.patrimonialReleaseDate || "",
     patrimonialNotes: item.patrimonialNotes || "",
     workflowActions: item.workflowActions || existingMeta.workflowActions || {},
@@ -9499,6 +9518,7 @@ function mapEmployeeFromDb(employee) {
     complement: employee.complement || employee.complemento,
     uf: employee.uf || employee.estado,
     photoUrl: employee.photo_url || employee.photoUrl || employee.photo || meta.photoUrl || meta.photo || meta.photo_url || "",
+    photoPath: employee.photo_path || employee.photoPath || meta.photoPath || meta.photo_path || "",
   });
 }
 
